@@ -2,6 +2,7 @@ import { parsePlan } from "./parser/planParser.js";
 import { renderSummary } from "./ui/summaryRenderer.js";
 import { initHelpOverlay } from "./ui/helpOverlay.js";
 import { initIOControls } from "./ui/ioControls.js";
+import { initQuickSnippets } from "./ui/quickSnippets.js";
 
 /**
  * Zentrale DOM-Referenzen, die zwischen Parser und UI ausgetauscht werden.
@@ -20,6 +21,7 @@ const dom = {
   importInput: document.getElementById("import-input"),
   exportMarkdownButton: document.getElementById("export-markdown"),
   exportWordButton: document.getElementById("export-word"),
+  quickSnippetContainer: document.getElementById("quick-snippet-container"),
 };
 
 /**
@@ -48,4 +50,10 @@ initIOControls({
   importButton: dom.importButton,
   exportMarkdownButton: dom.exportMarkdownButton,
   exportWordButton: dom.exportWordButton,
+});
+
+// Schnellbausteine für häufig genutzte Elemente bereitstellen.
+initQuickSnippets({
+  container: dom.quickSnippetContainer,
+  textarea: dom.planInput,
 });

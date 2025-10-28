@@ -47,16 +47,17 @@ body {
   line-height: 1.6;
 }
 
-/* Zweispaltige Hauptanordnung: Editor links, Auswertung rechts */
+/* Dreispaltige Hauptanordnung: Schnellbausteine, Editor, Auswertung */
 .layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.9fr);
+  grid-template-columns: minmax(240px, 1fr) minmax(0, 1.55fr) minmax(300px, 1.1fr);
+  grid-template-areas: "snippets input summary";
   gap: 2rem;
   align-items: flex-start;
 }
 
-/* Glasartige Karten für Eingabe- und Ausgabebereiche */
-.input-panel, .summary-panel {
+/* Glasartige Karten für alle drei Spaltenbereiche */
+.quick-panel, .input-panel, .summary-panel {
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -65,10 +66,24 @@ body {
   box-shadow: 0 40px 80px -45px rgba(12, 50, 89, 0.45);
 }
 
+.quick-panel {
+  grid-area: snippets;
+  display: grid;
+  gap: 1.2rem;
+}
+
 .input-panel h2,
 .summary-panel h2 {
   margin-top: 0;
   font-size: 1.4rem;
+}
+
+.input-panel {
+  grid-area: input;
+}
+
+.summary-panel {
+  grid-area: summary;
 }
 
 /* Freitextfeld für den Plan mit großzügiger Höhe und angenehmer Typografie */
@@ -95,6 +110,85 @@ textarea:focus {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
+}
+
+.quick-snippet-header {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.quick-snippet-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.quick-snippet-hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.quick-snippet-groups {
+  display: grid;
+  gap: 1.1rem;
+}
+
+.quick-snippet-group {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.quick-snippet-group h4 {
+  margin: 0;
+  font-size: 0.98rem;
+}
+
+.quick-snippet-description {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.quick-snippet-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.quick-snippet-button {
+  border: 1px solid rgba(0, 119, 255, 0.28);
+  background: rgba(0, 119, 255, 0.08);
+  color: var(--text-primary);
+  border-radius: 999px;
+  padding: 0.45rem 1.1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease;
+}
+
+.quick-snippet-button:hover,
+.quick-snippet-button:focus-visible {
+  background: rgba(0, 119, 255, 0.18);
+  box-shadow: 0 0 0 3px rgba(0, 119, 255, 0.18);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.quick-snippet-button:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+@media (max-width: 1280px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "snippets input"
+      "summary summary";
+  }
 }
 
 .secondary-button {
@@ -336,10 +430,18 @@ body.no-scroll {
 
   .layout {
     grid-template-columns: 1fr;
+    grid-template-areas:
+      "snippets"
+      "input"
+      "summary";
   }
 
   textarea {
     min-height: 360px;
+  }
+
+  .quick-panel {
+    padding: 1.5rem;
   }
 
   .help-dialog {

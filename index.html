@@ -12,9 +12,21 @@
     <h1>Swim Planner</h1>
     <p>Erstelle strukturierte Trainingspläne für das Schwimmtraining und erhalte sofort Auswertungen zu Umfang, Dauer, Intensität und Materialbedarf.</p>
   </header>
-  <!-- Zweispaltiges Layout: links Eingabe, rechts Live-Auswertung -->
+  <!-- Dreispaltiges Layout: links Schnellbausteine, in der Mitte Eingabe, rechts Auswertung -->
   <main class="layout">
-    <!-- Linke Spalte mit dem Freitext-Editor für den Trainingsplan -->
+    <!-- Linke Spalte mit den Schnellbausteinen zum schnellen Einfügen -->
+    <aside class="quick-panel" aria-labelledby="quick-snippet-title">
+      <div class="quick-snippet-header">
+        <h2 id="quick-snippet-title">Schnellbausteine</h2>
+        <p class="quick-snippet-hint">
+          Füge häufig genutzte Strukturbausteine für Blöcke, Runden, Material,
+          Intensitäten, Abgangszeiten, Pausen und Beschreibungen per Klick in
+          den Plan ein.
+        </p>
+      </div>
+      <div id="quick-snippet-container" class="quick-snippet-groups"></div>
+    </aside>
+    <!-- Mittlere Spalte mit dem Freitext-Editor für den Trainingsplan -->
     <section class="input-panel">
       <h2>Trainingsplan eingeben</h2>
       <label class="sr-only" for="plan-input">Trainingsplan</label>
