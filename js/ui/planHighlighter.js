@@ -4,6 +4,11 @@ const intensityPattern = getKnownIntensityPattern();
 
 const highlightPatterns = [
   {
+    type: "heading",
+    priority: 6,
+    regex: /^(?:\s*#{1,6}[^\S\n]*)[^\n]+$/gm,
+  },
+  {
     type: "distance",
     priority: 5,
     regex: /\b\d+\s*(?:x|×)\s*\d+(?:[.,]\d+)?\s*(?:m|meter|km|yd|y)?\b/gi,
@@ -88,6 +93,12 @@ function gatherMatches(text) {
 function wrapToken(match) {
   const escaped = escapeHtml(match.text);
   switch (match.type) {
+    case "heading": {
+      const trimmed = escaped.replace(/^(\s*#{1,6}\s*)(.*)$/, (_, hashes, title) => {
+        return `${hashes}<span class="plan-heading-text">${title}</span>`;
+      });
+      return `<strong class="plan-token plan-token-heading">${trimmed}</strong>`;
+    }
     case "distance":
       return `<strong class="plan-token plan-token-distance">${escaped}</strong>`;
     case "round":
@@ -132,7 +143,10 @@ function highlightPlanText(text) {
 
 export function initPlanHighlighter({ textarea, highlightLayer }) {
   if (!textarea || !highlightLayer) {
-    return;
+    return {
+      refresh() {},
+      setText() {},
+    };
   }
 
   let contentEl = null;
@@ -151,11 +165,22 @@ export function initPlanHighlighter({ textarea, highlightLayer }) {
     syncScroll();
   };
 
-  textarea.addEventListener("input", () => {
+  const refresh = () => {
     renderHighlight();
-  });
+  };
 
+  const setText = (value) => {
+    textarea.value = value ?? "";
+    renderHighlight();
+  };
+
+  textarea.addEventListener("input", refresh);
   textarea.addEventListener("scroll", syncScroll);
 
-  renderHighlight();
+  refresh();
+
+  return {
+    refresh,
+    setText,
+  };
 }

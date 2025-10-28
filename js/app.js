@@ -7,6 +7,8 @@ import { initPlanHighlighter } from "./ui/planHighlighter.js";
 import { initTemplateCapture } from "./ui/templateCapture.js";
 import { initPlanSaveDialog } from "./ui/planSaveDialog.js";
 
+const originalTitle = document.title;
+
 /**
  * Zentrale DOM-Referenzen, die zwischen Parser und UI ausgetauscht werden.
  */
@@ -52,7 +54,7 @@ function updateSummary() {
 dom.planInput?.addEventListener("input", updateSummary);
 updateSummary();
 
-initPlanHighlighter({
+const planHighlighter = initPlanHighlighter({
   textarea: dom.planInput,
   highlightLayer: dom.planHighlight,
 });
@@ -77,4 +79,44 @@ initIOControls({
 initQuickSnippets({
   container: dom.quickSnippetContainer,
   textarea: dom.planInput,
+});
+
+async function loadPlanFromQuery() {
+  if (typeof window === "undefined" || typeof fetch !== "function") {
+    return;
+  }
+  const params = new URLSearchParams(window.location.search);
+  const planId = params.get("planId");
+  if (!planId) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/plans/${encodeURIComponent(planId)}`);
+    if (!response.ok) {
+      console.warn(`Plan ${planId} konnte nicht geladen werden (Status ${response.status}).`);
+      return;
+    }
+    const plan = await response.json();
+    if (!plan?.content) {
+      console.warn(`Plan ${planId} enthielt keinen Inhalt.`);
+      return;
+    }
+    planHighlighter.setText(plan.content);
+    updateSummary();
+    if (plan.title) {
+      document.title = `${plan.title} – Swim Planner`;
+    }
+    if (window.history && typeof window.history.replaceState === "function") {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  } catch (error) {
+    console.error(`Plan ${planId} konnte nicht geladen werden`, error);
+    document.title = originalTitle;
+  }
+}
+
+loadPlanFromQuery().catch((error) => {
+  console.error("Unerwarteter Fehler beim Laden eines Plans aus der URL", error);
+  document.title = originalTitle;
 });
