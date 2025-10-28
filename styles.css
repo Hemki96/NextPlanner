@@ -301,6 +301,24 @@ body {
   gap: 1rem;
 }
 
+.calendar-create {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.calendar-create .primary-button[aria-disabled="true"] {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.calendar-create-hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
 .calendar-empty {
   margin: 0;
   color: var(--text-secondary);

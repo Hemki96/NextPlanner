@@ -19,6 +19,8 @@ const monthLabel = document.getElementById("calendar-month-label");
 const planList = document.getElementById("plan-list");
 const selectedDateLabel = document.getElementById("calendar-selected-date");
 const statusElement = document.getElementById("calendar-status");
+const createPlanButton = document.getElementById("calendar-create-plan");
+const createPlanHint = document.getElementById("calendar-create-hint");
 const prevButton = document.getElementById("calendar-prev");
 const nextButton = document.getElementById("calendar-next");
 const todayButton = document.getElementById("calendar-today");
@@ -210,6 +212,7 @@ function renderPlanList(dateKey) {
     empty.className = "calendar-empty";
     empty.textContent = "Für dieses Datum sind noch keine Pläne gespeichert.";
     planList.append(empty);
+    updateCreateButton(dateKey);
     return;
   }
 
@@ -248,12 +251,39 @@ function renderPlanList(dateKey) {
 
     const openButton = document.createElement("a");
     openButton.className = "primary-button plan-entry-link";
-    openButton.href = `index.html?planId=${encodeURIComponent(plan.id)}`;
+    openButton.href = `planner.html?planId=${encodeURIComponent(plan.id)}`;
     openButton.textContent = "Im Planner öffnen";
     actions.append(openButton);
 
     entry.append(actions);
     planList.append(entry);
+  }
+
+  updateCreateButton(dateKey);
+}
+
+function updateCreateButton(dateKey) {
+  if (!createPlanButton) {
+    return;
+  }
+
+  const targetDate = dateKey ? keyToDate(dateKey) : null;
+  const isoDate = dateKey ?? "";
+
+  if (isoDate) {
+    createPlanButton.href = `planner.html?planDate=${encodeURIComponent(isoDate)}`;
+    createPlanButton.removeAttribute("aria-disabled");
+  } else {
+    createPlanButton.href = "planner.html";
+    createPlanButton.setAttribute("aria-disabled", "true");
+  }
+
+  if (createPlanHint) {
+    if (targetDate) {
+      createPlanHint.textContent = `Der Planner öffnet sich mit dem Datum ${dayLabelFormatter.format(targetDate)}.`;
+    } else {
+      createPlanHint.textContent = "Wähle einen Tag, um einen neuen Plan zu hinterlegen.";
+    }
   }
 }
 

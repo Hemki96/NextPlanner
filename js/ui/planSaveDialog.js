@@ -189,6 +189,57 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
   let currentPlan = null;
   let isOpen = false;
   const preferences = readPreferences();
+  let queryDefaults = readQueryDefaults();
+  let queryDefaultsConsumed = false;
+
+  function readQueryDefaults() {
+    if (typeof window === "undefined") {
+      return null;
+    }
+
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const rawDate = params.get("planDate");
+      const rawTime = params.get("planTime");
+      const rawFocus = params.get("planFocus");
+
+      const date = rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : null;
+      const time = rawTime && /^\d{2}:\d{2}$/.test(rawTime) ? rawTime : null;
+      const focus = rawFocus ? rawFocus.trim() : null;
+
+      if (!date && !time && !focus) {
+        return null;
+      }
+
+      return { date, time, focus };
+    } catch (error) {
+      console.warn("Konnte URL-Parameter für den Plan-Dialog nicht auswerten", error);
+      return null;
+    }
+  }
+
+  function consumeQueryDefaults() {
+    if (queryDefaultsConsumed || typeof window === "undefined") {
+      return;
+    }
+
+    queryDefaultsConsumed = true;
+    queryDefaults = null;
+
+    try {
+      if (window.history && typeof window.history.replaceState === "function") {
+        const params = new URLSearchParams(window.location.search);
+        params.delete("planDate");
+        params.delete("planTime");
+        params.delete("planFocus");
+        const search = params.toString();
+        const nextUrl = `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash ?? ""}`;
+        window.history.replaceState({}, document.title, nextUrl);
+      }
+    } catch (error) {
+      console.warn("Konnte URL-Bereinigung nach dem Vorbelegen nicht durchführen", error);
+    }
+  }
 
   function closeOverlay() {
     if (!isOpen) {
@@ -212,17 +263,22 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
       titleInput.value = "";
     }
 
+    const queryDate = !queryDefaultsConsumed ? queryDefaults?.date : null;
+    const queryTime = !queryDefaultsConsumed ? queryDefaults?.time : null;
+    const queryFocus = !queryDefaultsConsumed ? queryDefaults?.focus : null;
+
     const prefDate = preferences.lastDate ?? null;
     const prefTime = preferences.lastTime ?? null;
-    const fallbackDate = prefDate ? formatDateForInput(prefDate) : "";
-    const fallbackTime = prefTime || (prefDate ? formatTimeForInput(prefDate) : "");
+    const fallbackDate = queryDate || (prefDate ? formatDateForInput(prefDate) : "");
+    const fallbackTime =
+      queryTime ?? prefTime ?? (prefDate ? formatTimeForInput(prefDate) : "");
     const today = new Date();
     const defaultDate = fallbackDate || today.toISOString().slice(0, 10);
     const defaultTime = fallbackTime || currentTimeForInput();
     dateInput.value = defaultDate;
     timeInput.value = defaultTime;
 
-    focusInput.value = preferences.lastFocus ?? "";
+    focusInput.value = queryFocus ?? preferences.lastFocus ?? "";
     if (notesInput) {
       notesInput.value = "";
     }
@@ -240,6 +296,8 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
         titleInput.select();
       }
     }, 0);
+
+    consumeQueryDefaults();
   }
 
   function handleKeyDown(event) {
