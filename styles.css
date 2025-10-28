@@ -1,0 +1,349 @@
+/*
+ * Globale Gestaltung für den Swim Planner. Enthält Farbdefinitionen, Layout-Strukturen
+ * sowie Responsive-Optimierungen für kleinere Bildschirme.
+ */
+:root {
+  color-scheme: light dark;
+  --bg: #f6f9fc;
+  --bg-panel: #ffffffcc;
+  --border: rgba(10, 37, 64, 0.08);
+  --accent: #0077ff;
+  --text-primary: #0b1f33;
+  --text-secondary: #405162;
+  --radius: 18px;
+  font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Grundstruktur der Seite inkl. Glasoptik-Hintergrund und Spaltenabstand */
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(circle at top left, #c6e6ff, #f6f9fc 45%, #f0f4f9);
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  padding: 2.5rem min(6vw, 6rem) 3rem;
+}
+
+.page-header {
+  max-width: 900px;
+}
+
+.page-header h1 {
+  font-size: clamp(2.4rem, 4vw, 3.5rem);
+  margin: 0 0 0.5rem;
+}
+
+.page-header p {
+  margin: 0;
+  color: var(--text-secondary);
+  max-width: 640px;
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+/* Zweispaltige Hauptanordnung: Editor links, Auswertung rechts */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.9fr);
+  gap: 2rem;
+  align-items: flex-start;
+}
+
+/* Glasartige Karten für Eingabe- und Ausgabebereiche */
+.input-panel, .summary-panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2rem;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 40px 80px -45px rgba(12, 50, 89, 0.45);
+}
+
+.input-panel h2,
+.summary-panel h2 {
+  margin-top: 0;
+  font-size: 1.4rem;
+}
+
+/* Freitextfeld für den Plan mit großzügiger Höhe und angenehmer Typografie */
+textarea {
+  width: 100%;
+  min-height: 460px;
+  border-radius: calc(var(--radius) - 6px);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.8);
+  padding: 1.5rem;
+  font-size: 1rem;
+  resize: vertical;
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+textarea:focus {
+  outline: 2px solid var(--accent);
+  background: #fff;
+}
+
+.input-actions {
+  margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.secondary-button {
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 0.55rem 1.3rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.secondary-button:hover,
+.secondary-button:focus {
+  background: rgba(0, 119, 255, 0.12);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 3px rgba(0, 119, 255, 0.15);
+  outline: none;
+}
+
+.hint {
+  margin-top: 1rem;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+/* Rasterlayout für die Kennzahlenkacheln */
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1.5rem;
+}
+
+.summary-grid h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1.1rem;
+}
+
+.summary-grid p {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+/* Chip-ähnliche Darstellung für Intensitäts- und Materiallisten */
+.tag-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.tag-list li {
+  background: rgba(0, 119, 255, 0.12);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.block-summary {
+  margin-top: 2rem;
+}
+
+.block-summary h3 {
+  margin: 0 0 1rem;
+}
+
+#block-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+/* Einzelne Blockkarten mit subtilen Rändern und Schatten */
+.block-card {
+  padding: 1rem 1.25rem;
+  border-radius: calc(var(--radius) - 8px);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+}
+
+.block-card h4 {
+  margin: 0 0 0.5rem;
+}
+
+.block-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.page-footer {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin-top: auto;
+}
+
+body.no-scroll {
+  overflow: hidden;
+}
+
+.help-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(12, 32, 56, 0.55);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: clamp(2rem, 5vw, 4rem) 1.5rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+  z-index: 20;
+}
+
+.help-overlay.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.help-dialog {
+  max-width: min(680px, 100%);
+  background: #fff;
+  color: var(--text-primary);
+  border-radius: calc(var(--radius) - 6px);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  box-shadow: 0 40px 90px -35px rgba(6, 28, 57, 0.6);
+  overflow: hidden;
+  animation: slide-up 0.3s ease;
+}
+
+.help-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.25rem 1.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.help-header h2 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.icon-button {
+  border: none;
+  background: transparent;
+  font-size: 1.75rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.5rem;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.icon-button:hover,
+.icon-button:focus {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.help-content {
+  padding: 1.75rem;
+  display: grid;
+  gap: 1.75rem;
+}
+
+.help-content h3 {
+  margin-top: 0;
+  margin-bottom: 0.6rem;
+}
+
+.help-content p,
+.help-content li {
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.help-content ul {
+  padding-left: 1.1rem;
+  margin: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.help-content .tag-list {
+  padding-left: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.help-content .tag-list li {
+  background: rgba(0, 119, 255, 0.15);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(18px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Mobile Optimierung: Spaltenstacking und geringere Abstände */
+@media (max-width: 960px) {
+  body {
+    padding: 1.75rem;
+  }
+
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  textarea {
+    min-height: 360px;
+  }
+
+  .help-dialog {
+    max-height: calc(100vh - 4rem);
+    overflow-y: auto;
+  }
+}
