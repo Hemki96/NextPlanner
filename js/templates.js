@@ -1,79 +1,16 @@
-const STORAGE_KEY = "swimPlanner.templates.v1";
-
-const TEMPLATE_TYPES = [
-  { value: "Set", label: "Set" },
-  { value: "Runde", label: "Runde" },
-  { value: "Block", label: "Block" },
-];
-
-function hasLocalStorage() {
-  try {
-    return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
-  } catch (error) {
-    return false;
-  }
-}
-
-function readTemplates() {
-  if (!hasLocalStorage()) {
-    return [];
-  }
-
-  const stored = window.localStorage.getItem(STORAGE_KEY);
-  if (!stored) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(stored);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed
-      .map((item) => {
-        if (!item || typeof item !== "object") {
-          return null;
-        }
-        const id = typeof item.id === "string" ? item.id : generateId();
-        const type = TEMPLATE_TYPES.some((type) => type.value === item.type) ? item.type : "Set";
-        const title = typeof item.title === "string" ? item.title : "Unbenannte Vorlage";
-        const notes = typeof item.notes === "string" ? item.notes : "";
-        const content = typeof item.content === "string" ? item.content : "";
-        return { id, type, title, notes, content };
-      })
-      .filter((item) => item && item.content.trim().length > 0);
-  } catch (error) {
-    return [];
-  }
-}
-
-function persistTemplates(templates) {
-  if (!hasLocalStorage()) {
-    return;
-  }
-  const sanitized = Array.isArray(templates)
-    ? templates.map((item) => ({
-        id: item.id,
-        type: TEMPLATE_TYPES.some((type) => type.value === item.type) ? item.type : "Set",
-        title: typeof item.title === "string" ? item.title : "Unbenannte Vorlage",
-        notes: typeof item.notes === "string" ? item.notes : "",
-        content: typeof item.content === "string" ? item.content : "",
-      }))
-    : [];
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
-}
-
-function generateId() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
-}
+import {
+  TEMPLATE_TYPES,
+  loadTemplates,
+  persistTemplates,
+  createTemplateRecord,
+  parseTagsInput,
+} from "./utils/templateStorage.js";
 
 const form = document.getElementById("template-form");
 const typeSelect = document.getElementById("template-type");
 const titleInput = document.getElementById("template-title");
 const notesInput = document.getElementById("template-notes");
+const tagsInput = document.getElementById("template-tags");
 const contentTextarea = document.getElementById("template-content");
 const submitButton = document.getElementById("template-submit");
 const cancelButton = document.getElementById("template-cancel");
@@ -81,7 +18,7 @@ const statusElement = document.getElementById("template-status");
 const listContainer = document.getElementById("template-list");
 const exportButton = document.getElementById("export-templates");
 
-let templates = readTemplates();
+let templates = loadTemplates();
 let editId = null;
 
 function resetForm() {
@@ -89,6 +26,9 @@ function resetForm() {
   editId = null;
   submitButton.textContent = "Vorlage speichern";
   cancelButton.hidden = true;
+  if (tagsInput) {
+    tagsInput.value = "";
+  }
 }
 
 function showStatus(message, type = "info") {
@@ -190,6 +130,17 @@ function renderTemplates() {
 
         card.appendChild(cardHeader);
 
+        if (template.tags && template.tags.length > 0) {
+          const tagList = document.createElement("ul");
+          tagList.className = "tag-list template-tag-list";
+          template.tags.forEach((tag) => {
+            const tagItem = document.createElement("li");
+            tagItem.textContent = tag;
+            tagList.appendChild(tagItem);
+          });
+          card.appendChild(tagList);
+        }
+
         const pre = document.createElement("pre");
         pre.className = "template-content";
         pre.textContent = template.content;
@@ -256,6 +207,9 @@ function handleEdit(id) {
   typeSelect.value = template.type;
   titleInput.value = template.title;
   notesInput.value = template.notes ?? "";
+  if (tagsInput) {
+    tagsInput.value = (template.tags ?? []).join(", ");
+  }
   contentTextarea.value = template.content;
   submitButton.textContent = "Vorlage aktualisieren";
   cancelButton.hidden = false;
@@ -274,7 +228,7 @@ function handleDelete(id) {
     return;
   }
   templates.splice(index, 1);
-  persistTemplates(templates);
+  templates = persistTemplates(templates);
   renderTemplates();
   showStatus("Vorlage gelöscht.", "success");
   if (editId === id) {
@@ -288,6 +242,7 @@ form?.addEventListener("submit", (event) => {
   const type = typeSelect.value;
   const title = titleInput.value.trim();
   const notes = notesInput.value.trim();
+  const tags = parseTagsInput(tagsInput?.value ?? "");
   const content = contentTextarea.value.trim();
 
   if (!content) {
@@ -299,23 +254,27 @@ form?.addEventListener("submit", (event) => {
   if (editId) {
     templates = templates.map((entry) =>
       entry.id === editId
-        ? { ...entry, type, title: title || entry.title, notes, content }
+        ? { ...entry, type, title: title || entry.title, notes, content, tags }
         : entry
     );
     showStatus("Vorlage aktualisiert.", "success");
   } else {
-    const newTemplate = {
-      id: generateId(),
+    const newTemplate = createTemplateRecord({
       type,
       title: title || "Unbenannte Vorlage",
       notes,
       content,
-    };
+      tags,
+    });
+    if (!newTemplate) {
+      showStatus("Vorlage konnte nicht gespeichert werden.", "warning");
+      return;
+    }
     templates.push(newTemplate);
     showStatus("Vorlage gespeichert.", "success");
   }
 
-  persistTemplates(templates);
+  templates = persistTemplates(templates);
   renderTemplates();
   resetForm();
 });

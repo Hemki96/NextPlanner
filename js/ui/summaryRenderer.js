@@ -26,6 +26,15 @@ function formatRoundLabel(set) {
   return `${set.rounds}×`;
 }
 
+function createTemplateButton(label, type, extraClass = "") {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `ghost-button save-template-button${extraClass ? ` ${extraClass}` : ""}`;
+  button.textContent = label;
+  button.dataset.templateType = type;
+  return button;
+}
+
 /**
  * Aktualisiert sämtliche sichtbaren Auswertungen basierend auf den Planaggregationen.
  */
@@ -82,13 +91,28 @@ export function renderSummary(plan, dom) {
     return;
   }
 
-  for (const block of plan.blocks) {
+  plan.blocks.forEach((block, blockIndex) => {
     const li = document.createElement("li");
     li.className = "block-card";
+    li.dataset.blockIndex = String(blockIndex);
+
+    const blockName = (block.name ?? "").trim() || `Block ${blockIndex + 1}`;
+    const header = document.createElement("div");
+    header.className = "block-header";
 
     const title = document.createElement("h4");
-    title.textContent = block.name;
-    li.appendChild(title);
+    title.textContent = blockName;
+    header.appendChild(title);
+
+    const blockActions = document.createElement("div");
+    blockActions.className = "block-actions";
+    const blockButton = createTemplateButton("Block als Vorlage", "Block", "compact");
+    blockButton.dataset.blockIndex = String(blockIndex);
+    blockButton.setAttribute("aria-label", `Block „${blockName}“ als Vorlage speichern`);
+    blockActions.appendChild(blockButton);
+    header.appendChild(blockActions);
+
+    li.appendChild(header);
 
     const meta = document.createElement("div");
     meta.className = "block-meta";
@@ -138,7 +162,7 @@ export function renderSummary(plan, dom) {
       const setList = document.createElement("ul");
       setList.className = "set-list";
 
-      for (const set of block.sets) {
+      block.sets.forEach((set, setIndex) => {
         const setItem = document.createElement("li");
         setItem.className = "set-item";
 
@@ -220,12 +244,69 @@ export function renderSummary(plan, dom) {
           setItem.appendChild(details);
         }
 
+        const setActions = document.createElement("div");
+        setActions.className = "set-actions";
+        const setButton = createTemplateButton("Set als Vorlage", "Set", "compact");
+        setButton.dataset.blockIndex = String(blockIndex);
+        setButton.dataset.setIndex = String(setIndex);
+        const setLabel = (set.source ?? formatSetDistance(set) ?? "").trim() || `Set ${setIndex + 1}`;
+        setButton.setAttribute(
+          "aria-label",
+          `Set „${setLabel}“ aus Block „${blockName}“ als Vorlage speichern`,
+        );
+        setActions.appendChild(setButton);
+        setItem.appendChild(setActions);
+
         setList.appendChild(setItem);
-      }
+      });
 
       li.appendChild(setList);
     }
 
+    const validRounds = (block.rounds ?? []).filter(
+      (round) => round && (typeof round.source === "string" ? round.source.trim().length > 0 : true),
+    );
+
+    if (validRounds.length > 0) {
+      const roundsContainer = document.createElement("div");
+      roundsContainer.className = "round-list";
+
+      const roundsHeading = document.createElement("h5");
+      roundsHeading.textContent = "Runden";
+      roundsContainer.appendChild(roundsHeading);
+
+      const roundList = document.createElement("ul");
+      roundList.className = "round-items";
+
+      validRounds.forEach((round, roundIndex) => {
+        const roundItem = document.createElement("li");
+        roundItem.className = "round-item";
+
+        const label = document.createElement("span");
+        label.className = "round-label";
+        const labelText = (round.label ?? "").trim() || `${round.count ?? ""} Runden`;
+        label.textContent = labelText;
+        roundItem.appendChild(label);
+
+        const roundButton = createTemplateButton("Runde als Vorlage", "Runde", "compact");
+        roundButton.dataset.blockIndex = String(blockIndex);
+        if (round.id) {
+          roundButton.dataset.roundId = round.id;
+        }
+        roundButton.dataset.roundIndex = String(roundIndex);
+        roundButton.setAttribute(
+          "aria-label",
+          `${labelText} aus Block „${blockName}“ als Vorlage speichern`,
+        );
+        roundItem.appendChild(roundButton);
+
+        roundList.appendChild(roundItem);
+      });
+
+      roundsContainer.appendChild(roundList);
+      li.appendChild(roundsContainer);
+    }
+
     blockListEl.appendChild(li);
-  }
+  });
 }
