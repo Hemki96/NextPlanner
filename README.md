@@ -17,12 +17,29 @@ direkt beim Tippen berechnet.
 - **Responsive Layout** – zweigeteilte Ansicht für große Bildschirme, einspaltige Darstellung
   auf Tablets und Smartphones.
 
+## Anwendung starten
+
+Damit du den Prototyp lokal ausprobieren kannst, reicht bereits ein einfacher statischer Server.
+Folge einer der beiden Varianten:
+
+### Variante A – Direkt im Browser öffnen
+
+1. Navigiere im Dateisystem zu diesem Projektordner.
+2. Öffne die Datei `index.html` per Doppelklick oder per Drag & Drop in einen modernen Browser (Chrome, Edge, Firefox, Safari).
+3. Stelle sicher, dass der Browser das lokale Laden von ES-Modulen erlaubt (bei älteren Browsern ggf. über `about:flags` oder Verwenden von Variante B).
+
+### Variante B – Mit Node.js Static Server
+
+1. Stelle sicher, dass [Node.js](https://nodejs.org) installiert ist.
+2. Installiere optional ein leichtgewichtiges Servetool global, z. B. `npm install -g serve`, oder nutze npx.
+3. Starte im Projektverzeichnis einen Server, z. B. mit `npx serve .` oder `python3 -m http.server 8000`.
+4. Öffne anschließend `http://localhost:3000` (bei `serve`) oder `http://localhost:8000` (bei Python) im Browser.
+
 ## Nutzung
 
-1. Öffne die Datei `index.html` in einem Browser.
-2. Gib im linken Textfeld den Trainingsplan ein oder nutze das Beispiel-Platzhalterprogramm.
-3. Öffne bei Bedarf über den Button „Hinweise & Syntax“ die kompakte Dokumentation.
-4. Beobachte auf der rechten Seite die automatisch aktualisierten Kennzahlen und Blockübersichten.
+1. Gib im linken Textfeld den Trainingsplan ein oder nutze das Beispiel-Platzhalterprogramm.
+2. Öffne bei Bedarf über den Button „Hinweise & Syntax“ die kompakte Dokumentation.
+3. Beobachte auf der rechten Seite die automatisch aktualisierten Kennzahlen und Blockübersichten.
 
 ## Syntaxüberblick
 
