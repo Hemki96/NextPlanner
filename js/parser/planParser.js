@@ -1,15 +1,28 @@
 import { intensityLevels, focusTags } from "../config/constants.js";
 import { parseDuration } from "../utils/time.js";
 
+function createId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
 /**
  * Hilfsfunktion zum Erzeugen eines Blockobjektes mit Standardwerten.
  */
-function createBlock(name) {
+function createBlock(name, headingLine = null) {
+  const sourceLines = [];
+  if (headingLine) {
+    sourceLines.push(headingLine);
+  }
   return {
     name,
     sets: [],
     distance: 0,
     time: 0,
+    rounds: [],
+    sourceLines,
   };
 }
 
@@ -96,7 +109,7 @@ export function parsePlan(text) {
     result.totalTime += totalPause;
   };
 
-  const accumulateSet = (set, multiplier = 1, roundLabel = null) => {
+  const accumulateSet = (set, multiplier = 1, roundLabel = null, roundId = null) => {
     if (!set || !multiplier || multiplier <= 0) {
       return;
     }
@@ -112,6 +125,7 @@ export function parsePlan(text) {
       pause: repeatedPause,
       rounds: multiplier,
       roundLabel,
+      roundId,
     });
 
     currentBlock.distance += repeatedDistance;
@@ -149,12 +163,27 @@ export function parsePlan(text) {
       return;
     }
 
-    const { count, label, sets, pauses } = roundContext;
+    const { count, label, sets, pauses, sourceLines, id } = roundContext;
+    if (sets.length === 0 && pauses.length === 0) {
+      roundContext = null;
+      return;
+    }
+
     for (const set of sets) {
-      accumulateSet(set, count, label);
+      accumulateSet(set, count, label, id);
     }
     for (const pause of pauses) {
       accumulatePause(pause, count);
+    }
+
+    if (currentBlock) {
+      const source = sourceLines.length > 0 ? sourceLines.join("\n").trim() : "";
+      currentBlock.rounds.push({
+        id,
+        label,
+        count,
+        source,
+      });
     }
 
     roundContext = null;
@@ -169,7 +198,14 @@ export function parsePlan(text) {
 
   for (const line of lines) {
     const raw = line.trim();
+
     if (!raw) {
+      if (roundContext) {
+        roundContext.sourceLines.push("");
+      }
+      if (currentBlock?.sourceLines) {
+        currentBlock.sourceLines.push("");
+      }
       finalizeRound();
       continue;
     }
@@ -178,7 +214,7 @@ export function parsePlan(text) {
     if (headingMatch) {
       finalizeRound();
       pushBlock();
-      currentBlock = createBlock(headingMatch[1].trim());
+      currentBlock = createBlock(headingMatch[1].trim(), raw);
       continue;
     }
 
@@ -189,15 +225,38 @@ export function parsePlan(text) {
       finalizeRound();
       const countRaw = roundMatch[1] ?? roundMatch[2];
       const count = Number.parseInt(countRaw ?? "", 10);
+      if (currentBlock?.sourceLines) {
+        currentBlock.sourceLines.push(raw);
+      }
       if (Number.isFinite(count) && count > 0) {
-        roundContext = { count, label: raw, sets: [], pauses: [] };
+        roundContext = {
+          id: createId(),
+          count,
+          label: raw,
+          sets: [],
+          pauses: [],
+          sourceLines: [raw],
+        };
       }
       continue;
     }
 
     if (/^ende\s+(?:runde|runden|rounds?)$/i.test(raw)) {
+      if (currentBlock?.sourceLines) {
+        currentBlock.sourceLines.push(raw);
+      }
+      if (roundContext) {
+        roundContext.sourceLines.push(raw);
+      }
       finalizeRound();
       continue;
+    }
+
+    if (currentBlock?.sourceLines) {
+      currentBlock.sourceLines.push(raw);
+    }
+    if (roundContext) {
+      roundContext.sourceLines.push(raw);
     }
 
     const pauseMatch = raw.match(/^P\s*:\s*([0-9:]+)/i);
@@ -218,12 +277,14 @@ export function parsePlan(text) {
       continue;
     }
 
+    const setWithSource = { ...set, source: raw };
+
     if (roundContext) {
-      roundContext.sets.push(set);
+      roundContext.sets.push(setWithSource);
       continue;
     }
 
-    accumulateSet(set);
+    accumulateSet(setWithSource);
   }
 
   finalizeRound();

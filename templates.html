@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Swim Planner – Vorlagen</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="page-header">
+    <h1>Vorlagenbibliothek</h1>
+    <p>Speichere deine Lieblingssets, Runden und Blöcke als Vorlage, um sie später mit einem Klick in Trainingspläne zu übernehmen.</p>
+    <nav class="page-nav" aria-label="Hauptnavigation">
+      <a href="index.html" class="nav-link">Planner</a>
+      <a href="templates.html" class="nav-link is-active" aria-current="page">Vorlagen</a>
+      <a href="settings.html" class="nav-link">Schnellbausteine</a>
+    </nav>
+  </header>
+  <main class="page-content">
+    <section class="page-card">
+      <h2>Neue Vorlage anlegen</h2>
+      <form id="template-form" class="template-form">
+        <div class="form-grid">
+          <label class="form-field">
+            <span>Typ</span>
+            <select id="template-type" required>
+              <option value="Set">Set</option>
+              <option value="Runde">Runde</option>
+              <option value="Block">Block</option>
+            </select>
+          </label>
+          <label class="form-field">
+            <span>Titel</span>
+            <input id="template-title" type="text" required placeholder="z.B. Sprint-Set" />
+          </label>
+        </div>
+        <label class="form-field">
+          <span>Kurzbeschreibung (optional)</span>
+          <input id="template-notes" type="text" placeholder="z.B. Fokus auf Maximaltempo" />
+        </label>
+        <label class="form-field">
+          <span>Tags (optional)</span>
+          <input id="template-tags" type="text" placeholder="z.B. Sprint, Technik" />
+          <span class="field-hint">Mehrere Tags mit Komma trennen.</span>
+        </label>
+        <label class="form-field">
+          <span>Inhalt der Vorlage</span>
+          <textarea id="template-content" rows="6" required placeholder="6x50m GSA @0:55 ORANGE8\nP:00:20"></textarea>
+        </label>
+        <div class="form-actions">
+          <button type="submit" class="primary-button" id="template-submit">Vorlage speichern</button>
+          <button type="button" class="ghost-button" id="template-cancel" hidden>Abbrechen</button>
+        </div>
+      </form>
+      <p class="form-hint">Gespeicherte Vorlagen lassen sich später direkt kopieren oder bearbeiten.</p>
+      <p id="template-status" class="form-status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="page-card">
+      <header class="section-header">
+        <h2>Gespeicherte Vorlagen</h2>
+        <button type="button" class="ghost-button" id="export-templates">Vorlagen exportieren</button>
+      </header>
+      <div id="template-list" class="template-list" aria-live="polite"></div>
+    </section>
+  </main>
+  <script type="module" src="js/templates.js"></script>
+</body>
+</html>

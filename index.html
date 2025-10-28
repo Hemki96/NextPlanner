@@ -11,6 +11,11 @@
   <header class="page-header">
     <h1>Swim Planner</h1>
     <p>Erstelle strukturierte Trainingspläne für das Schwimmtraining und erhalte sofort Auswertungen zu Umfang, Dauer, Intensität und Materialbedarf.</p>
+    <nav class="page-nav" aria-label="Hauptnavigation">
+      <a href="index.html" class="nav-link is-active" aria-current="page">Planner</a>
+      <a href="templates.html" class="nav-link">Vorlagen</a>
+      <a href="settings.html" class="nav-link">Schnellbausteine</a>
+    </nav>
   </header>
   <!-- Dreispaltiges Layout: links Schnellbausteine, in der Mitte Eingabe, rechts Auswertung -->
   <main class="layout">
@@ -100,6 +105,35 @@
   <footer class="page-footer">
     <p><strong>Intensitätslegende:</strong> CLEAR, White2, White3, PINK4, PINK5, RED6, RED7, ORANGE8, ORANGE9, ORANGE10, PURPLE9, PURPLE10, BLUE8, BLUE9, BLUE10, GREEN, GOLD. Zusätzliche Kürzel: <abbr title="Arme">Ar</abbr>, <abbr title="Beine">Be</abbr>, <abbr title="Gesamte Lage">GSA</abbr>.</p>
   </footer>
+  <div id="template-capture" class="template-overlay" aria-hidden="true" hidden>
+    <div class="template-dialog" role="dialog" aria-modal="true" aria-labelledby="capture-heading">
+      <header class="template-dialog-header">
+        <h2 id="capture-heading">Vorlage speichern</h2>
+        <button type="button" class="icon-button" id="capture-close" aria-label="Dialog schließen">×</button>
+      </header>
+      <form id="template-capture-form" class="template-dialog-form">
+        <p class="template-dialog-type">Typ: <strong id="capture-type-label"></strong></p>
+        <label class="form-field">
+          <span>Titel</span>
+          <input id="capture-title" type="text" required />
+        </label>
+        <label class="form-field">
+          <span>Tags (optional)</span>
+          <input id="capture-tags" type="text" placeholder="z.B. Ausdauer, Technik" />
+          <span class="field-hint">Mehrere Tags mit Komma trennen.</span>
+        </label>
+        <label class="form-field">
+          <span>Inhalt</span>
+          <textarea id="capture-content" rows="6" required></textarea>
+        </label>
+        <p id="capture-status" class="form-status" role="status" aria-live="polite"></p>
+        <div class="form-actions">
+          <button type="button" class="ghost-button" id="capture-cancel">Abbrechen</button>
+          <button type="submit" class="primary-button">Vorlage speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
   <!-- Overlay mit einer ausführlichen Dokumentation der Schlüsselbegriffe und Kürzel -->
   <div class="help-overlay" id="help-overlay" aria-hidden="true">
     <div class="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title">

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Swim Planner – Schnellbausteine konfigurieren</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="page-header">
+    <h1>Schnellbausteine konfigurieren</h1>
+    <p>Passe die Kategorien und Einträge der Schnellbausteine an deine Trainingssprache an. Die Einstellungen werden lokal im Browser gespeichert.</p>
+    <nav class="page-nav" aria-label="Hauptnavigation">
+      <a href="index.html" class="nav-link">Planner</a>
+      <a href="templates.html" class="nav-link">Vorlagen</a>
+      <a href="settings.html" class="nav-link is-active" aria-current="page">Schnellbausteine</a>
+    </nav>
+  </header>
+  <main class="page-content">
+    <section class="page-card">
+      <header class="section-header">
+        <h2>Kategorien &amp; Einträge</h2>
+        <div class="section-actions">
+          <button type="button" class="ghost-button" id="add-group">Kategorie hinzufügen</button>
+          <button type="button" class="ghost-button" id="reset-groups">Auf Standard zurücksetzen</button>
+        </div>
+      </header>
+      <p class="form-hint">Jede Kategorie enthält mehrere Schnellbausteine. Für jeden Eintrag kannst du steuern, ob beim Einfügen automatisch Zeilenumbrüche ergänzt werden sollen.</p>
+      <div id="snippet-groups" class="snippet-settings" aria-live="polite"></div>
+      <div class="form-actions">
+        <button type="button" class="primary-button" id="save-groups">Änderungen speichern</button>
+      </div>
+      <p id="settings-status" class="form-status" role="status" aria-live="polite"></p>
+    </section>
+  </main>
+  <script type="module" src="js/settings.js"></script>
+</body>
+</html>

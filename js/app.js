@@ -4,6 +4,7 @@ import { initHelpOverlay } from "./ui/helpOverlay.js";
 import { initIOControls } from "./ui/ioControls.js";
 import { initQuickSnippets } from "./ui/quickSnippets.js";
 import { initPlanHighlighter } from "./ui/planHighlighter.js";
+import { initTemplateCapture } from "./ui/templateCapture.js";
 
 /**
  * Zentrale DOM-Referenzen, die zwischen Parser und UI ausgetauscht werden.
@@ -26,12 +27,17 @@ const dom = {
   quickSnippetContainer: document.getElementById("quick-snippet-container"),
 };
 
+const templateCapture = initTemplateCapture({
+  blockList: dom.blockListEl,
+});
+
 /**
  * Liest den aktuellen Text aus dem Eingabefeld, parst ihn und aktualisiert die Anzeige.
  */
 function updateSummary() {
   const plan = parsePlan(dom.planInput?.value ?? "");
   renderSummary(plan, dom);
+  templateCapture.update(plan);
 }
 
 // Automatische Aktualisierung bei jeder Nutzereingabe sowie Initialisierung beim Laden der Seite.
