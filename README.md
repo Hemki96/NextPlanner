@@ -74,6 +74,17 @@ aufgeteilt:
 Styles liegen weiterhin in `styles.css`. Öffne `index.html` direkt im Browser, um Änderungen
 sofort zu testen.
 
+## Tests
+
+Automatisierte Tests stellen sicher, dass Parser und Zeit-Helfer bei Erweiterungen stabil
+bleiben. Die Suite nutzt den in Node.js integrierten Test-Runner und benötigt deshalb keine
+zusätzlichen Abhängigkeiten.
+
+1. Stelle sicher, dass Node.js (>= 18) installiert ist.
+2. Führe im Projektverzeichnis `npm test` oder direkt `node --test` aus.
+3. Passe bzw. erweitere die Testfälle bei Änderungen an Parserlogik oder Zeit-Helfern,
+   sodass alle relevanten Szenarien weiterhin abgedeckt bleiben.
+
 ## Lizenz
 
 Dieses Beispielprojekt dient ausschließlich Demonstrationszwecken und kann frei angepasst
