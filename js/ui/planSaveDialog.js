@@ -98,6 +98,73 @@ function formatDateForInput(date) {
   return parsed.toISOString().slice(0, 10);
 }
 
+function canUseApi() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  const protocol = window.location?.protocol;
+  return protocol !== "file:";
+}
+
+async function persistPlanViaApi(plan) {
+  if (!canUseApi() || typeof fetch !== "function") {
+    return { ok: false, reason: "Server nicht gestartet" };
+  }
+
+  try {
+    const response = await fetch("/api/plans", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(plan),
+    });
+
+    if (!response.ok) {
+      let reason = `Serverfehler (${response.status})`;
+      try {
+        const payload = await response.json();
+        if (payload?.error) {
+          reason = payload.error;
+        }
+      } catch (error) {
+        try {
+          const text = await response.text();
+          if (text) {
+            reason = text;
+          }
+        } catch {
+          // Ignorieren, wir verwenden die Standardfehlermeldung.
+        }
+      }
+      return { ok: false, reason };
+    }
+
+    const saved = await response.json();
+    return { ok: true, plan: saved };
+  } catch (error) {
+    return { ok: false, reason: error.message || "Netzwerkfehler" };
+  }
+}
+
+function downloadPlanRecord(plan) {
+  const nowIso = new Date().toISOString();
+  const record = {
+    ...plan,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+
+  const baseDate = plan.planDate?.slice(0, 10) || nowIso.slice(0, 10);
+  const slug = slugify(plan.title) || "plan";
+  const filename = `${baseDate}-${slug}.json`;
+  const blob = new Blob([JSON.stringify(record, null, 2)], {
+    type: "application/json;charset=utf-8",
+  });
+
+  triggerDownload(filename, blob);
+}
+
 export function initPlanSaveDialog({ planInput, saveButton }) {
   if (!planInput || !saveButton) {
     return {
@@ -190,7 +257,7 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
     writePreferences(data);
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
 
     const planText = (planInput.value ?? "").trim();
@@ -222,7 +289,6 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
       return;
     }
 
-    const nowIso = new Date().toISOString();
     const metadata = {};
     const notes = notesInput?.value.trim();
     if (notes) {
@@ -257,24 +323,31 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
       planDate: isoDate,
       focus,
       metadata,
-      createdAt: nowIso,
-      updatedAt: nowIso,
     };
 
-    const baseDate = isoDate.slice(0, 10);
-    const slug = slugify(title) || "plan";
-    const filename = `${baseDate}-${slug}.json`;
-    const blob = new Blob([JSON.stringify(planRecord, null, 2)], {
-      type: "application/json;charset=utf-8",
-    });
-
-    triggerDownload(filename, blob);
+    setStatus(statusElement, "Plan wird gespeichert …", "info");
+    const result = await persistPlanViaApi(planRecord);
     persistPreferences({ focus, date: isoDate });
-    setStatus(statusElement, "Plan gespeichert – der Download wurde gestartet.", "success");
+
+    if (result.ok) {
+      setStatus(statusElement, "Plan erfolgreich in der lokalen Datenbank gespeichert.", "success");
+      window.setTimeout(() => {
+        closeOverlay();
+      }, 500);
+      return;
+    }
+
+    downloadPlanRecord(planRecord);
+    const reason = result.reason ? ` (${result.reason})` : "";
+    setStatus(
+      statusElement,
+      `Keine Verbindung zur lokalen Datenbank${reason}. Plan als Datei heruntergeladen.`,
+      "warning",
+    );
 
     window.setTimeout(() => {
       closeOverlay();
-    }, 400);
+    }, 1000);
   }
 
   saveButton.addEventListener("click", () => {
@@ -292,7 +365,12 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
     }
   });
 
-  form.addEventListener("submit", handleSubmit);
+  form.addEventListener("submit", (event) => {
+    handleSubmit(event).catch((error) => {
+      console.error("Plan konnte nicht gespeichert werden", error);
+      setStatus(statusElement, "Unerwarteter Fehler beim Speichern.", "error");
+    });
+  });
   window.addEventListener("keydown", handleKeyDown);
 
   return {

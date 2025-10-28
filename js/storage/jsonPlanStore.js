@@ -51,6 +51,16 @@ function normalizeContent(content) {
   return String(content);
 }
 
+function normalizeMetadata(metadata) {
+  if (metadata === undefined || metadata === null) {
+    return {};
+  }
+  if (typeof metadata !== "object") {
+    throw new TypeError("metadata must be an object");
+  }
+  return { ...metadata };
+}
+
 function clonePlan(plan) {
   return {
     id: plan.id,
@@ -58,7 +68,7 @@ function clonePlan(plan) {
     content: plan.content,
     planDate: plan.planDate,
     focus: plan.focus,
-    metadata: { ...(plan.metadata ?? {}) },
+    metadata: normalizeMetadata(plan.metadata),
     createdAt: plan.createdAt,
     updatedAt: plan.updatedAt,
   };
@@ -105,7 +115,7 @@ export class JsonPlanStore {
     return this.#data.plans.findIndex((plan) => plan.id === Number(id));
   }
 
-  createPlan({ title, content, planDate, focus, metadata = {} }) {
+  createPlan({ title, content, planDate, focus, metadata }) {
     const now = new Date().toISOString();
     const plan = {
       id: this.#data.nextId++,
@@ -113,7 +123,7 @@ export class JsonPlanStore {
       content: normalizeContent(content),
       planDate: toIsoDate(planDate),
       focus: normalizeFocus(focus),
-      metadata: { ...metadata },
+      metadata: normalizeMetadata(metadata),
       createdAt: now,
       updatedAt: now,
     };
@@ -141,7 +151,7 @@ export class JsonPlanStore {
       plan.focus = normalizeFocus(updates.focus);
     }
     if (updates.metadata !== undefined) {
-      plan.metadata = { ...updates.metadata };
+      plan.metadata = normalizeMetadata(updates.metadata);
     }
     plan.updatedAt = new Date().toISOString();
     this.#writeToDisk();

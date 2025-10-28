@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "plan:cli": "node js/storage/planCli.js"
+    "plan:cli": "node js/storage/planCli.js",
+    "start": "node server.js"
   }
 }

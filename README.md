@@ -20,27 +20,31 @@ direkt beim Tippen berechnet.
 
 ## Anwendung starten
 
-Damit du den Prototyp lokal ausprobieren kannst, reicht bereits ein einfacher statischer Server.
-Folge einer der beiden Varianten:
+Du kannst NextPlanner entweder direkt als statische Seite testen oder den integrierten Node.js-Server nutzen, der zusätzlich die lokale Datenbank für den Speicher-Button bereitstellt.
 
-### Variante A – Direkt im Browser öffnen
-
-1. Navigiere im Dateisystem zu diesem Projektordner.
-2. Öffne die Datei `index.html` per Doppelklick oder per Drag & Drop in einen modernen Browser (Chrome, Edge, Firefox, Safari).
-3. Stelle sicher, dass der Browser das lokale Laden von ES-Modulen erlaubt (bei älteren Browsern ggf. über `about:flags` oder Verwenden von Variante B).
-
-### Variante B – Mit Node.js Static Server
+### Variante A – Integrierter NextPlanner-Server (empfohlen)
 
 1. Stelle sicher, dass [Node.js](https://nodejs.org) installiert ist.
-2. Installiere optional ein leichtgewichtiges Servetool global, z. B. `npm install -g serve`, oder nutze npx.
-3. Starte im Projektverzeichnis einen Server, z. B. mit `npx serve .` oder `python3 -m http.server 8000`.
-4. Öffne anschließend `http://localhost:3000` (bei `serve`) oder `http://localhost:8000` (bei Python) im Browser.
+2. Starte im Projektverzeichnis den Server mit:
+
+   ```bash
+   npm start
+   ```
+
+3. Öffne `http://localhost:3000` im Browser.
+4. Der Speicher-Button schreibt Pläne nun automatisch in `data/plans.json`.
+
+### Variante B – Direkter Datei-Aufruf
+
+1. Navigiere im Dateisystem zu diesem Projektordner.
+2. Öffne `index.html` per Doppelklick oder per Drag & Drop in den Browser.
+3. In diesem Modus steht die lokale Datenbank nicht zur Verfügung – der Speicher-Button erstellt stattdessen einen JSON-Download.
 
 ## Nutzung
 
 1. Gib im linken Textfeld den Trainingsplan ein oder nutze das Beispiel-Platzhalterprogramm.
 2. Importiere vorhandene Dateien bei Bedarf über „Plan importieren“.
-3. Speichere fertige Pläne inklusive Datum und Fokus über „Plan speichern“ als JSON-Datei.
+3. Speichere fertige Pläne inklusive Datum und Fokus über „Plan speichern“ (mit Server direkt in die lokale Datenbank, sonst als JSON-Download).
 4. Öffne über den Button „Hinweise & Syntax“ die kompakte Dokumentation.
 5. Beobachte auf der rechten Seite die automatisch aktualisierten Kennzahlen und Blockübersichten und exportiere Ergebnisse als JSON, Markdown oder Word-Datei.
 
@@ -54,11 +58,11 @@ ist vom Repository ausgeschlossen).
 
 1. Trage den Trainingsplan im Editor ein.
 2. Klicke auf „Plan speichern“ und ergänze Titel, Datum, Fokus sowie optionale Notizen.
-3. Bestätige mit „Plan sichern“ – der Plan wird als JSON-Datei heruntergeladen und enthält zusätzlich eine Zusammenfassung der aktuellen Kennzahlen.
+3. Bestätige mit „Plan sichern“ – läuft der Server, landet der Plan in `data/plans.json`. Ist kein Server erreichbar, wird automatisch eine JSON-Datei mit allen Metadaten heruntergeladen.
 
 ### Plan-CLI verwenden
 
-1. Installiere die Abhängigkeiten mit `npm install`, falls noch nicht geschehen.
+1. Stelle sicher, dass Node.js installiert ist (weitere Abhängigkeiten sind nicht erforderlich).
 2. Speichere einen Plan mit Metadaten:
 
    ```bash
@@ -76,8 +80,7 @@ ist vom Repository ausgeschlossen).
 
 4. Weitere Befehle stehen über `npm run plan:cli -- --help` zur Verfügung (u. a. `show`, `update`, `delete`).
 
-Die CLI nutzt denselben Parser-Output wie die Weboberfläche, sodass du Pläne mit zugehörigem Fokus sowie zusätzlichen
-Metainformationen versionieren und später wiederverwenden kannst. Für Automatisierungen oder Versionskontrolle eignet sich die CLI, während der Speicher-Button schnelle lokale Backups ermöglicht.
+Die CLI und der integrierte Server greifen auf dieselbe JSON-Datei zu wie die Weboberfläche. So kannst du Pläne samt Fokus und Metadaten konsistent erfassen, versionieren und später wiederverwenden. Für Automatisierungen oder Versionskontrolle eignet sich die CLI, während der Speicher-Button schnelle lokale Backups ermöglicht.
 
 ## Import & Export
 
