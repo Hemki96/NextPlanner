@@ -14,7 +14,7 @@ direkt beim Tippen berechnet.
 - **Rundengruppen** – fasse mehrere Sets unter Angaben wie `3 Runden:` zusammen, damit sie automatisch mehrfach gezählt werden.
 - **Syntax-Hinweise** – ein Hinweis-Button öffnet eine kompakte Dokumentation aller Kürzel,
   Formatierungen und Intensitätsstufen.
-- **Speichern & Export** – sichere Pläne als JSON inklusive Metadaten sowie als Markdown- oder Word-Datei und lade bestehende Workouts wieder in den Editor.
+- **Speichern & Export** – sichere Pläne über die lokale JSON-Datenbank inklusive Metadaten und exportiere Workouts zusätzlich als Markdown- oder Word-Datei.
 - **Responsive Layout** – zweigeteilte Ansicht für große Bildschirme, einspaltige Darstellung
   auf Tablets und Smartphones.
 
@@ -38,13 +38,13 @@ Du kannst NextPlanner entweder direkt als statische Seite testen oder den integr
 
 1. Navigiere im Dateisystem zu diesem Projektordner.
 2. Öffne `index.html` per Doppelklick oder per Drag & Drop in den Browser.
-3. In diesem Modus steht die lokale Datenbank nicht zur Verfügung – der Speicher-Button erstellt stattdessen einen JSON-Download.
+3. In diesem Modus steht die lokale Datenbank nicht zur Verfügung – der Speicher-Button kann ohne laufenden Server keine Daten persistieren.
 
 ## Nutzung
 
 1. Gib im linken Textfeld den Trainingsplan ein oder nutze das Beispiel-Platzhalterprogramm.
 2. Importiere vorhandene Dateien bei Bedarf über „Plan importieren“.
-3. Speichere fertige Pläne inklusive Datum und Fokus über „Plan speichern“ (mit Server direkt in die lokale Datenbank, sonst als JSON-Download).
+3. Speichere fertige Pläne inklusive Datum und Fokus über „Plan speichern“ – dafür muss der integrierte Server laufen.
 4. Öffne über den Button „Hinweise & Syntax“ die kompakte Dokumentation.
 5. Beobachte auf der rechten Seite die automatisch aktualisierten Kennzahlen und Blockübersichten und exportiere Ergebnisse als JSON, Markdown oder Word-Datei.
 
@@ -58,7 +58,7 @@ ist vom Repository ausgeschlossen).
 
 1. Trage den Trainingsplan im Editor ein.
 2. Klicke auf „Plan speichern“ und ergänze Titel, Datum, Fokus sowie optionale Notizen.
-3. Bestätige mit „Plan sichern“ – läuft der Server, landet der Plan in `data/plans.json`. Ist kein Server erreichbar, wird automatisch eine JSON-Datei mit allen Metadaten heruntergeladen.
+3. Bestätige mit „Plan sichern“ – läuft der Server, landet der Plan in `data/plans.json`. Ohne laufenden Server erscheint eine Fehlermeldung, die auf den notwendigen Start (`npm start`) hinweist.
 
 ### Plan-CLI verwenden
 

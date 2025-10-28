@@ -1,5 +1,3 @@
-import { triggerDownload } from "../utils/download.js";
-
 const PREFS_STORAGE_KEY = "nextplanner.plan.save.dialog";
 
 function readPreferences() {
@@ -28,15 +26,6 @@ function writePreferences(preferences) {
   } catch (error) {
     console.warn("Konnte Speicherpräferenzen nicht schreiben", error);
   }
-}
-
-function slugify(value) {
-  return String(value ?? "")
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\p{Letter}\p{Number}]+/gu, "-")
-    .replace(/^-+|-+$/g, "")
-    .toLowerCase();
 }
 
 function deriveTitleSuggestion(text) {
@@ -108,7 +97,11 @@ function canUseApi() {
 
 async function persistPlanViaApi(plan) {
   if (!canUseApi() || typeof fetch !== "function") {
-    return { ok: false, reason: "Server nicht gestartet" };
+    return {
+      ok: false,
+      reason:
+        "Lokaler Server nicht erreichbar. Bitte 'npm start' ausführen und die Anwendung über http://localhost:3000 öffnen.",
+    };
   }
 
   try {
@@ -143,26 +136,13 @@ async function persistPlanViaApi(plan) {
     const saved = await response.json();
     return { ok: true, plan: saved };
   } catch (error) {
-    return { ok: false, reason: error.message || "Netzwerkfehler" };
+    return {
+      ok: false,
+      reason: error?.message
+        ? `${error.message}. Bitte prüfe, ob der lokale Server läuft ('npm start').`
+        : "Netzwerkfehler. Bitte prüfe, ob der lokale Server läuft ('npm start').",
+    };
   }
-}
-
-function downloadPlanRecord(plan) {
-  const nowIso = new Date().toISOString();
-  const record = {
-    ...plan,
-    createdAt: nowIso,
-    updatedAt: nowIso,
-  };
-
-  const baseDate = plan.planDate?.slice(0, 10) || nowIso.slice(0, 10);
-  const slug = slugify(plan.title) || "plan";
-  const filename = `${baseDate}-${slug}.json`;
-  const blob = new Blob([JSON.stringify(record, null, 2)], {
-    type: "application/json;charset=utf-8",
-  });
-
-  triggerDownload(filename, blob);
 }
 
 export function initPlanSaveDialog({ planInput, saveButton }) {
@@ -327,27 +307,22 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
 
     setStatus(statusElement, "Plan wird gespeichert …", "info");
     const result = await persistPlanViaApi(planRecord);
-    persistPreferences({ focus, date: isoDate });
 
-    if (result.ok) {
-      setStatus(statusElement, "Plan erfolgreich in der lokalen Datenbank gespeichert.", "success");
-      window.setTimeout(() => {
-        closeOverlay();
-      }, 500);
+    if (!result.ok) {
+      const reason = result.reason ? ` ${result.reason}` : "";
+      setStatus(
+        statusElement,
+        `Plan konnte nicht gespeichert werden.${reason || " Bitte stelle sicher, dass der lokale Server läuft."}`,
+        "error",
+      );
       return;
     }
 
-    downloadPlanRecord(planRecord);
-    const reason = result.reason ? ` (${result.reason})` : "";
-    setStatus(
-      statusElement,
-      `Keine Verbindung zur lokalen Datenbank${reason}. Plan als Datei heruntergeladen.`,
-      "warning",
-    );
-
+    persistPreferences({ focus, date: isoDate });
+    setStatus(statusElement, "Plan erfolgreich in der lokalen Datenbank gespeichert.", "success");
     window.setTimeout(() => {
       closeOverlay();
-    }, 1000);
+    }, 500);
   }
 
   saveButton.addEventListener("click", () => {

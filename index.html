@@ -179,8 +179,8 @@
           <button type="submit" class="primary-button">Plan sichern</button>
         </div>
         <p class="form-hint">
-          Läuft der lokale NextPlanner-Server, wird der Plan direkt in der JSON-Datenbank gespeichert. Andernfalls erhältst du
-          automatisch einen Download mit allen Metadaten.
+          Starte den lokalen NextPlanner-Server (z.&nbsp;B. per <code>npm start</code>), um Pläne direkt in der JSON-Datenbank zu
+          speichern. Ohne Server lässt sich der Plan nicht sichern.
         </p>
       </form>
     </div>
@@ -237,7 +237,7 @@
             <li>Mehrere Materialien können hintereinander mit <code>w/</code> aufgeführt werden.</li>
             <li>Intervalle und Pausen unterstützen <code>mm:ss</code> oder <code>hh:mm:ss</code>.</li>
             <li>Frei formulierte Beschreibungen werden angezeigt, beeinflussen aber keine Kennzahlen.</li>
-            <li>Speichere komplette Workouts über „Plan speichern“, um sie als JSON mit Datum, Fokus und Zusammenfassung herunterzuladen.</li>
+            <li>Speichere komplette Workouts über „Plan speichern“, sobald der lokale Server läuft – die Daten landen dann direkt in der JSON-Datenbank.</li>
             <li>Nutze optional <code>npm run plan:cli</code>, um Pläne inklusive Datum, Fokus und Metadaten lokal in <code>data/plans.json</code> zu verwalten.</li>
           </ul>
         </section>
