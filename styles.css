@@ -760,6 +760,16 @@ body {
   font-weight: 700;
 }
 
+.plan-highlight .plan-token-heading {
+  display: block;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.plan-highlight .plan-token-heading .plan-heading-text {
+  color: var(--text-primary);
+}
+
 .plan-highlight .plan-token-round {
   color: var(--accent);
 }
