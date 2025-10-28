@@ -3,12 +3,14 @@ import { renderSummary } from "./ui/summaryRenderer.js";
 import { initHelpOverlay } from "./ui/helpOverlay.js";
 import { initIOControls } from "./ui/ioControls.js";
 import { initQuickSnippets } from "./ui/quickSnippets.js";
+import { initPlanHighlighter } from "./ui/planHighlighter.js";
 
 /**
  * Zentrale DOM-Referenzen, die zwischen Parser und UI ausgetauscht werden.
  */
 const dom = {
   planInput: document.getElementById("plan-input"),
+  planHighlight: document.getElementById("plan-highlight"),
   totalTimeEl: document.getElementById("total-time"),
   totalDistanceEl: document.getElementById("total-distance"),
   intensityListEl: document.getElementById("intensity-list"),
@@ -35,6 +37,11 @@ function updateSummary() {
 // Automatische Aktualisierung bei jeder Nutzereingabe sowie Initialisierung beim Laden der Seite.
 dom.planInput?.addEventListener("input", updateSummary);
 updateSummary();
+
+initPlanHighlighter({
+  textarea: dom.planInput,
+  highlightLayer: dom.planHighlight,
+});
 
 // Initialisiere das Hinweis-Overlay inklusive Fokusmanagement.
 initHelpOverlay({

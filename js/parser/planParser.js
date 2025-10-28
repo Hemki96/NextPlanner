@@ -23,14 +23,17 @@ function parseSetLine(line) {
   }
 
   const quantity = distanceMatch[1] ? Number.parseInt(distanceMatch[1], 10) : 1;
-  const length = Number.parseInt(distanceMatch[2], 10);
-  if (!Number.isFinite(quantity) || !Number.isFinite(length)) {
+  const rawLength = Number.parseInt(distanceMatch[2], 10);
+  if (!Number.isFinite(quantity) || !Number.isFinite(rawLength)) {
     return null;
   }
 
-  const unit = distanceMatch[3].toLowerCase();
-  const convertedLength = unit.startsWith("y") ? Math.round(length * 0.9144) : length;
+  const unitToken = distanceMatch[3].toLowerCase();
+  const isYards = unitToken.startsWith("y");
+  const convertedLength = isYards ? Math.round(rawLength * 0.9144) : rawLength;
   const distance = quantity * convertedLength;
+  const displayLength = rawLength;
+  const displayUnit = isYards ? "yd" : "m";
 
   const intervalMatch = line.match(/@\s*([0-9:]+)/);
   const interval = intervalMatch ? parseDuration(intervalMatch[1]) : 0;
@@ -56,6 +59,8 @@ function parseSetLine(line) {
   return {
     quantity,
     length: convertedLength,
+    displayLength,
+    displayUnit,
     distance,
     interval,
     time,

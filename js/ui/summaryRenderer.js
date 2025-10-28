@@ -1,5 +1,30 @@
 import { formatDuration } from "../utils/time.js";
 import { formatDistance } from "../utils/distance.js";
+import { getIntensityColorClass } from "./intensityColors.js";
+
+function formatSetDistance(set) {
+  const lengthValue = Number.isFinite(set.displayLength)
+    ? set.displayLength
+    : Number.isFinite(set.length)
+    ? set.length
+    : 0;
+  const unit = set.displayUnit ?? "m";
+  const baseLength = `${lengthValue}${unit}`;
+  if (set.quantity && set.quantity > 1) {
+    return `${set.quantity}×${baseLength}`;
+  }
+  return baseLength;
+}
+
+function formatRoundLabel(set) {
+  if (!set.rounds || set.rounds <= 1) {
+    return null;
+  }
+  if (set.roundLabel) {
+    return set.roundLabel.replace(/[:\s]+$/, "");
+  }
+  return `${set.rounds}×`;
+}
 
 /**
  * Aktualisiert sämtliche sichtbaren Auswertungen basierend auf den Planaggregationen.
@@ -19,7 +44,18 @@ export function renderSummary(plan, dom) {
   } else {
     for (const item of intensityEntries) {
       const li = document.createElement("li");
-      li.textContent = `${item.label} – ${formatDistance(item.distance)}`;
+      li.classList.add("intensity-summary-item");
+
+      const chip = document.createElement("span");
+      chip.className = `intensity-chip ${getIntensityColorClass(item.label)}`;
+      chip.textContent = item.label;
+      li.appendChild(chip);
+
+      const distanceValue = document.createElement("strong");
+      distanceValue.className = "intensity-distance";
+      distanceValue.textContent = formatDistance(item.distance);
+      li.appendChild(distanceValue);
+
       intensityListEl.appendChild(li);
     }
   }
@@ -33,7 +69,7 @@ export function renderSummary(plan, dom) {
   } else {
     for (const item of equipmentEntries) {
       const li = document.createElement("li");
-      li.textContent = `${item.label} (${item.count}×)`;
+      li.innerHTML = `<em>${item.label}</em> (${item.count}×)`;
       equipmentListEl.appendChild(li);
     }
   }
@@ -58,7 +94,7 @@ export function renderSummary(plan, dom) {
     meta.className = "block-meta";
 
     const dist = document.createElement("span");
-    dist.textContent = `Distanz: ${formatDistance(block.distance)}`;
+    dist.innerHTML = `Distanz: <strong>${formatDistance(block.distance)}</strong>`;
     meta.appendChild(dist);
 
     const time = document.createElement("span");
@@ -85,7 +121,7 @@ export function renderSummary(plan, dom) {
         const suffix = detail.sets === 1 ? "Set" : "Sets";
         return `${detail.rounds}× (${detail.sets} ${suffix})`;
       });
-      roundsInfo.textContent = `Runden: ${parts.join(", ")}`;
+      roundsInfo.innerHTML = `Runden: <strong>${parts.join(", ")}</strong>`;
       meta.appendChild(roundsInfo);
     }
 
@@ -97,6 +133,99 @@ export function renderSummary(plan, dom) {
     }
 
     li.appendChild(meta);
+
+    if (block.sets.length > 0) {
+      const setList = document.createElement("ul");
+      setList.className = "set-list";
+
+      for (const set of block.sets) {
+        const setItem = document.createElement("li");
+        setItem.className = "set-item";
+
+        const setLine = document.createElement("div");
+        setLine.className = "set-line";
+
+        const setDistance = document.createElement("strong");
+        setDistance.className = "set-distance";
+        setDistance.textContent = formatSetDistance(set);
+        setLine.appendChild(setDistance);
+
+        if (set.distance > 0) {
+          const totalDistance = document.createElement("span");
+          totalDistance.className = "set-total-distance";
+          totalDistance.innerHTML = `= <strong>${formatDistance(set.distance)}</strong>`;
+          setLine.appendChild(totalDistance);
+        }
+
+        const roundLabel = formatRoundLabel(set);
+        if (roundLabel) {
+          const rounds = document.createElement("strong");
+          rounds.className = "set-rounds";
+          rounds.textContent = ` · ${roundLabel}`;
+          setLine.appendChild(rounds);
+        }
+
+        setItem.appendChild(setLine);
+
+        const details = document.createElement("div");
+        details.className = "set-details";
+
+        if (set.interval > 0) {
+          const interval = document.createElement("span");
+          interval.className = "set-detail set-interval";
+          interval.innerHTML = `Abgang: <em>${formatDuration(set.interval)}</em>`;
+          details.appendChild(interval);
+        }
+
+        if (set.pause > 0) {
+          const pause = document.createElement("span");
+          pause.className = "set-detail set-pause";
+          if (set.rounds && set.rounds > 1) {
+            const perRoundSeconds = Math.round(set.pause / set.rounds);
+            const perRound = formatDuration(perRoundSeconds);
+            pause.textContent = `Pause: ${perRound} pro Runde (${formatDuration(set.pause)})`;
+          } else {
+            pause.textContent = `Pause: ${formatDuration(set.pause)}`;
+          }
+          details.appendChild(pause);
+        }
+
+        if (set.equipment.length > 0) {
+          const equipment = document.createElement("span");
+          equipment.className = "set-detail set-equipment";
+          equipment.innerHTML = `Material: <em>${set.equipment.join(", ")}</em>`;
+          details.appendChild(equipment);
+        }
+
+        if (set.intensities.length > 0) {
+          const intensities = document.createElement("span");
+          intensities.className = "set-detail set-intensities";
+          for (const intensity of set.intensities) {
+            const chip = document.createElement("span");
+            chip.className = `intensity-chip ${getIntensityColorClass(intensity)}`;
+            chip.textContent = intensity;
+            intensities.appendChild(chip);
+          }
+          details.appendChild(intensities);
+        }
+
+        if (set.focus.length > 0) {
+          const focus = document.createElement("span");
+          focus.className = "set-detail set-focus";
+          focus.textContent = `Fokus: ${set.focus.join(", ")}`;
+          details.appendChild(focus);
+        }
+
+        if (details.childElementCount > 0) {
+          setItem.appendChild(details);
+        }
+
+        setList.appendChild(setItem);
+      }
+
+      li.appendChild(setList);
+    }
+
     blockListEl.appendChild(li);
   }
 }

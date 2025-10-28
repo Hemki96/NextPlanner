@@ -86,23 +86,133 @@ body {
   grid-area: summary;
 }
 
-/* Freitextfeld für den Plan mit großzügiger Höhe und angenehmer Typografie */
-textarea {
-  width: 100%;
-  min-height: 460px;
+/* Freitextfeld für den Plan mit großzügiger Höhe und angepasstem Highlighting */
+.plan-editor {
+  position: relative;
   border-radius: calc(var(--radius) - 6px);
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.8);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+  overflow: hidden;
+}
+
+.plan-editor:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(0, 119, 255, 0.2);
+  background: #fff;
+}
+
+.plan-editor textarea {
+  width: 100%;
+  min-height: 460px;
+  border: none;
+  background: transparent;
   padding: 1.5rem;
   font-size: 1rem;
   resize: vertical;
-  color: var(--text-primary);
+  color: transparent;
+  caret-color: var(--text-primary);
   line-height: 1.6;
+  font-family: inherit;
+  position: relative;
+  z-index: 1;
 }
 
-textarea:focus {
-  outline: 2px solid var(--accent);
-  background: #fff;
+.plan-editor textarea:focus {
+  outline: none;
+}
+
+.plan-editor textarea::placeholder {
+  color: var(--text-secondary);
+}
+
+.plan-editor textarea::selection {
+  background: rgba(0, 119, 255, 0.25);
+}
+
+.plan-highlight {
+  position: absolute;
+  inset: 0;
+  padding: 1.5rem;
+  font-size: 1rem;
+  line-height: 1.6;
+  font-family: inherit;
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-primary);
+  overflow: hidden;
+  z-index: 0;
+  border-radius: inherit;
+}
+
+.plan-highlight-content {
+  margin: 0;
+  font: inherit;
+  white-space: inherit;
+}
+
+.plan-highlight .plan-token-distance,
+.plan-highlight .plan-token-round {
+  font-weight: 700;
+}
+
+.plan-highlight .plan-token-round {
+  color: var(--accent);
+}
+
+.plan-highlight .plan-token-equipment,
+.plan-highlight .plan-token-interval {
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+.plan-highlight .intensity-token {
+  font-weight: 700;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+}
+
+.plan-highlight .intensity-token.intensity-color-clear {
+  color: #006c8f;
+}
+
+.plan-highlight .intensity-token.intensity-color-white {
+  color: #5c6c7d;
+}
+
+.plan-highlight .intensity-token.intensity-color-pink {
+  color: #b4004e;
+}
+
+.plan-highlight .intensity-token.intensity-color-red {
+  color: #b71c1c;
+}
+
+.plan-highlight .intensity-token.intensity-color-orange {
+  color: #d35400;
+}
+
+.plan-highlight .intensity-token.intensity-color-purple {
+  color: #6a1b9a;
+}
+
+.plan-highlight .intensity-token.intensity-color-blue {
+  color: #0d47a1;
+}
+
+.plan-highlight .intensity-token.intensity-color-green {
+  color: #1b5e20;
+}
+
+.plan-highlight .intensity-token.intensity-color-gold {
+  color: #8d6e00;
+}
+
+.plan-highlight .intensity-token.intensity-color-default {
+  color: var(--text-secondary);
 }
 
 .input-actions {
@@ -252,6 +362,93 @@ textarea:focus {
   border-radius: 999px;
   padding: 0.35rem 0.75rem;
   font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.intensity-summary-item {
+  background: none;
+  color: var(--text-secondary);
+  padding: 0.2rem 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.intensity-chip {
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 0.2rem 0.65rem;
+  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.intensity-distance {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.intensity-color-clear {
+  background: rgba(0, 174, 239, 0.18);
+  color: #006c8f;
+  border-color: rgba(0, 174, 239, 0.35);
+}
+
+.intensity-color-white {
+  background: rgba(255, 255, 255, 0.7);
+  color: #5c6c7d;
+  border-color: rgba(192, 204, 214, 0.6);
+}
+
+.intensity-color-pink {
+  background: rgba(255, 128, 171, 0.22);
+  color: #b4004e;
+  border-color: rgba(255, 128, 171, 0.45);
+}
+
+.intensity-color-red {
+  background: rgba(255, 138, 128, 0.22);
+  color: #b71c1c;
+  border-color: rgba(255, 138, 128, 0.45);
+}
+
+.intensity-color-orange {
+  background: rgba(255, 183, 77, 0.22);
+  color: #d35400;
+  border-color: rgba(255, 183, 77, 0.5);
+}
+
+.intensity-color-purple {
+  background: rgba(206, 147, 216, 0.22);
+  color: #6a1b9a;
+  border-color: rgba(206, 147, 216, 0.5);
+}
+
+.intensity-color-blue {
+  background: rgba(144, 202, 249, 0.22);
+  color: #0d47a1;
+  border-color: rgba(144, 202, 249, 0.5);
+}
+
+.intensity-color-green {
+  background: rgba(165, 214, 167, 0.22);
+  color: #1b5e20;
+  border-color: rgba(165, 214, 167, 0.5);
+}
+
+.intensity-color-gold {
+  background: rgba(255, 213, 79, 0.22);
+  color: #8d6e00;
+  border-color: rgba(255, 213, 79, 0.5);
+}
+
+.intensity-color-default {
+  background: rgba(0, 119, 255, 0.12);
+  color: var(--text-secondary);
+  border-color: rgba(0, 119, 255, 0.3);
 }
 
 .block-summary {
@@ -289,6 +486,69 @@ textarea:focus {
   gap: 0.75rem;
   font-size: 0.9rem;
   color: var(--text-secondary);
+}
+
+.set-list {
+  list-style: none;
+  margin: 0.85rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.set-item {
+  display: grid;
+  gap: 0.4rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.set-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: baseline;
+}
+
+.set-distance,
+.set-rounds {
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.set-total-distance strong {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.set-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+}
+
+.set-detail {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.set-detail.set-intensities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.set-detail.set-intensities .intensity-chip {
+  padding: 0.15rem 0.5rem;
+  font-size: 0.78rem;
+}
+
+.set-detail.set-equipment em,
+.set-detail.set-interval em {
+  font-style: italic;
 }
 
 .sr-only {
@@ -436,7 +696,7 @@ body.no-scroll {
       "summary";
   }
 
-  textarea {
+  .plan-editor textarea {
     min-height: 360px;
   }
 
