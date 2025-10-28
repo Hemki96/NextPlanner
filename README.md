@@ -14,7 +14,7 @@ direkt beim Tippen berechnet.
 - **Rundengruppen** – fasse mehrere Sets unter Angaben wie `3 Runden:` zusammen, damit sie automatisch mehrfach gezählt werden.
 - **Syntax-Hinweise** – ein Hinweis-Button öffnet eine kompakte Dokumentation aller Kürzel,
   Formatierungen und Intensitätsstufen.
-- **Import & Export** – sichere Pläne als Markdown oder Word-Datei und lade bestehende Workouts wieder in den Editor.
+- **Speichern & Export** – sichere Pläne als JSON inklusive Metadaten sowie als Markdown- oder Word-Datei und lade bestehende Workouts wieder in den Editor.
 - **Responsive Layout** – zweigeteilte Ansicht für große Bildschirme, einspaltige Darstellung
   auf Tablets und Smartphones.
 
@@ -40,8 +40,9 @@ Folge einer der beiden Varianten:
 
 1. Gib im linken Textfeld den Trainingsplan ein oder nutze das Beispiel-Platzhalterprogramm.
 2. Importiere vorhandene Dateien bei Bedarf über „Plan importieren“.
-3. Öffne über den Button „Hinweise & Syntax“ die kompakte Dokumentation.
-4. Beobachte auf der rechten Seite die automatisch aktualisierten Kennzahlen und Blockübersichten und exportiere Ergebnisse als Markdown oder Word-Datei.
+3. Speichere fertige Pläne inklusive Datum und Fokus über „Plan speichern“ als JSON-Datei.
+4. Öffne über den Button „Hinweise & Syntax“ die kompakte Dokumentation.
+5. Beobachte auf der rechten Seite die automatisch aktualisierten Kennzahlen und Blockübersichten und exportiere Ergebnisse als JSON, Markdown oder Word-Datei.
 
 ## Pläne mit Metadaten lokal speichern
 
@@ -49,9 +50,11 @@ Zusätzlich zum Freitext-Editor kannst du komplette Workouts inklusive Metadaten
 Der JSON-Speicher legt die Daten standardmäßig unter `data/plans.json` ab (die Datei wird bei Bedarf automatisch erstellt und
 ist vom Repository ausgeschlossen).
 
-### Voraussetzungen
+### Plan über den Speicher-Button sichern
 
-- Node.js >= 18
+1. Trage den Trainingsplan im Editor ein.
+2. Klicke auf „Plan speichern“ und ergänze Titel, Datum, Fokus sowie optionale Notizen.
+3. Bestätige mit „Plan sichern“ – der Plan wird als JSON-Datei heruntergeladen und enthält zusätzlich eine Zusammenfassung der aktuellen Kennzahlen.
 
 ### Plan-CLI verwenden
 
@@ -74,7 +77,7 @@ ist vom Repository ausgeschlossen).
 4. Weitere Befehle stehen über `npm run plan:cli -- --help` zur Verfügung (u. a. `show`, `update`, `delete`).
 
 Die CLI nutzt denselben Parser-Output wie die Weboberfläche, sodass du Pläne mit zugehörigem Fokus sowie zusätzlichen
-Metainformationen versionieren und später wiederverwenden kannst.
+Metainformationen versionieren und später wiederverwenden kannst. Für Automatisierungen oder Versionskontrolle eignet sich die CLI, während der Speicher-Button schnelle lokale Backups ermöglicht.
 
 ## Import & Export
 
