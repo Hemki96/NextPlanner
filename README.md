@@ -43,6 +43,39 @@ Folge einer der beiden Varianten:
 3. Öffne über den Button „Hinweise & Syntax“ die kompakte Dokumentation.
 4. Beobachte auf der rechten Seite die automatisch aktualisierten Kennzahlen und Blockübersichten und exportiere Ergebnisse als Markdown oder Word-Datei.
 
+## Pläne mit Metadaten lokal speichern
+
+Zusätzlich zum Freitext-Editor kannst du komplette Workouts inklusive Metadaten lokal auf Dateibasis sichern.
+Der JSON-Speicher legt die Daten standardmäßig unter `data/plans.json` ab (die Datei wird bei Bedarf automatisch erstellt und
+ist vom Repository ausgeschlossen).
+
+### Voraussetzungen
+
+- Node.js >= 18
+
+### Plan-CLI verwenden
+
+1. Installiere die Abhängigkeiten mit `npm install`, falls noch nicht geschehen.
+2. Speichere einen Plan mit Metadaten:
+
+   ```bash
+   npm run plan:cli -- add --title="Sprint Session" --date="2024-05-10" \\
+     --focus="Sprint" --content="4x50m Sprint" --metadata='{"coach":"Alex"}'
+   ```
+
+   Der Befehl legt einen Eintrag mit Datum, Fokus und beliebig vielen Metadaten an.
+
+3. Liste gespeicherte Pläne gefiltert nach Fokus oder Zeitraum auf:
+
+   ```bash
+   npm run plan:cli -- list --focus="Sprint" --from="2024-05-01" --to="2024-05-31"
+   ```
+
+4. Weitere Befehle stehen über `npm run plan:cli -- --help` zur Verfügung (u. a. `show`, `update`, `delete`).
+
+Die CLI nutzt denselben Parser-Output wie die Weboberfläche, sodass du Pläne mit zugehörigem Fokus sowie zusätzlichen
+Metainformationen versionieren und später wiederverwenden kannst.
+
 ## Import & Export
 
 - **Plan importieren** – unterstützt Text- und Markdown-Dateien sowie die eigene Word-Exportdatei (HTML-basiert). Nach dem Import wird der Parser automatisch ausgelöst.
