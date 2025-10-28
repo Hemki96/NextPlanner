@@ -1,6 +1,7 @@
 import { parsePlan } from "./parser/planParser.js";
 import { renderSummary } from "./ui/summaryRenderer.js";
 import { initHelpOverlay } from "./ui/helpOverlay.js";
+import { initIOControls } from "./ui/ioControls.js";
 
 /**
  * Zentrale DOM-Referenzen, die zwischen Parser und UI ausgetauscht werden.
@@ -15,6 +16,10 @@ const dom = {
   helpButton: document.getElementById("help-button"),
   helpOverlay: document.getElementById("help-overlay"),
   helpCloseButton: document.getElementById("help-close"),
+  importButton: document.getElementById("import-button"),
+  importInput: document.getElementById("import-input"),
+  exportMarkdownButton: document.getElementById("export-markdown"),
+  exportWordButton: document.getElementById("export-word"),
 };
 
 /**
@@ -34,4 +39,13 @@ initHelpOverlay({
   button: dom.helpButton,
   overlay: dom.helpOverlay,
   closeButton: dom.helpCloseButton,
+});
+
+// Import- und Export-Steuerung aktivieren, damit Pläne gesichert oder geladen werden können.
+initIOControls({
+  planInput: dom.planInput,
+  importInput: dom.importInput,
+  importButton: dom.importButton,
+  exportMarkdownButton: dom.exportMarkdownButton,
+  exportWordButton: dom.exportWordButton,
 });

@@ -29,6 +29,23 @@
         >
           Hinweise &amp; Syntax
         </button>
+        <button type="button" id="import-button" class="secondary-button">
+          Plan importieren
+        </button>
+        <input
+          type="file"
+          id="import-input"
+          class="sr-only"
+          accept=".txt,.md,.markdown,.doc,.html,.htm"
+          aria-hidden="true"
+          tabindex="-1"
+        />
+        <button type="button" id="export-markdown" class="secondary-button">
+          Als Markdown exportieren
+        </button>
+        <button type="button" id="export-word" class="secondary-button">
+          Als Word exportieren
+        </button>
       </div>
       <p class="hint">Nutze Überschriften (z.B. <code>## Warm-up</code>) für Blöcke. Formate wie <code>4x50m</code>, <code>w/</code> für Material, <code>@</code> für Intervalle, <code>P:</code> für Pausen sowie Rundenangaben wie <code>3 Runden:</code> werden automatisch erkannt.</p>
     </section>

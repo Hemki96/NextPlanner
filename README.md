@@ -14,6 +14,7 @@ direkt beim Tippen berechnet.
 - **Rundengruppen** – fasse mehrere Sets unter Angaben wie `3 Runden:` zusammen, damit sie automatisch mehrfach gezählt werden.
 - **Syntax-Hinweise** – ein Hinweis-Button öffnet eine kompakte Dokumentation aller Kürzel,
   Formatierungen und Intensitätsstufen.
+- **Import & Export** – sichere Pläne als Markdown oder Word-Datei und lade bestehende Workouts wieder in den Editor.
 - **Responsive Layout** – zweigeteilte Ansicht für große Bildschirme, einspaltige Darstellung
   auf Tablets und Smartphones.
 
@@ -38,8 +39,15 @@ Folge einer der beiden Varianten:
 ## Nutzung
 
 1. Gib im linken Textfeld den Trainingsplan ein oder nutze das Beispiel-Platzhalterprogramm.
-2. Öffne bei Bedarf über den Button „Hinweise & Syntax“ die kompakte Dokumentation.
-3. Beobachte auf der rechten Seite die automatisch aktualisierten Kennzahlen und Blockübersichten.
+2. Importiere vorhandene Dateien bei Bedarf über „Plan importieren“.
+3. Öffne über den Button „Hinweise & Syntax“ die kompakte Dokumentation.
+4. Beobachte auf der rechten Seite die automatisch aktualisierten Kennzahlen und Blockübersichten und exportiere Ergebnisse als Markdown oder Word-Datei.
+
+## Import & Export
+
+- **Plan importieren** – unterstützt Text- und Markdown-Dateien sowie die eigene Word-Exportdatei (HTML-basiert). Nach dem Import wird der Parser automatisch ausgelöst.
+- **Als Markdown exportieren** – lädt den aktuellen Textinhalt als `swim-plan.md` herunter.
+- **Als Word exportieren** – erzeugt ein `.doc`-Dokument auf HTML-Basis, das in Word oder kompatiblen Anwendungen geöffnet werden kann.
 
 ## Syntaxüberblick
 
@@ -60,6 +68,7 @@ aufgeteilt:
 - `js/parser/planParser.js` kapselt die komplette Analyse des Freitextes.
 - `js/ui/summaryRenderer.js` formatiert die Live-Auswertungen im UI.
 - `js/ui/helpOverlay.js` übernimmt Fokus- und Overlay-Steuerung.
+- `js/ui/ioControls.js` steuert Datei-Import und -Export.
 - `js/utils/*.js` stellt Formatierungs- und Berechnungs-Helfer bereit.
 
 Styles liegen weiterhin in `styles.css`. Öffne `index.html` direkt im Browser, um Änderungen
