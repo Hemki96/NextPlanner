@@ -45,11 +45,12 @@ function deriveTitleSuggestion(text) {
   return "";
 }
 
-function toIsoDate(dateValue) {
+function toIsoDateTime(dateValue, timeValue) {
   if (!dateValue) {
     return null;
   }
-  const parsed = new Date(dateValue);
+  const normalizedTime = timeValue && /\d\d:\d\d/.test(timeValue) ? timeValue : "00:00";
+  const parsed = new Date(`${dateValue}T${normalizedTime}`);
   if (Number.isNaN(parsed.getTime())) {
     return null;
   }
@@ -85,6 +86,22 @@ function formatDateForInput(date) {
     return "";
   }
   return parsed.toISOString().slice(0, 10);
+}
+
+function formatTimeForInput(date) {
+  if (!date) {
+    return "";
+  }
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+  return `${String(parsed.getHours()).padStart(2, "0")}:${String(parsed.getMinutes()).padStart(2, "0")}`;
+}
+
+function currentTimeForInput() {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 }
 
 function canUseApi() {
@@ -156,13 +173,14 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
   const form = document.getElementById("plan-save-form");
   const titleInput = document.getElementById("plan-save-title");
   const dateInput = document.getElementById("plan-save-date");
+  const timeInput = document.getElementById("plan-save-time");
   const focusInput = document.getElementById("plan-save-focus");
   const notesInput = document.getElementById("plan-save-notes");
   const statusElement = document.getElementById("plan-save-status");
   const cancelButton = document.getElementById("plan-save-cancel");
   const closeButton = document.getElementById("plan-save-close");
 
-  if (!overlay || !form || !titleInput || !dateInput || !focusInput) {
+  if (!overlay || !form || !titleInput || !dateInput || !focusInput || !timeInput) {
     return {
       update() {},
     };
@@ -195,10 +213,14 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
     }
 
     const prefDate = preferences.lastDate ?? null;
+    const prefTime = preferences.lastTime ?? null;
     const fallbackDate = prefDate ? formatDateForInput(prefDate) : "";
+    const fallbackTime = prefTime || (prefDate ? formatTimeForInput(prefDate) : "");
     const today = new Date();
     const defaultDate = fallbackDate || today.toISOString().slice(0, 10);
+    const defaultTime = fallbackTime || currentTimeForInput();
     dateInput.value = defaultDate;
+    timeInput.value = defaultTime;
 
     focusInput.value = preferences.lastFocus ?? "";
     if (notesInput) {
@@ -227,13 +249,15 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
     }
   }
 
-  function persistPreferences({ focus, date }) {
+  function persistPreferences({ focus, date, time }) {
     const data = {
       lastFocus: focus ?? preferences.lastFocus ?? "",
       lastDate: date ?? preferences.lastDate ?? null,
+      lastTime: time ?? preferences.lastTime ?? "",
     };
     preferences.lastFocus = data.lastFocus;
     preferences.lastDate = data.lastDate;
+    preferences.lastTime = data.lastTime;
     writePreferences(data);
   }
 
@@ -262,10 +286,15 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
     }
 
     const rawDate = dateInput.value;
-    const isoDate = toIsoDate(rawDate);
+    const rawTime = timeInput.value;
+    const isoDate = toIsoDateTime(rawDate, rawTime);
     if (!isoDate) {
-      setStatus(statusElement, "Bitte wähle ein gültiges Datum.", "warning");
-      dateInput.focus();
+      setStatus(statusElement, "Bitte wähle ein gültiges Datum und eine Uhrzeit.", "warning");
+      if (!rawTime) {
+        timeInput.focus();
+      } else {
+        dateInput.focus();
+      }
       return;
     }
 
@@ -318,7 +347,7 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
       return;
     }
 
-    persistPreferences({ focus, date: isoDate });
+    persistPreferences({ focus, date: isoDate, time: rawTime });
     setStatus(statusElement, "Plan erfolgreich in der lokalen Datenbank gespeichert.", "success");
     window.setTimeout(() => {
       closeOverlay();
