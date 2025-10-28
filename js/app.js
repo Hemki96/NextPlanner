@@ -54,7 +54,7 @@ function updateSummary() {
 dom.planInput?.addEventListener("input", updateSummary);
 updateSummary();
 
-initPlanHighlighter({
+const planHighlighter = initPlanHighlighter({
   textarea: dom.planInput,
   highlightLayer: dom.planHighlight,
 });
@@ -102,7 +102,7 @@ async function loadPlanFromQuery() {
       console.warn(`Plan ${planId} enthielt keinen Inhalt.`);
       return;
     }
-    dom.planInput.value = plan.content;
+    planHighlighter.setText(plan.content);
     updateSummary();
     if (plan.title) {
       document.title = `${plan.title} – Swim Planner`;

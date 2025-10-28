@@ -132,7 +132,10 @@ function highlightPlanText(text) {
 
 export function initPlanHighlighter({ textarea, highlightLayer }) {
   if (!textarea || !highlightLayer) {
-    return;
+    return {
+      refresh() {},
+      setText() {},
+    };
   }
 
   let contentEl = null;
@@ -151,11 +154,22 @@ export function initPlanHighlighter({ textarea, highlightLayer }) {
     syncScroll();
   };
 
-  textarea.addEventListener("input", () => {
+  const refresh = () => {
     renderHighlight();
-  });
+  };
 
+  const setText = (value) => {
+    textarea.value = value ?? "";
+    renderHighlight();
+  };
+
+  textarea.addEventListener("input", refresh);
   textarea.addEventListener("scroll", syncScroll);
 
-  renderHighlight();
+  refresh();
+
+  return {
+    refresh,
+    setText,
+  };
 }
