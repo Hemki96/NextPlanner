@@ -22,8 +22,17 @@
         <h2>Kategorien &amp; Einträge</h2>
         <div class="section-actions">
           <button type="button" class="ghost-button" id="add-group">Kategorie hinzufügen</button>
+          <button type="button" class="ghost-button" id="import-groups">Konfiguration importieren</button>
+          <button type="button" class="ghost-button" id="export-groups">Konfiguration exportieren</button>
           <button type="button" class="ghost-button" id="reset-groups">Auf Standard zurücksetzen</button>
         </div>
+        <input
+          type="file"
+          id="import-groups-file"
+          accept="application/json"
+          hidden
+          aria-hidden="true"
+        />
       </header>
       <p class="form-hint">Jede Kategorie enthält mehrere Schnellbausteine. Für jeden Eintrag kannst du steuern, ob beim Einfügen automatisch Zeilenumbrüche ergänzt werden sollen.</p>
       <div id="snippet-groups" class="snippet-settings" aria-live="polite"></div>

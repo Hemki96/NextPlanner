@@ -3,15 +3,30 @@ import {
   getQuickSnippets,
   resetQuickSnippets,
   saveQuickSnippets,
+  sanitizeQuickSnippetGroups,
 } from "./utils/snippetStorage.js";
 
 const groupContainer = document.getElementById("snippet-groups");
 const addGroupButton = document.getElementById("add-group");
 const resetButton = document.getElementById("reset-groups");
 const saveButton = document.getElementById("save-groups");
+const exportButton = document.getElementById("export-groups");
+const importButton = document.getElementById("import-groups");
+const importInput = document.getElementById("import-groups-file");
 const statusElement = document.getElementById("settings-status");
 
-let snippetGroups = getQuickSnippets();
+function cloneGroups(groups) {
+  if (!Array.isArray(groups)) {
+    return [];
+  }
+  return groups.map((group) => ({
+    title: group.title,
+    description: group.description,
+    items: Array.isArray(group.items) ? group.items.map((item) => ({ ...item })) : [],
+  }));
+}
+
+let snippetGroups = cloneGroups(getQuickSnippets());
 
 function createEmptyItem() {
   return {
@@ -82,6 +97,30 @@ function renderGroups() {
 
     const headerActions = document.createElement("div");
     headerActions.className = "snippet-settings-header-actions";
+
+    const moveGroupUp = document.createElement("button");
+    moveGroupUp.type = "button";
+    moveGroupUp.className = "ghost-button";
+    moveGroupUp.textContent = "Nach oben";
+    moveGroupUp.dataset.groupIndex = String(groupIndex);
+    moveGroupUp.dataset.action = "move-group-up";
+    moveGroupUp.title = "Kategorie nach oben verschieben";
+    if (groupIndex === 0) {
+      moveGroupUp.disabled = true;
+    }
+    headerActions.appendChild(moveGroupUp);
+
+    const moveGroupDown = document.createElement("button");
+    moveGroupDown.type = "button";
+    moveGroupDown.className = "ghost-button";
+    moveGroupDown.textContent = "Nach unten";
+    moveGroupDown.dataset.groupIndex = String(groupIndex);
+    moveGroupDown.dataset.action = "move-group-down";
+    moveGroupDown.title = "Kategorie nach unten verschieben";
+    if (groupIndex === snippetGroups.length - 1) {
+      moveGroupDown.disabled = true;
+    }
+    headerActions.appendChild(moveGroupDown);
 
     const removeGroup = document.createElement("button");
     removeGroup.type = "button";
@@ -195,6 +234,30 @@ function renderGroups() {
 
       const actionRow = document.createElement("div");
       actionRow.className = "snippet-settings-actions";
+      const moveItemUp = document.createElement("button");
+      moveItemUp.type = "button";
+      moveItemUp.className = "ghost-button";
+      moveItemUp.textContent = "Nach oben";
+      moveItemUp.dataset.groupIndex = String(groupIndex);
+      moveItemUp.dataset.itemIndex = String(itemIndex);
+      moveItemUp.dataset.action = "move-item-up";
+      moveItemUp.title = "Baustein nach oben verschieben";
+      if (itemIndex === 0) {
+        moveItemUp.disabled = true;
+      }
+
+      const moveItemDown = document.createElement("button");
+      moveItemDown.type = "button";
+      moveItemDown.className = "ghost-button";
+      moveItemDown.textContent = "Nach unten";
+      moveItemDown.dataset.groupIndex = String(groupIndex);
+      moveItemDown.dataset.itemIndex = String(itemIndex);
+      moveItemDown.dataset.action = "move-item-down";
+      moveItemDown.title = "Baustein nach unten verschieben";
+      if (itemIndex === group.items.length - 1) {
+        moveItemDown.disabled = true;
+      }
+
       const removeItem = document.createElement("button");
       removeItem.type = "button";
       removeItem.className = "ghost-button";
@@ -203,6 +266,8 @@ function renderGroups() {
       removeItem.dataset.itemIndex = String(itemIndex);
       removeItem.dataset.action = "remove-item";
 
+      actionRow.appendChild(moveItemUp);
+      actionRow.appendChild(moveItemDown);
       actionRow.appendChild(removeItem);
 
       itemCard.appendChild(labelField);
@@ -316,6 +381,18 @@ function handleClick(event) {
       snippetGroups.splice(groupIndex, 1);
       renderGroups();
     }
+  } else if (action === "move-group-up") {
+    if (!Number.isNaN(groupIndex) && groupIndex > 0) {
+      const [moved] = snippetGroups.splice(groupIndex, 1);
+      snippetGroups.splice(groupIndex - 1, 0, moved);
+      renderGroups();
+    }
+  } else if (action === "move-group-down") {
+    if (!Number.isNaN(groupIndex) && groupIndex < snippetGroups.length - 1) {
+      const [moved] = snippetGroups.splice(groupIndex, 1);
+      snippetGroups.splice(groupIndex + 1, 0, moved);
+      renderGroups();
+    }
   } else if (action === "add-item") {
     if (!Number.isNaN(groupIndex) && snippetGroups[groupIndex]) {
       snippetGroups[groupIndex].items.push(createEmptyItem());
@@ -334,6 +411,32 @@ function handleClick(event) {
       }
       renderGroups();
     }
+  } else if (action === "move-item-up") {
+    const itemIndex = Number.parseInt(target.dataset.itemIndex ?? "", 10);
+    if (
+      !Number.isNaN(groupIndex) &&
+      !Number.isNaN(itemIndex) &&
+      snippetGroups[groupIndex] &&
+      itemIndex > 0
+    ) {
+      const items = snippetGroups[groupIndex].items;
+      const [moved] = items.splice(itemIndex, 1);
+      items.splice(itemIndex - 1, 0, moved);
+      renderGroups();
+    }
+  } else if (action === "move-item-down") {
+    const itemIndex = Number.parseInt(target.dataset.itemIndex ?? "", 10);
+    if (
+      !Number.isNaN(groupIndex) &&
+      !Number.isNaN(itemIndex) &&
+      snippetGroups[groupIndex] &&
+      itemIndex < snippetGroups[groupIndex].items.length - 1
+    ) {
+      const items = snippetGroups[groupIndex].items;
+      const [moved] = items.splice(itemIndex, 1);
+      items.splice(itemIndex + 1, 0, moved);
+      renderGroups();
+    }
   }
 }
 
@@ -350,11 +453,7 @@ function handleReset() {
     return;
   }
   resetQuickSnippets();
-  snippetGroups = defaultQuickSnippetGroups.map((group) => ({
-    title: group.title,
-    description: group.description,
-    items: group.items.map((item) => ({ ...item })),
-  }));
+  snippetGroups = cloneGroups(defaultQuickSnippetGroups);
   showStatus("Standardbausteine wiederhergestellt.", "success");
   renderGroups();
 }
@@ -364,11 +463,69 @@ function handleAddGroup() {
   renderGroups();
 }
 
+function handleExport() {
+  if (snippetGroups.length === 0) {
+    showStatus("Keine Schnellbausteine zum Exportieren vorhanden.", "warning");
+    return;
+  }
+
+  const sanitized = sanitizeQuickSnippetGroups(snippetGroups);
+  const blob = new Blob([JSON.stringify(sanitized, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "swim-planner-schnellbausteine.json";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  showStatus("Schnellbausteine als JSON exportiert.", "success");
+}
+
+function handleImportClick() {
+  importInput?.click();
+}
+
+function handleImportFile(event) {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || !input.files || input.files.length === 0) {
+    return;
+  }
+
+  const file = input.files[0];
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const text = typeof reader.result === "string" ? reader.result : "";
+      const parsed = JSON.parse(text);
+      const sanitized = sanitizeQuickSnippetGroups(parsed);
+      snippetGroups = cloneGroups(sanitized);
+      saveQuickSnippets(snippetGroups);
+      renderGroups();
+      showStatus("Konfiguration importiert.", "success");
+    } catch (error) {
+      showStatus("Import fehlgeschlagen. Bitte gültige JSON-Datei wählen.", "warning");
+    } finally {
+      input.value = "";
+    }
+  };
+  reader.onerror = () => {
+    showStatus("Import fehlgeschlagen. Datei konnte nicht gelesen werden.", "warning");
+    input.value = "";
+  };
+  reader.readAsText(file);
+}
+
 addGroupButton?.addEventListener("click", handleAddGroup);
 resetButton?.addEventListener("click", handleReset);
 saveButton?.addEventListener("click", handleSave);
 groupContainer?.addEventListener("input", handleInput);
 groupContainer?.addEventListener("change", handleInput);
 groupContainer?.addEventListener("click", handleClick);
+exportButton?.addEventListener("click", handleExport);
+importButton?.addEventListener("click", handleImportClick);
+importInput?.addEventListener("change", handleImportFile);
 
 renderGroups();

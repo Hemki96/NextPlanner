@@ -2,31 +2,75 @@ const STORAGE_KEY = "swimPlanner.quickSnippets.v1";
 
 export const defaultQuickSnippetGroups = [
   {
-    title: "Blöcke",
+    title: "Phasen & Überschriften",
     description:
-      "Setze Abschnittsüberschriften für Warm-up, Hauptsatz oder Technikblöcke.",
+      "Bereite typische Trainingsabschnitte mit passenden Überschriften vor.",
     items: [
       {
         label: "Warm-up",
         snippet: "## Warm-up",
         ensureLineBreakBefore: true,
-        appendNewline: true,
+        ensureBlankLineAfter: true,
       },
       {
-        label: "Technikfokus",
-        snippet: "## Technikfokus",
+        label: "Technikblock",
+        snippet: "## Technikblock – Fokus: ____",
         ensureLineBreakBefore: true,
-        appendNewline: true,
+        ensureBlankLineAfter: true,
+        cursorOffset: -4,
       },
       {
         label: "Hauptsatz",
         snippet: "## Hauptsatz",
         ensureLineBreakBefore: true,
-        appendNewline: true,
+        ensureBlankLineAfter: true,
+      },
+      {
+        label: "Sprintserie",
+        snippet: "## Sprintserie",
+        ensureLineBreakBefore: true,
+        ensureBlankLineAfter: true,
+      },
+      {
+        label: "Staffel-Block",
+        snippet: "## Staffel-Block",
+        ensureLineBreakBefore: true,
+        ensureBlankLineAfter: true,
       },
       {
         label: "Cool-down",
         snippet: "## Cool-down",
+        ensureLineBreakBefore: true,
+        ensureBlankLineAfter: true,
+      },
+    ],
+  },
+  {
+    title: "Technik & Variationen",
+    description: "Füge gezielte Drills und Varianten mit Platzhaltern ein.",
+    items: [
+      {
+        label: "Technik-Platzhalter",
+        snippet: "* Technik: ____",
+        ensureLineBreakBefore: true,
+        appendNewline: true,
+        cursorOffset: -4,
+      },
+      {
+        label: "Drill: Catch-Up",
+        snippet: "* Drill: Catch-Up – Fokus auf Streckung",
+        ensureLineBreakBefore: true,
+        appendNewline: true,
+      },
+      {
+        label: "Drill: Beinschlag",
+        snippet: "* Drill: Beinschlag mit Brett (nur Kicks)",
+        ensureLineBreakBefore: true,
+        appendNewline: true,
+      },
+      {
+        label: "Drill: Lagenwechsel",
+        snippet: "* Drill: Lagenwechsel – jede Bahn andere Lage",
         ensureLineBreakBefore: true,
         appendNewline: true,
       },
@@ -34,24 +78,31 @@ export const defaultQuickSnippetGroups = [
   },
   {
     title: "Runden & Wiederholungen",
-    description:
-      "Strukturiere Sets mit Rundenschleifen oder markiere das Ende.",
+    description: "Strukturiere Serien mit Wiederholungen oder Leitern.",
     items: [
       {
-        label: "3 Runden",
-        snippet: "3 Runden:",
+        label: "3× (Distanz & Abgang)",
+        snippet: "3× (____ m @____)",
+        ensureLineBreakBefore: true,
+        appendNewline: true,
+        cursorOffset: -12,
+      },
+      {
+        label: "4× Progression",
+        snippet: "4× ____ m – jede Runde schneller",
+        ensureLineBreakBefore: true,
+        appendNewline: true,
+        cursorOffset: -28,
+      },
+      {
+        label: "Leiter aufwärts",
+        snippet: "Leiter: 4×50 / 3×100 / 2×150 / 1×200",
         ensureLineBreakBefore: true,
         appendNewline: true,
       },
       {
-        label: "Runde x3",
-        snippet: "Runde x3",
-        ensureLineBreakBefore: true,
-        appendNewline: true,
-      },
-      {
-        label: "Ende Runde",
-        snippet: "Ende Runde",
+        label: "Serie abschließen",
+        snippet: "Ende der Serie – locker 100m",
         ensureLineBreakBefore: true,
         appendNewline: true,
       },
@@ -76,6 +127,11 @@ export const defaultQuickSnippetGroups = [
       {
         label: "Schnorchel",
         snippet: " w/ Schnorchel",
+      },
+      {
+        label: "Tool-Platzhalter",
+        snippet: " w/ ____",
+        cursorOffset: -4,
       },
     ],
   },
@@ -114,12 +170,13 @@ export const defaultQuickSnippetGroups = [
     description: "Intervalle und Regenerationszeiten hinzufügen.",
     items: [
       {
-        label: "@1:30",
+        label: "Abgang @1:30",
         snippet: " @1:30",
       },
       {
-        label: "@2:00",
-        snippet: " @2:00",
+        label: "Abgang Platzhalter",
+        snippet: " @__:__",
+        cursorOffset: -5,
       },
       {
         label: "P:00:20",
@@ -134,32 +191,41 @@ export const defaultQuickSnippetGroups = [
         appendNewline: true,
       },
       {
-        label: "P:01:00",
-        snippet: "P:01:00",
+        label: "Pause Platzhalter",
+        snippet: "P:00:__",
         ensureLineBreakBefore: true,
         appendNewline: true,
+        cursorOffset: -2,
       },
     ],
   },
   {
-    title: "Beschreibungen",
-    description: "Optionaler Kontext für Technik- oder Belastungsschwerpunkte.",
+    title: "Coaching-Hinweise",
+    description:
+      "Gib Kontext zu Belastung, Technikschwerpunkt oder gewünschten Effekten.",
     items: [
       {
         label: "Locker ausschwimmen",
-        snippet: "Locker ausschwimmen",
+        snippet: "Locker ausschwimmen, Technik sauber halten",
         ensureLineBreakBefore: true,
         appendNewline: true,
       },
       {
-        label: "Technik: Hoher Ellbogen",
-        snippet: "Technik: Fokus auf hohen Ellbogen",
+        label: "Technikfokus",
+        snippet: "Technik: Fokus auf ____",
+        ensureLineBreakBefore: true,
+        appendNewline: true,
+        cursorOffset: -4,
+      },
+      {
+        label: "Ausdauerblock",
+        snippet: "Ausdauerblock: ruhiges, gleichmäßiges Tempo halten",
         ensureLineBreakBefore: true,
         appendNewline: true,
       },
       {
         label: "Sprintbetonung",
-        snippet: "Sprintbetont, max. Tempo",
+        snippet: "Sprintbetont, max. Tempo – aktive Erholung danach",
         ensureLineBreakBefore: true,
         appendNewline: true,
       },
@@ -179,7 +245,7 @@ function hasLocalStorage() {
   }
 }
 
-function sanitizeGroups(candidate) {
+export function sanitizeQuickSnippetGroups(candidate) {
   if (!Array.isArray(candidate)) {
     return cloneData(defaultQuickSnippetGroups);
   }
@@ -247,7 +313,7 @@ export function getQuickSnippets() {
 
   try {
     const parsed = JSON.parse(stored);
-    return sanitizeGroups(parsed);
+    return sanitizeQuickSnippetGroups(parsed);
   } catch (error) {
     return cloneData(defaultQuickSnippetGroups);
   }
@@ -258,7 +324,7 @@ export function saveQuickSnippets(groups) {
     return;
   }
 
-  const sanitized = sanitizeGroups(groups);
+  const sanitized = sanitizeQuickSnippetGroups(groups);
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
 }
 
