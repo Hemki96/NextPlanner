@@ -64,6 +64,9 @@
           aria-hidden="true"
           tabindex="-1"
         />
+        <button type="button" id="save-plan-button" class="primary-button">
+          Plan speichern
+        </button>
         <button type="button" id="export-markdown" class="secondary-button">
           Als Markdown exportieren
         </button>
@@ -134,6 +137,54 @@
       </form>
     </div>
   </div>
+  <div id="plan-save-overlay" class="template-overlay" aria-hidden="true" hidden>
+    <div class="template-dialog" role="dialog" aria-modal="true" aria-labelledby="plan-save-heading">
+      <header class="template-dialog-header">
+        <h2 id="plan-save-heading">Plan speichern</h2>
+        <button type="button" class="icon-button" id="plan-save-close" aria-label="Dialog schließen">×</button>
+      </header>
+      <form id="plan-save-form" class="template-dialog-form">
+        <div class="form-grid">
+          <label class="form-field">
+            <span>Titel</span>
+            <input id="plan-save-title" type="text" name="title" required />
+          </label>
+          <label class="form-field">
+            <span>Datum</span>
+            <input id="plan-save-date" type="date" name="date" required />
+          </label>
+          <label class="form-field">
+            <span>Fokus</span>
+            <input
+              id="plan-save-focus"
+              type="text"
+              name="focus"
+              required
+              placeholder="z.B. Ausdauer, Technik"
+            />
+          </label>
+        </div>
+        <label class="form-field">
+          <span>Zusätzliche Notizen (optional)</span>
+          <textarea
+            id="plan-save-notes"
+            name="notes"
+            rows="3"
+            placeholder="z.B. Verantwortliche, Besonderheiten"
+          ></textarea>
+        </label>
+        <p id="plan-save-status" class="form-status" role="status" aria-live="polite"></p>
+        <div class="form-actions">
+          <button type="button" class="ghost-button" id="plan-save-cancel">Abbrechen</button>
+          <button type="submit" class="primary-button">Plan sichern</button>
+        </div>
+        <p class="form-hint">
+          Starte den lokalen NextPlanner-Server (z.&nbsp;B. per <code>npm start</code>), um Pläne direkt in der JSON-Datenbank zu
+          speichern. Ohne Server lässt sich der Plan nicht sichern.
+        </p>
+      </form>
+    </div>
+  </div>
   <!-- Overlay mit einer ausführlichen Dokumentation der Schlüsselbegriffe und Kürzel -->
   <div class="help-overlay" id="help-overlay" aria-hidden="true">
     <div class="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title">
@@ -186,6 +237,8 @@
             <li>Mehrere Materialien können hintereinander mit <code>w/</code> aufgeführt werden.</li>
             <li>Intervalle und Pausen unterstützen <code>mm:ss</code> oder <code>hh:mm:ss</code>.</li>
             <li>Frei formulierte Beschreibungen werden angezeigt, beeinflussen aber keine Kennzahlen.</li>
+            <li>Speichere komplette Workouts über „Plan speichern“, sobald der lokale Server läuft – die Daten landen dann direkt in der JSON-Datenbank.</li>
+            <li>Nutze optional <code>npm run plan:cli</code>, um Pläne inklusive Datum, Fokus und Metadaten lokal in <code>data/plans.json</code> zu verwalten.</li>
           </ul>
         </section>
       </div>

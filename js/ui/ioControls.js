@@ -1,7 +1,10 @@
+import { triggerDownload } from "../utils/download.js";
+
 /**
  * Stellt Import- und Export-Funktionen für den Trainingsplan bereit, damit
  * Nutzer:innen ihre Eingaben sichern oder erneut laden können.
  */
+
 export function initIOControls({
   planInput,
   importInput,
@@ -12,20 +15,6 @@ export function initIOControls({
   if (!planInput) {
     return;
   }
-
-  /**
-   * Hilfsfunktion zum Auslösen eines Dateidownloads aus einem Blob.
-   */
-  const triggerDownload = (filename, blob) => {
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
 
   /**
    * Escaped HTML, damit Texte sicher in einem Word-kompatiblen Dokument landen.

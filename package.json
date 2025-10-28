@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "plan:cli": "node js/storage/planCli.js",
+    "start": "node server.js"
   }
 }

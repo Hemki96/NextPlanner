@@ -14,34 +14,73 @@ direkt beim Tippen berechnet.
 - **Rundengruppen** – fasse mehrere Sets unter Angaben wie `3 Runden:` zusammen, damit sie automatisch mehrfach gezählt werden.
 - **Syntax-Hinweise** – ein Hinweis-Button öffnet eine kompakte Dokumentation aller Kürzel,
   Formatierungen und Intensitätsstufen.
-- **Import & Export** – sichere Pläne als Markdown oder Word-Datei und lade bestehende Workouts wieder in den Editor.
+- **Speichern & Export** – sichere Pläne über die lokale JSON-Datenbank inklusive Metadaten und exportiere Workouts zusätzlich als Markdown- oder Word-Datei.
 - **Responsive Layout** – zweigeteilte Ansicht für große Bildschirme, einspaltige Darstellung
   auf Tablets und Smartphones.
 
 ## Anwendung starten
 
-Damit du den Prototyp lokal ausprobieren kannst, reicht bereits ein einfacher statischer Server.
-Folge einer der beiden Varianten:
+Du kannst NextPlanner entweder direkt als statische Seite testen oder den integrierten Node.js-Server nutzen, der zusätzlich die lokale Datenbank für den Speicher-Button bereitstellt.
 
-### Variante A – Direkt im Browser öffnen
-
-1. Navigiere im Dateisystem zu diesem Projektordner.
-2. Öffne die Datei `index.html` per Doppelklick oder per Drag & Drop in einen modernen Browser (Chrome, Edge, Firefox, Safari).
-3. Stelle sicher, dass der Browser das lokale Laden von ES-Modulen erlaubt (bei älteren Browsern ggf. über `about:flags` oder Verwenden von Variante B).
-
-### Variante B – Mit Node.js Static Server
+### Variante A – Integrierter NextPlanner-Server (empfohlen)
 
 1. Stelle sicher, dass [Node.js](https://nodejs.org) installiert ist.
-2. Installiere optional ein leichtgewichtiges Servetool global, z. B. `npm install -g serve`, oder nutze npx.
-3. Starte im Projektverzeichnis einen Server, z. B. mit `npx serve .` oder `python3 -m http.server 8000`.
-4. Öffne anschließend `http://localhost:3000` (bei `serve`) oder `http://localhost:8000` (bei Python) im Browser.
+2. Starte im Projektverzeichnis den Server mit:
+
+   ```bash
+   npm start
+   ```
+
+3. Öffne `http://localhost:3000` im Browser.
+4. Der Speicher-Button schreibt Pläne nun automatisch in `data/plans.json`.
+
+### Variante B – Direkter Datei-Aufruf
+
+1. Navigiere im Dateisystem zu diesem Projektordner.
+2. Öffne `index.html` per Doppelklick oder per Drag & Drop in den Browser.
+3. In diesem Modus steht die lokale Datenbank nicht zur Verfügung – der Speicher-Button kann ohne laufenden Server keine Daten persistieren.
 
 ## Nutzung
 
 1. Gib im linken Textfeld den Trainingsplan ein oder nutze das Beispiel-Platzhalterprogramm.
 2. Importiere vorhandene Dateien bei Bedarf über „Plan importieren“.
-3. Öffne über den Button „Hinweise & Syntax“ die kompakte Dokumentation.
-4. Beobachte auf der rechten Seite die automatisch aktualisierten Kennzahlen und Blockübersichten und exportiere Ergebnisse als Markdown oder Word-Datei.
+3. Speichere fertige Pläne inklusive Datum und Fokus über „Plan speichern“ – dafür muss der integrierte Server laufen.
+4. Öffne über den Button „Hinweise & Syntax“ die kompakte Dokumentation.
+5. Beobachte auf der rechten Seite die automatisch aktualisierten Kennzahlen und Blockübersichten und exportiere Ergebnisse als JSON, Markdown oder Word-Datei.
+
+## Pläne mit Metadaten lokal speichern
+
+Zusätzlich zum Freitext-Editor kannst du komplette Workouts inklusive Metadaten lokal auf Dateibasis sichern.
+Der JSON-Speicher legt die Daten standardmäßig unter `data/plans.json` ab (die Datei wird bei Bedarf automatisch erstellt und
+ist vom Repository ausgeschlossen).
+
+### Plan über den Speicher-Button sichern
+
+1. Trage den Trainingsplan im Editor ein.
+2. Klicke auf „Plan speichern“ und ergänze Titel, Datum, Fokus sowie optionale Notizen.
+3. Bestätige mit „Plan sichern“ – läuft der Server, landet der Plan in `data/plans.json`. Ohne laufenden Server erscheint eine Fehlermeldung, die auf den notwendigen Start (`npm start`) hinweist.
+
+### Plan-CLI verwenden
+
+1. Stelle sicher, dass Node.js installiert ist (weitere Abhängigkeiten sind nicht erforderlich).
+2. Speichere einen Plan mit Metadaten:
+
+   ```bash
+   npm run plan:cli -- add --title="Sprint Session" --date="2024-05-10" \\
+     --focus="Sprint" --content="4x50m Sprint" --metadata='{"coach":"Alex"}'
+   ```
+
+   Der Befehl legt einen Eintrag mit Datum, Fokus und beliebig vielen Metadaten an.
+
+3. Liste gespeicherte Pläne gefiltert nach Fokus oder Zeitraum auf:
+
+   ```bash
+   npm run plan:cli -- list --focus="Sprint" --from="2024-05-01" --to="2024-05-31"
+   ```
+
+4. Weitere Befehle stehen über `npm run plan:cli -- --help` zur Verfügung (u. a. `show`, `update`, `delete`).
+
+Die CLI und der integrierte Server greifen auf dieselbe JSON-Datei zu wie die Weboberfläche. So kannst du Pläne samt Fokus und Metadaten konsistent erfassen, versionieren und später wiederverwenden. Für Automatisierungen oder Versionskontrolle eignet sich die CLI, während der Speicher-Button schnelle lokale Backups ermöglicht.
 
 ## Import & Export
 

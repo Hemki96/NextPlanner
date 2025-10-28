@@ -5,6 +5,7 @@ import { initIOControls } from "./ui/ioControls.js";
 import { initQuickSnippets } from "./ui/quickSnippets.js";
 import { initPlanHighlighter } from "./ui/planHighlighter.js";
 import { initTemplateCapture } from "./ui/templateCapture.js";
+import { initPlanSaveDialog } from "./ui/planSaveDialog.js";
 
 /**
  * Zentrale DOM-Referenzen, die zwischen Parser und UI ausgetauscht werden.
@@ -24,11 +25,17 @@ const dom = {
   importInput: document.getElementById("import-input"),
   exportMarkdownButton: document.getElementById("export-markdown"),
   exportWordButton: document.getElementById("export-word"),
+  savePlanButton: document.getElementById("save-plan-button"),
   quickSnippetContainer: document.getElementById("quick-snippet-container"),
 };
 
 const templateCapture = initTemplateCapture({
   blockList: dom.blockListEl,
+});
+
+const planSaveDialog = initPlanSaveDialog({
+  planInput: dom.planInput,
+  saveButton: dom.savePlanButton,
 });
 
 /**
@@ -38,6 +45,7 @@ function updateSummary() {
   const plan = parsePlan(dom.planInput?.value ?? "");
   renderSummary(plan, dom);
   templateCapture.update(plan);
+  planSaveDialog.update(plan);
 }
 
 // Automatische Aktualisierung bei jeder Nutzereingabe sowie Initialisierung beim Laden der Seite.
