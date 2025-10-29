@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createWordExportDocument } from '../js/utils/wordExport.js';
+import { createWordExportDocument } from '../public/js/utils/word-export.js';
 
 const stripWhitespace = (text) => text.replace(/\s+/g, ' ');
 

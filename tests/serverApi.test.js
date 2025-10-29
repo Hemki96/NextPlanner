@@ -6,7 +6,7 @@ import path from "node:path";
 import { describe, it, before, after, mock } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { JsonPlanStore } from "../js/storage/jsonPlanStore.js";
+import { JsonPlanStore } from "../server/stores/json-plan-store.js";
 import { createServer } from "../server/app.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -29,7 +29,7 @@ describe("Plan API", () => {
     const temp = createTempStore();
     tempDir = temp.dir;
     store = temp.store;
-    server = createServer({ store, publicDir: repoRoot });
+    server = createServer({ store, publicDir: path.join(repoRoot, "public") });
     server.listen(0);
     await once(server, "listening");
     const address = server.address();
@@ -93,13 +93,22 @@ describe("Plan API", () => {
     const initialEtag = initialResponse.headers.get("etag");
     assert.ok(initialEtag);
 
+    const originalPlan = await initialResponse.json();
+    const updatePayload = {
+      title: originalPlan.title,
+      content: originalPlan.content,
+      planDate: originalPlan.planDate,
+      focus: "TE",
+      metadata: originalPlan.metadata ?? {},
+    };
+
     const updateResponse = await fetch(`${baseUrl}/api/plans/${created.id}`, {
-      method: "PATCH",
+      method: "PUT",
       headers: {
         "Content-Type": "application/json",
         "If-Match": initialEtag,
       },
-      body: JSON.stringify({ focus: "TE" }),
+      body: JSON.stringify(updatePayload),
     });
 
     assert.equal(updateResponse.status, 200);
@@ -140,7 +149,7 @@ describe("Plan API", () => {
     });
     assert.equal(missingFields.status, 400);
     const message = await missingFields.json();
-    assert.match(message.error, /content ist erforderlich/);
+    assert.match(message.error.message, /content ist erforderlich/);
   });
 
   it("verhindert Änderungen mit veralteten ETags", async () => {
@@ -155,30 +164,39 @@ describe("Plan API", () => {
     const initialEtag = initial.headers.get("etag");
     assert.ok(initialEtag);
 
+    const initialBody = await initial.json();
+    const firstPayload = {
+      title: initialBody.title,
+      content: initialBody.content,
+      planDate: initialBody.planDate,
+      focus: "TE",
+      metadata: initialBody.metadata ?? {},
+    };
     const firstUpdate = await fetch(`${baseUrl}/api/plans/${plan.id}`, {
-      method: "PATCH",
+      method: "PUT",
       headers: {
         "Content-Type": "application/json",
         "If-Match": initialEtag,
       },
-      body: JSON.stringify({ focus: "TE" }),
+      body: JSON.stringify(firstPayload),
     });
     assert.equal(firstUpdate.status, 200);
     const freshEtag = firstUpdate.headers.get("etag");
     assert.ok(freshEtag);
 
+    const conflictPayload = { ...firstPayload, focus: "SP" };
     const conflict = await fetch(`${baseUrl}/api/plans/${plan.id}`, {
-      method: "PATCH",
+      method: "PUT",
       headers: {
         "Content-Type": "application/json",
         "If-Match": initialEtag,
       },
-      body: JSON.stringify({ focus: "SP" }),
+      body: JSON.stringify(conflictPayload),
     });
     assert.equal(conflict.status, 412);
     assert.equal(conflict.headers.get("etag"), freshEtag);
     const conflictBody = await conflict.json();
-    assert.equal(conflictBody.currentPlan.focus, "TE");
+    assert.equal(conflictBody.error.details?.currentPlan?.focus, "TE");
 
     const deleteConflict = await fetch(`${baseUrl}/api/plans/${plan.id}`, {
       method: "DELETE",
@@ -189,7 +207,7 @@ describe("Plan API", () => {
     assert.equal(deleteConflict.status, 412);
     assert.equal(deleteConflict.headers.get("etag"), freshEtag);
     const deleteBody = await deleteConflict.json();
-    assert.equal(deleteBody.currentPlan.focus, "TE");
+    assert.equal(deleteBody.error.details?.currentPlan?.focus, "TE");
 
     const cleanup = await fetch(`${baseUrl}/api/plans/${plan.id}`, {
       method: "DELETE",
@@ -215,7 +233,7 @@ describe("Plan API", () => {
       focus: "AR",
     });
 
-    const backupResponse = await fetch(`${baseUrl}/api/storage/backup`);
+    const backupResponse = await fetch(`${baseUrl}/api/backups`);
     assert.equal(backupResponse.status, 200);
     assert.equal(backupResponse.headers.get("cache-control"), "no-store");
     const backup = await backupResponse.json();
@@ -231,7 +249,7 @@ describe("Plan API", () => {
     const interimPlans = await store.listPlans();
     assert.equal(interimPlans.length, 2);
 
-    const restoreResponse = await fetch(`${baseUrl}/api/storage/restore`, {
+    const restoreResponse = await fetch(`${baseUrl}/api/backups`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -248,7 +266,7 @@ describe("Plan API", () => {
     assert.equal(restoredPlans.length, 1);
     assert.equal(restoredPlans[0].title, basePlan.title);
 
-    const invalidRestore = await fetch(`${baseUrl}/api/storage/restore`, {
+    const invalidRestore = await fetch(`${baseUrl}/api/backups`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -263,7 +281,10 @@ describe("Plan API", () => {
       method: "OPTIONS",
     });
     assert.equal(optionsResponse.status, 204);
-    assert.equal(optionsResponse.headers.get("access-control-allow-origin"), "*");
+    assert.equal(
+      optionsResponse.headers.get("access-control-allow-origin"),
+      "http://localhost:3000",
+    );
 
     const created = await store.createPlan({
       title: "Technik",
@@ -277,7 +298,10 @@ describe("Plan API", () => {
     });
     assert.equal(headResponse.status, 200);
     assert.equal(headResponse.headers.get("content-type"), "application/json; charset=utf-8");
-    assert.equal(headResponse.headers.get("access-control-allow-origin"), "*");
+    assert.equal(
+      headResponse.headers.get("access-control-allow-origin"),
+      "http://localhost:3000",
+    );
     const body = await headResponse.text();
     assert.equal(body, "");
   });
@@ -325,7 +349,7 @@ describe("Plan API", () => {
     const text = await response.text();
     assert.ok(text.includes("<!DOCTYPE html>"));
 
-    const headResponse = await fetch(`${baseUrl}/styles.css`, { method: "HEAD" });
+    const headResponse = await fetch(`${baseUrl}/css/main.css`, { method: "HEAD" });
     assert.equal(headResponse.status, 200);
     assert.ok(Number.parseInt(headResponse.headers.get("content-length") ?? "0", 10) > 0);
     assert.equal(headResponse.headers.get("cache-control"), "public, max-age=300");
@@ -370,7 +394,7 @@ describe("Plan API", () => {
     const closeMock = mock.method(localStore, "close", async () => {});
     const localServer = createServer({
       store: localStore,
-      publicDir: repoRoot,
+      publicDir: path.join(repoRoot, "public"),
       gracefulShutdownSignals: [],
     });
     localServer.listen(0);

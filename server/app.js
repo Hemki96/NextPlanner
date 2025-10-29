@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
@@ -9,15 +10,16 @@ import {
   PlanConflictError,
   PlanValidationError,
   StorageIntegrityError,
-} from "../js/storage/jsonPlanStore.js";
-import { JsonSnippetStore } from "../js/storage/jsonSnippetStore.js";
+} from "./stores/json-plan-store.js";
+import { JsonSnippetStore } from "./stores/json-snippet-store.js";
 
 class HttpError extends Error {
-  constructor(status, message, { expose = true } = {}) {
+  constructor(status, message, { expose = true, code = null } = {}) {
     super(message);
     this.name = "HttpError";
     this.status = status;
     this.expose = expose;
+    this.code = code ?? `http-${status}`;
   }
 }
 
@@ -33,20 +35,67 @@ const MIME_TYPES = {
   ".md": "text/markdown; charset=utf-8",
 };
 
+const DEFAULT_ALLOWED_ORIGINS = Object.freeze(["http://localhost:3000"]);
+
+function parseAllowedOrigins(value) {
+  if (!value) {
+    return DEFAULT_ALLOWED_ORIGINS;
+  }
+  return value
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+}
+
+const ALLOWED_ORIGINS = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
+
 const API_CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "Content-Type",
-  "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type,If-Match,If-None-Match",
+  "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,DELETE,OPTIONS",
   "Access-Control-Max-Age": "600",
 };
 
-function withCorsHeaders(headers = {}) {
-  return { ...API_CORS_HEADERS, ...headers };
-}
-
 const API_BASE_HEADERS = Object.freeze({
   "Cache-Control": "no-store",
+  "Content-Security-Policy":
+    "default-src 'none'; base-uri 'self'; frame-ancestors 'none';", // tightened for API responses
+  "X-Content-Type-Options": "nosniff",
 });
+
+const STATIC_SECURITY_HEADERS = Object.freeze({
+  "Content-Security-Policy":
+    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "no-referrer",
+});
+
+function appendVary(value, field) {
+  const vary = new Set(
+    (value ?? "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean),
+  );
+  vary.add(field);
+  return Array.from(vary).join(", ");
+}
+
+function selectCorsOrigin(origin) {
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    return origin;
+  }
+  return ALLOWED_ORIGINS[0] ?? origin ?? "";
+}
+
+function withCorsHeaders(headers = {}, origin) {
+  const chosenOrigin = selectCorsOrigin(origin);
+  const base = { ...API_CORS_HEADERS, ...headers };
+  if (chosenOrigin) {
+    base["Access-Control-Allow-Origin"] = chosenOrigin;
+  }
+  base.Vary = appendVary(base.Vary, "Origin");
+  return base;
+}
 
 function buildApiHeaders(extra = {}) {
   return { ...API_BASE_HEADERS, ...extra };
@@ -58,14 +107,44 @@ function buildEtag(fileStat) {
   return `"${sizeHex}-${mtimeHex}"`;
 }
 
+function sortCanonical(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => sortCanonical(item));
+  }
+  if (value && typeof value === "object") {
+    return Object.keys(value)
+      .sort()
+      .reduce((acc, key) => {
+        acc[key] = sortCanonical(value[key]);
+        return acc;
+      }, {});
+  }
+  return value;
+}
+
+function canonicalizePlan(plan) {
+  const canonicalPlan = {
+    id: plan.id,
+    title: plan.title,
+    content: plan.content,
+    planDate: plan.planDate,
+    focus: plan.focus,
+    metadata: plan.metadata ?? {},
+    createdAt: plan.createdAt,
+    updatedAt: plan.updatedAt,
+  };
+  return JSON.stringify(sortCanonical(canonicalPlan));
+}
+
 function buildPlanEtag(plan) {
-  const value = `plan-${plan.id}@${plan.updatedAt}`;
-  return `"${value}"`;
+  const canonical = canonicalizePlan(plan);
+  const hash = createHash("sha256").update(canonical).digest("hex");
+  return `"${hash}"`;
 }
 
 function ifMatchSatisfied(header, currentEtag) {
-  if (!header) {
-    return true;
+  if (!header || !currentEtag) {
+    return false;
   }
   const trimmed = header.trim();
   if (!trimmed) {
@@ -128,14 +207,22 @@ function isRequestFresh(headers, etag, mtimeMs) {
   return Math.floor(mtimeMs / 1000) <= Math.floor(since / 1000);
 }
 
-function sendJson(res, status, payload, { cors = false, method = "GET", headers = {} } = {}) {
+function sendJson(
+  res,
+  status,
+  payload,
+  { cors = false, method = "GET", headers = {}, origin } = {},
+) {
   const body = JSON.stringify(payload, null, 2);
   const baseHeaders = {
     "Content-Type": "application/json; charset=utf-8",
     "Content-Length": Buffer.byteLength(body),
   };
   const finalHeaders = { ...(headers ?? {}), ...baseHeaders };
-  res.writeHead(status, cors ? withCorsHeaders(finalHeaders) : finalHeaders);
+  res.writeHead(
+    status,
+    cors ? withCorsHeaders(finalHeaders, origin) : finalHeaders,
+  );
   if (method !== "HEAD") {
     res.end(body);
   } else {
@@ -143,13 +230,12 @@ function sendJson(res, status, payload, { cors = false, method = "GET", headers 
   }
 }
 
-function sendEmpty(res, status, { cors = false, headers = {} } = {}) {
+function sendEmpty(res, status, { cors = false, headers = {}, origin } = {}) {
   const finalHeaders = { ...(headers ?? {}) };
-  if (cors) {
-    res.writeHead(status, withCorsHeaders(finalHeaders));
-  } else {
-    res.writeHead(status, finalHeaders);
-  }
+  res.writeHead(
+    status,
+    cors ? withCorsHeaders(finalHeaders, origin) : finalHeaders,
+  );
   res.end();
 }
 
@@ -158,7 +244,7 @@ async function readJsonBody(req, { limit = 1_000_000 } = {}) {
   let totalLength = 0;
 
   const method = req.method ?? "GET";
-  if (method === "POST" || method === "PATCH") {
+  if (method === "POST" || method === "PUT") {
     const contentType = req.headers["content-type"] ?? "";
     if (!/^application\/json(?:;|$)/i.test(contentType)) {
       throw new HttpError(415, "Content-Type muss application/json sein");
@@ -234,7 +320,7 @@ function sanitizePath(rootDir, requestedPath) {
 async function serveStatic(req, res, url, rootDir) {
   const safePath = sanitizePath(rootDir, url.pathname);
   if (!safePath) {
-    sendEmpty(res, 403);
+    sendEmpty(res, 403, { headers: STATIC_SECURITY_HEADERS });
     return;
   }
 
@@ -256,7 +342,7 @@ async function serveStatic(req, res, url, rootDir) {
         attemptedFallback = true;
         continue;
       }
-      sendEmpty(res, 404);
+      sendEmpty(res, 404, { headers: STATIC_SECURITY_HEADERS });
       return;
     }
   }
@@ -270,8 +356,9 @@ async function serveStatic(req, res, url, rootDir) {
     "Cache-Control": "public, max-age=300",
   };
 
+  const notModifiedHeaders = { ...cacheHeaders, ...STATIC_SECURITY_HEADERS };
   if (isRequestFresh(req.headers ?? {}, etag, fileStat.mtimeMs)) {
-    res.writeHead(304, cacheHeaders);
+    res.writeHead(304, notModifiedHeaders);
     res.end();
     return;
   }
@@ -281,26 +368,27 @@ async function serveStatic(req, res, url, rootDir) {
     "Content-Type": mime,
     "Content-Length": fileStat.size,
   };
+  const responseHeaders = { ...headers, ...STATIC_SECURITY_HEADERS };
 
   if (method === "HEAD") {
-    res.writeHead(200, headers);
+    res.writeHead(200, responseHeaders);
     res.end();
     return;
   }
 
   if (method !== "GET") {
-    sendEmpty(res, 405);
+    sendEmpty(res, 405, { headers: STATIC_SECURITY_HEADERS });
     return;
   }
 
   const stream = createReadStream(filePath);
   stream.once("open", () => {
-    res.writeHead(200, headers);
+    res.writeHead(200, responseHeaders);
   });
   stream.once("error", (error) => {
     if (!res.headersSent) {
       const status = error?.code === "ENOENT" ? 404 : 500;
-      sendEmpty(res, status);
+      sendEmpty(res, status, { headers: STATIC_SECURITY_HEADERS });
     } else {
       res.destroy(error);
     }
@@ -363,105 +451,132 @@ function validateCreatePayload(payload) {
   };
 }
 
-function validateUpdatePayload(payload) {
-  const data = ensureJsonObject(payload);
-  const allowedKeys = ["title", "content", "planDate", "focus", "metadata"];
-  const updates = {};
-  let changed = false;
-  for (const key of allowedKeys) {
-    if (!Object.prototype.hasOwnProperty.call(data, key)) {
-      continue;
-    }
-    const value = data[key];
-    changed = true;
-    if (key === "metadata") {
-      updates.metadata = validateMetadata(value);
-    } else if (value === undefined || value === null) {
-      throw new HttpError(400, `${key} darf nicht leer sein`);
-    } else if (typeof value !== "string" || !value.trim()) {
-      throw new HttpError(400, `${key} muss ein nicht-leerer String sein`);
-    } else {
-      updates[key] = value;
-    }
+function buildErrorPayload(code, message, details) {
+  const payload = { error: { code, message } };
+  if (details !== undefined) {
+    payload.error.details = details;
   }
-  if (!changed) {
-    throw new HttpError(400, "Keine gültigen Felder für Update vorhanden");
-  }
-  return updates;
+  return payload;
 }
 
-function handleApiError(res, error, method = "GET") {
+function handleApiError(res, error, method = "GET", origin) {
   if (error instanceof HttpError) {
-    const payload = { error: error.message };
+    const message = error.expose ? error.message : "Unbekannter Fehler";
+    const payload = buildErrorPayload(error.code ?? `http-${error.status}`, message);
     sendJson(res, error.status, payload, {
       cors: true,
       method,
       headers: buildApiHeaders(),
+      origin,
     });
     return;
   }
   if (error instanceof PlanValidationError) {
-    sendJson(res, 400, { error: error.message }, {
-      cors: true,
-      method,
-      headers: buildApiHeaders(),
-    });
+    sendJson(
+      res,
+      400,
+      buildErrorPayload("plan-validation", error.message),
+      {
+        cors: true,
+        method,
+        headers: buildApiHeaders(),
+        origin,
+      },
+    );
     return;
   }
   if (error instanceof StorageIntegrityError) {
-    const body = { error: error.message };
-    if (error.backupFile) {
-      body.backupFile = error.backupFile;
-    }
-    sendJson(res, 503, body, {
-      cors: true,
-      method,
-      headers: buildApiHeaders(),
-    });
+    const details = error.backupFile ? { backupFile: error.backupFile } : undefined;
+    sendJson(
+      res,
+      503,
+      buildErrorPayload("storage-integrity", error.message, details),
+      {
+        cors: true,
+        method,
+        headers: buildApiHeaders(),
+        origin,
+      },
+    );
     return;
   }
   if (error instanceof PlanConflictError) {
-    const body = { error: error.message };
-    let headers = buildApiHeaders();
-    if (error.currentPlan) {
-      body.currentPlan = error.currentPlan;
-      headers = buildApiHeaders({ ETag: buildPlanEtag(error.currentPlan) });
-    }
-    sendJson(res, 412, body, { cors: true, method, headers });
+    const details = error.currentPlan ? { currentPlan: error.currentPlan } : undefined;
+    const headers = error.currentPlan
+      ? buildApiHeaders({ ETag: buildPlanEtag(error.currentPlan) })
+      : buildApiHeaders();
+    sendJson(
+      res,
+      412,
+      buildErrorPayload("plan-conflict", error.message, details),
+      {
+        cors: true,
+        method,
+        headers,
+        origin,
+      },
+    );
     return;
   }
   console.error("Unexpected API error", error);
-  const message = process.env.NODE_ENV === "development" ? error.message : "Interner Serverfehler";
-  sendJson(res, 500, { error: message }, {
-    cors: true,
-    method,
-    headers: buildApiHeaders(),
-  });
+  const message =
+    process.env.NODE_ENV === "development"
+      ? error instanceof Error
+        ? error.message
+        : String(error)
+      : "Interner Serverfehler";
+  sendJson(
+    res,
+    500,
+    buildErrorPayload("internal-error", message),
+    {
+      cors: true,
+      method,
+      headers: buildApiHeaders(),
+      origin,
+    },
+  );
 }
 
-async function handleApiRequest(req, res, url, planStore, snippetStore) {
-  const method = req.method ?? "GET";
+async function handleApiRequest(
+  req,
+  res,
+  url,
+  planStore,
+  snippetStore,
+  origin,
+) {
+  const requestOrigin = origin ?? req.headers?.origin ?? "";
+  const method = (req.method ?? "GET").toUpperCase();
 
   if (method === "OPTIONS") {
-    sendEmpty(res, 204, { cors: true, headers: buildApiHeaders() });
+    const headers = buildApiHeaders({
+      "Access-Control-Allow-Methods": API_CORS_HEADERS["Access-Control-Allow-Methods"],
+    });
+    sendEmpty(res, 204, { cors: true, headers, origin: requestOrigin });
     return;
   }
 
-  if (url.pathname === "/api/storage/backup") {
-    if (method === "GET" || method === "HEAD") {
+  const isBackupsRoute =
+    url.pathname === "/api/backups" ||
+    url.pathname === "/api/storage/backup" ||
+    url.pathname === "/api/storage/restore";
+  if (isBackupsRoute) {
+    const isRestorePath = url.pathname === "/api/storage/restore";
+    if ((method === "GET" || method === "HEAD") && !isRestorePath) {
       try {
         const backup = await planStore.exportBackup();
-        sendJson(res, 200, backup, { cors: true, method, headers: buildApiHeaders() });
+        sendJson(res, 200, backup, {
+          cors: true,
+          method,
+          headers: buildApiHeaders(),
+          origin: requestOrigin,
+        });
       } catch (error) {
-        handleApiError(res, error, method);
+        handleApiError(res, error, method, requestOrigin);
       }
       return;
     }
-    handleApiError(res, new HttpError(405, "Methode nicht erlaubt"), method);
-    return;
-  }
-
-  if (url.pathname === "/api/storage/restore") {
     if (method === "POST") {
       try {
         const body = await readJsonBody(req, { limit: 5_000_000 });
@@ -472,51 +587,70 @@ async function handleApiRequest(req, res, url, planStore, snippetStore) {
           planCount: result.planCount,
           restoredAt: new Date().toISOString(),
         };
-        sendJson(res, 200, responseBody, { cors: true, method, headers: buildApiHeaders() });
+        sendJson(res, 200, responseBody, {
+          cors: true,
+          method,
+          headers: buildApiHeaders(),
+          origin: requestOrigin,
+        });
       } catch (error) {
-        handleApiError(res, error, method);
+        handleApiError(res, error, method, requestOrigin);
       }
       return;
     }
-    handleApiError(res, new HttpError(405, "Methode nicht erlaubt"), method);
+    handleApiError(res, new HttpError(405, "Methode nicht erlaubt"), method, requestOrigin);
     return;
   }
 
   if (url.pathname === "/api/snippets") {
     if (!snippetStore) {
-      handleApiError(res, new HttpError(503, "Team-Bibliothek nicht verfügbar"), method);
+      handleApiError(
+        res,
+        new HttpError(503, "Team-Bibliothek nicht verfügbar"),
+        method,
+        requestOrigin,
+      );
       return;
     }
 
     if (method === "GET" || method === "HEAD") {
       try {
         const library = await snippetStore.getLibrary();
-        sendJson(res, 200, library, { cors: true, method, headers: buildApiHeaders() });
+        sendJson(res, 200, library, {
+          cors: true,
+          method,
+          headers: buildApiHeaders(),
+          origin: requestOrigin,
+        });
       } catch (error) {
-        handleApiError(res, error, method);
+        handleApiError(res, error, method, requestOrigin);
       }
       return;
     }
 
-    if (method === "PUT" || method === "POST") {
+    if (method === "PUT") {
       try {
         const body = await readJsonBody(req, { limit: 1_000_000 });
-        let groups;
-        if (Array.isArray(body)) {
-          groups = body;
-        } else {
-          const payload = ensureJsonObject(body);
-          groups = Array.isArray(payload.groups) ? payload.groups : payload;
+        const payload = Array.isArray(body) ? body : ensureJsonObject(body).groups ?? body;
+        if (!Array.isArray(payload)) {
+          throw new HttpError(400, "Erwartet wurde ein Array von Gruppen", {
+            code: "invalid-snippet-payload",
+          });
         }
-        const library = await snippetStore.replaceLibrary(groups);
-        sendJson(res, 200, library, { cors: true, method, headers: buildApiHeaders() });
+        const library = await snippetStore.replaceLibrary(payload);
+        sendJson(res, 200, library, {
+          cors: true,
+          method,
+          headers: buildApiHeaders(),
+          origin: requestOrigin,
+        });
       } catch (error) {
-        handleApiError(res, error, method);
+        handleApiError(res, error, method, requestOrigin);
       }
       return;
     }
 
-    handleApiError(res, new HttpError(405, "Methode nicht erlaubt"), method);
+    handleApiError(res, new HttpError(405, "Methode nicht erlaubt"), method, requestOrigin);
     return;
   }
 
@@ -526,10 +660,18 @@ async function handleApiRequest(req, res, url, planStore, snippetStore) {
         const body = await readJsonBody(req);
         const payload = validateCreatePayload(body);
         const plan = await planStore.createPlan(payload);
-        const headers = buildApiHeaders({ ETag: buildPlanEtag(plan) });
-        sendJson(res, 201, plan, { cors: true, method, headers });
+        const headers = buildApiHeaders({
+          ETag: buildPlanEtag(plan),
+          Location: `/api/plans/${plan.id}`,
+        });
+        sendJson(res, 201, plan, {
+          cors: true,
+          method,
+          headers,
+          origin: requestOrigin,
+        });
       } catch (error) {
-        handleApiError(res, error, method);
+        handleApiError(res, error, method, requestOrigin);
       }
       return;
     }
@@ -542,20 +684,25 @@ async function handleApiRequest(req, res, url, planStore, snippetStore) {
           from: from ?? undefined,
           to: to ?? undefined,
         });
-        sendJson(res, 200, plans, { cors: true, method, headers: buildApiHeaders() });
+        sendJson(res, 200, plans, {
+          cors: true,
+          method,
+          headers: buildApiHeaders(),
+          origin: requestOrigin,
+        });
       } catch (error) {
-        handleApiError(res, error, method);
+        handleApiError(res, error, method, requestOrigin);
       }
       return;
     }
 
-    handleApiError(res, new HttpError(405, "Methode nicht erlaubt"), method);
+    handleApiError(res, new HttpError(405, "Methode nicht erlaubt"), method, requestOrigin);
     return;
   }
 
   const planId = parseIdFromPath(url.pathname);
   if (planId === null) {
-    handleApiError(res, new HttpError(404, "Endpunkt nicht gefunden"), method);
+    handleApiError(res, new HttpError(404, "Endpunkt nicht gefunden"), method, requestOrigin);
     return;
   }
 
@@ -568,42 +715,58 @@ async function handleApiRequest(req, res, url, planStore, snippetStore) {
       const etag = buildPlanEtag(plan);
       const responseHeaders = buildApiHeaders({ ETag: etag });
       if (etagMatches(req.headers?.["if-none-match"], etag)) {
-        sendEmpty(res, 304, { cors: true, headers: responseHeaders });
+        sendEmpty(res, 304, {
+          cors: true,
+          headers: responseHeaders,
+          origin: requestOrigin,
+        });
         return;
       }
-      sendJson(res, 200, plan, { cors: true, method, headers: responseHeaders });
+      sendJson(res, 200, plan, {
+        cors: true,
+        method,
+        headers: responseHeaders,
+        origin: requestOrigin,
+      });
     } catch (error) {
-      handleApiError(res, error, method);
+      handleApiError(res, error, method, requestOrigin);
     }
     return;
   }
 
-  if (method === "PATCH") {
+  if (method === "PUT") {
     try {
-      const body = await readJsonBody(req);
-      const updates = validateUpdatePayload(body);
       const ifMatch = req.headers?.["if-match"];
-      let plan;
-      if (ifMatch) {
-        const current = await planStore.getPlan(planId);
-        if (!current) {
-          throw new HttpError(404, "Plan nicht gefunden");
-        }
-        const currentEtag = buildPlanEtag(current);
-        if (!ifMatchSatisfied(ifMatch, currentEtag)) {
-          throw new PlanConflictError("Plan wurde bereits geändert.", { currentPlan: current });
-        }
-        plan = await planStore.updatePlan(planId, updates, { expectedUpdatedAt: current.updatedAt });
-      } else {
-        plan = await planStore.updatePlan(planId, updates);
+      if (!ifMatch) {
+        throw new HttpError(412, "If-Match Header ist erforderlich", {
+          code: "missing-if-match",
+        });
       }
+      const current = await planStore.getPlan(planId);
+      if (!current) {
+        throw new HttpError(404, "Plan nicht gefunden");
+      }
+      const currentEtag = buildPlanEtag(current);
+      if (!ifMatchSatisfied(ifMatch, currentEtag)) {
+        throw new PlanConflictError("Plan wurde bereits geändert.", { currentPlan: current });
+      }
+      const body = await readJsonBody(req);
+      const replacement = validateCreatePayload(body);
+      const plan = await planStore.replacePlan(planId, replacement, {
+        expectedUpdatedAt: current.updatedAt,
+      });
       if (!plan) {
         throw new HttpError(404, "Plan nicht gefunden");
       }
       const responseHeaders = buildApiHeaders({ ETag: buildPlanEtag(plan) });
-      sendJson(res, 200, plan, { cors: true, method, headers: responseHeaders });
+      sendJson(res, 200, plan, {
+        cors: true,
+        method,
+        headers: responseHeaders,
+        origin: requestOrigin,
+      });
     } catch (error) {
-      handleApiError(res, error, method);
+      handleApiError(res, error, method, requestOrigin);
     }
     return;
   }
@@ -611,50 +774,71 @@ async function handleApiRequest(req, res, url, planStore, snippetStore) {
   if (method === "DELETE") {
     try {
       const ifMatch = req.headers?.["if-match"];
-      let removed;
-      if (ifMatch) {
-        const current = await planStore.getPlan(planId);
-        if (!current) {
-          throw new HttpError(404, "Plan nicht gefunden");
-        }
-        const currentEtag = buildPlanEtag(current);
-        if (!ifMatchSatisfied(ifMatch, currentEtag)) {
-          throw new PlanConflictError("Plan wurde bereits geändert.", { currentPlan: current });
-        }
-        removed = await planStore.deletePlan(planId, { expectedUpdatedAt: current.updatedAt });
-      } else {
-        removed = await planStore.deletePlan(planId);
+      if (!ifMatch) {
+        throw new HttpError(412, "If-Match Header ist erforderlich", {
+          code: "missing-if-match",
+        });
       }
+      const current = await planStore.getPlan(planId);
+      if (!current) {
+        throw new HttpError(404, "Plan nicht gefunden");
+      }
+      const currentEtag = buildPlanEtag(current);
+      if (!ifMatchSatisfied(ifMatch, currentEtag)) {
+        throw new PlanConflictError("Plan wurde bereits geändert.", { currentPlan: current });
+      }
+      const removed = await planStore.deletePlan(planId, {
+        expectedUpdatedAt: current.updatedAt,
+      });
       if (!removed) {
         throw new HttpError(404, "Plan nicht gefunden");
       }
-      sendEmpty(res, 204, { cors: true, headers: buildApiHeaders() });
+      sendEmpty(res, 204, {
+        cors: true,
+        headers: buildApiHeaders(),
+        origin: requestOrigin,
+      });
     } catch (error) {
-      handleApiError(res, error, method);
+      handleApiError(res, error, method, requestOrigin);
     }
     return;
   }
 
-  handleApiError(res, new HttpError(405, "Methode nicht erlaubt"), method);
+  handleApiError(res, new HttpError(405, "Methode nicht erlaubt"), method, requestOrigin);
 }
 
 export function createRequestHandler({ store, snippetStore, publicDir } = {}) {
   const planStore = store ?? new JsonPlanStore();
   const teamSnippetStore = snippetStore ?? new JsonSnippetStore();
-  const defaultDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const defaultDir = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "public",
+  );
   const rootDir = path.resolve(publicDir ?? defaultDir);
 
   return async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
       if (isApiRequest(url.pathname)) {
-        await handleApiRequest(req, res, url, planStore, teamSnippetStore);
+        await handleApiRequest(
+          req,
+          res,
+          url,
+          planStore,
+          teamSnippetStore,
+          req.headers?.origin ?? "",
+        );
         return;
       }
       await serveStatic(req, res, url, rootDir);
     } catch (error) {
       if (!res.headersSent) {
-        sendJson(res, 500, { error: "Interner Serverfehler" });
+        sendJson(
+          res,
+          500,
+          buildErrorPayload("internal-error", "Interner Serverfehler"),
+        );
       } else {
         res.end();
       }

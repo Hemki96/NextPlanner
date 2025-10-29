@@ -168,15 +168,15 @@ Die CLI und der integrierte Server greifen auf dieselbe JSON-Datei zu wie die We
 Der Prototyp benötigt keinen Build-Schritt. Die Architektur ist in einzelne ES-Module
 aufgeteilt:
 
-- `js/app.js` verdrahtet DOM-Interaktionen und orchestriert Parser und Rendering.
-- `js/parser/planParser.js` kapselt die komplette Analyse des Freitextes.
-- `js/ui/summaryRenderer.js` formatiert die Live-Auswertungen im UI.
-- `js/ui/helpOverlay.js` übernimmt Fokus- und Overlay-Steuerung.
-- `js/ui/ioControls.js` steuert Datei-Import und -Export.
-- `js/utils/*.js` stellt Formatierungs- und Berechnungs-Helfer bereit.
+- `public/js/app.js` verdrahtet DOM-Interaktionen und orchestriert Parser und Rendering.
+- `public/js/parser/plan-parser.js` kapselt die komplette Analyse des Freitextes.
+- `public/js/ui/summary-renderer.js` formatiert die Live-Auswertungen im UI.
+- `public/js/ui/help-overlay.js` übernimmt Fokus- und Overlay-Steuerung.
+- `public/js/ui/io-controls.js` steuert Datei-Import und -Export.
+- `public/js/utils/*.js` stellt Formatierungs- und Berechnungs-Helfer bereit.
 
-Styles liegen weiterhin in `styles.css`. Öffne `index.html` direkt im Browser, um Änderungen
-sofort zu testen.
+Styles liegen gebündelt in `public/css/main.css`. Öffne `public/index.html` direkt im
+Browser oder starte den Server (`npm start`), um Änderungen sofort zu testen.
 
 ## Tests
 

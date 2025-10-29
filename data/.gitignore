@@ -1,3 +1,2 @@
 # Datenbankdateien werden zur Laufzeit erstellt
 *.db
-plans.json

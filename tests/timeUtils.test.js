@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseDuration, formatDuration } from '../js/utils/time.js';
+import { parseDuration, formatDuration } from '../public/js/utils/time.js';
 
 test('parseDuration supports seconds, minutes and hours', () => {
   assert.equal(parseDuration('45'), 45);
