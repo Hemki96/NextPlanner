@@ -8,6 +8,8 @@ import {
 
 const groupContainer = document.getElementById("snippet-groups");
 const addGroupButton = document.getElementById("add-group");
+const expandAllButton = document.getElementById("expand-groups");
+const collapseAllButton = document.getElementById("collapse-groups");
 const resetButton = document.getElementById("reset-groups");
 const saveButton = document.getElementById("save-groups");
 const exportButton = document.getElementById("export-groups");
@@ -15,18 +17,28 @@ const importButton = document.getElementById("import-groups");
 const importInput = document.getElementById("import-groups-file");
 const statusElement = document.getElementById("settings-status");
 
+function createGroupId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `group-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function cloneGroups(groups) {
   if (!Array.isArray(groups)) {
     return [];
   }
   return groups.map((group) => ({
-    title: group.title,
-    description: group.description,
+    id: typeof group.id === "string" ? group.id : createGroupId(),
+    title: typeof group.title === "string" ? group.title : "",
+    description: typeof group.description === "string" ? group.description : "",
     items: Array.isArray(group.items) ? group.items.map((item) => ({ ...item })) : [],
   }));
 }
 
 let snippetGroups = cloneGroups(getQuickSnippets());
+const collapsedGroups = new Set();
+let pendingFocus = null;
 
 function createEmptyItem() {
   return {
@@ -41,10 +53,32 @@ function createEmptyItem() {
 
 function createEmptyGroup() {
   return {
+    id: createGroupId(),
     title: "Neue Kategorie",
     description: "",
     items: [createEmptyItem()],
   };
+}
+
+function formatItemCount(count) {
+  if (count === 1) {
+    return "1 Baustein";
+  }
+  return `${count} Bausteine`;
+}
+
+function autoResizeTextArea(textarea) {
+  window.requestAnimationFrame(() => {
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  });
+}
+
+function scheduleFocus(focusRequest) {
+  pendingFocus = focusRequest;
+  if (focusRequest && typeof focusRequest.groupId === "string") {
+    collapsedGroups.delete(focusRequest.groupId);
+  }
 }
 
 function showStatus(message, type = "info") {
@@ -78,29 +112,74 @@ function renderGroups() {
     return;
   }
 
+  const fragment = document.createDocumentFragment();
+  const knownIds = new Set();
+
   snippetGroups.forEach((group, groupIndex) => {
+    if (!group || typeof group !== "object") {
+      return;
+    }
+
+    if (typeof group.id !== "string") {
+      group.id = createGroupId();
+    }
+
+    knownIds.add(group.id);
+
+    const isCollapsed = collapsedGroups.has(group.id);
+
     const section = document.createElement("section");
     section.className = "snippet-settings-group";
     section.dataset.groupIndex = String(groupIndex);
+    section.dataset.groupId = group.id;
+    section.setAttribute("aria-expanded", String(!isCollapsed));
+    if (isCollapsed) {
+      section.classList.add("is-collapsed");
+    }
 
     const header = document.createElement("header");
     header.className = "snippet-settings-header";
 
+    const titleRow = document.createElement("div");
+    titleRow.className = "snippet-settings-title-row";
+
+    const toggleButton = document.createElement("button");
+    toggleButton.type = "button";
+    toggleButton.className = "snippet-settings-toggle";
+    toggleButton.dataset.groupIndex = String(groupIndex);
+    toggleButton.dataset.groupId = group.id;
+    toggleButton.dataset.action = "toggle-group";
+    toggleButton.setAttribute("aria-expanded", String(!isCollapsed));
+    toggleButton.setAttribute(
+      "aria-label",
+      isCollapsed ? "Kategorie aufklappen" : "Kategorie einklappen"
+    );
+    toggleButton.textContent = isCollapsed ? "Aufklappen" : "Einklappen";
+    titleRow.appendChild(toggleButton);
+
     const titleField = document.createElement("input");
     titleField.type = "text";
     titleField.required = true;
-    titleField.value = group.title;
+    titleField.value = group.title ?? "";
+    titleField.placeholder = "Titel der Kategorie";
     titleField.dataset.groupIndex = String(groupIndex);
     titleField.dataset.field = "title";
     titleField.className = "snippet-settings-title";
-    header.appendChild(titleField);
+    titleRow.appendChild(titleField);
+
+    const countBadge = document.createElement("span");
+    countBadge.className = "snippet-settings-count";
+    countBadge.textContent = formatItemCount(group.items.length);
+    titleRow.appendChild(countBadge);
+
+    header.appendChild(titleRow);
 
     const headerActions = document.createElement("div");
     headerActions.className = "snippet-settings-header-actions";
 
     const moveGroupUp = document.createElement("button");
     moveGroupUp.type = "button";
-    moveGroupUp.className = "ghost-button";
+    moveGroupUp.className = "ghost-button is-quiet";
     moveGroupUp.textContent = "Nach oben";
     moveGroupUp.dataset.groupIndex = String(groupIndex);
     moveGroupUp.dataset.action = "move-group-up";
@@ -112,7 +191,7 @@ function renderGroups() {
 
     const moveGroupDown = document.createElement("button");
     moveGroupDown.type = "button";
-    moveGroupDown.className = "ghost-button";
+    moveGroupDown.className = "ghost-button is-quiet";
     moveGroupDown.textContent = "Nach unten";
     moveGroupDown.dataset.groupIndex = String(groupIndex);
     moveGroupDown.dataset.action = "move-group-down";
@@ -124,7 +203,7 @@ function renderGroups() {
 
     const removeGroup = document.createElement("button");
     removeGroup.type = "button";
-    removeGroup.className = "ghost-button";
+    removeGroup.className = "ghost-button is-quiet";
     removeGroup.dataset.groupIndex = String(groupIndex);
     removeGroup.dataset.action = "remove-group";
     removeGroup.textContent = "Kategorie löschen";
@@ -133,6 +212,9 @@ function renderGroups() {
     header.appendChild(headerActions);
     section.appendChild(header);
 
+    const body = document.createElement("div");
+    body.className = "snippet-settings-body";
+
     const descriptionField = document.createElement("textarea");
     descriptionField.rows = 2;
     descriptionField.placeholder = "Beschreibung (optional)";
@@ -140,7 +222,8 @@ function renderGroups() {
     descriptionField.dataset.groupIndex = String(groupIndex);
     descriptionField.dataset.field = "description";
     descriptionField.className = "snippet-settings-description";
-    section.appendChild(descriptionField);
+    autoResizeTextArea(descriptionField);
+    body.appendChild(descriptionField);
 
     const list = document.createElement("div");
     list.className = "snippet-settings-items";
@@ -154,7 +237,8 @@ function renderGroups() {
       const labelField = document.createElement("input");
       labelField.type = "text";
       labelField.required = true;
-      labelField.value = item.label;
+      labelField.value = item.label ?? "";
+      labelField.placeholder = "Name des Bausteins";
       labelField.dataset.groupIndex = String(groupIndex);
       labelField.dataset.itemIndex = String(itemIndex);
       labelField.dataset.field = "label";
@@ -163,11 +247,13 @@ function renderGroups() {
       const snippetField = document.createElement("textarea");
       snippetField.rows = 3;
       snippetField.required = true;
-      snippetField.value = item.snippet;
+      snippetField.value = item.snippet ?? "";
+      snippetField.placeholder = "Inhalt des Bausteins";
       snippetField.dataset.groupIndex = String(groupIndex);
       snippetField.dataset.itemIndex = String(itemIndex);
       snippetField.dataset.field = "snippet";
       snippetField.className = "snippet-settings-text";
+      autoResizeTextArea(snippetField);
 
       const checkboxRow = document.createElement("div");
       checkboxRow.className = "snippet-settings-checkboxes";
@@ -234,9 +320,10 @@ function renderGroups() {
 
       const actionRow = document.createElement("div");
       actionRow.className = "snippet-settings-actions";
+
       const moveItemUp = document.createElement("button");
       moveItemUp.type = "button";
-      moveItemUp.className = "ghost-button";
+      moveItemUp.className = "ghost-button is-quiet";
       moveItemUp.textContent = "Nach oben";
       moveItemUp.dataset.groupIndex = String(groupIndex);
       moveItemUp.dataset.itemIndex = String(itemIndex);
@@ -248,7 +335,7 @@ function renderGroups() {
 
       const moveItemDown = document.createElement("button");
       moveItemDown.type = "button";
-      moveItemDown.className = "ghost-button";
+      moveItemDown.className = "ghost-button is-quiet";
       moveItemDown.textContent = "Nach unten";
       moveItemDown.dataset.groupIndex = String(groupIndex);
       moveItemDown.dataset.itemIndex = String(itemIndex);
@@ -258,9 +345,18 @@ function renderGroups() {
         moveItemDown.disabled = true;
       }
 
+      const duplicateItem = document.createElement("button");
+      duplicateItem.type = "button";
+      duplicateItem.className = "ghost-button is-quiet";
+      duplicateItem.textContent = "Duplizieren";
+      duplicateItem.dataset.groupIndex = String(groupIndex);
+      duplicateItem.dataset.itemIndex = String(itemIndex);
+      duplicateItem.dataset.action = "duplicate-item";
+      duplicateItem.title = "Baustein duplizieren";
+
       const removeItem = document.createElement("button");
       removeItem.type = "button";
-      removeItem.className = "ghost-button";
+      removeItem.className = "ghost-button is-quiet";
       removeItem.textContent = "Baustein löschen";
       removeItem.dataset.groupIndex = String(groupIndex);
       removeItem.dataset.itemIndex = String(itemIndex);
@@ -268,6 +364,7 @@ function renderGroups() {
 
       actionRow.appendChild(moveItemUp);
       actionRow.appendChild(moveItemDown);
+      actionRow.appendChild(duplicateItem);
       actionRow.appendChild(removeItem);
 
       itemCard.appendChild(labelField);
@@ -280,14 +377,50 @@ function renderGroups() {
 
     const addItemButton = document.createElement("button");
     addItemButton.type = "button";
-    addItemButton.className = "ghost-button";
+    addItemButton.className = "ghost-button is-quiet snippet-settings-add-item";
     addItemButton.textContent = "Baustein hinzufügen";
     addItemButton.dataset.groupIndex = String(groupIndex);
     addItemButton.dataset.action = "add-item";
 
     list.appendChild(addItemButton);
-    section.appendChild(list);
-    groupContainer.appendChild(section);
+    body.appendChild(list);
+    section.appendChild(body);
+    fragment.appendChild(section);
+  });
+
+  [...collapsedGroups].forEach((id) => {
+    if (!knownIds.has(id)) {
+      collapsedGroups.delete(id);
+    }
+  });
+
+  groupContainer.appendChild(fragment);
+  applyPendingFocus();
+}
+
+function applyPendingFocus() {
+  if (!pendingFocus || !groupContainer) {
+    return;
+  }
+
+  const { groupIndex, itemIndex, field } = pendingFocus;
+  const groupSelector = `[data-group-index="${groupIndex}"]`;
+  const fieldSelector = `${groupSelector}[data-field="${field}"]`;
+  const selector =
+    typeof itemIndex === "number"
+      ? `${groupSelector}[data-item-index="${itemIndex}"][data-field="${field}"]`
+      : fieldSelector;
+
+  window.requestAnimationFrame(() => {
+    const element = groupContainer.querySelector(selector);
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+      element.focus();
+      const length = element.value.length;
+      element.setSelectionRange(length, length);
+    } else if (element instanceof HTMLElement) {
+      element.focus();
+    }
+    pendingFocus = null;
   });
 }
 
@@ -335,6 +468,10 @@ function handleInput(event) {
     return;
   }
 
+  if (target instanceof HTMLTextAreaElement) {
+    autoResizeTextArea(target);
+  }
+
   const groupIndex = Number.parseInt(target.dataset.groupIndex ?? "", 10);
   if (Number.isNaN(groupIndex)) {
     return;
@@ -369,74 +506,113 @@ function handleClick(event) {
 
   const action = target.dataset.action;
   const groupIndex = Number.parseInt(target.dataset.groupIndex ?? "", 10);
+  const groupId = target.dataset.groupId;
 
-  if (action === "remove-group") {
-    if (!Number.isNaN(groupIndex)) {
-      const confirmDelete = window.confirm(
-        "Soll diese Kategorie inklusive aller Bausteine gelöscht werden?"
-      );
-      if (!confirmDelete) {
-        return;
+  if (action === "toggle-group") {
+    if (groupId) {
+      if (collapsedGroups.has(groupId)) {
+        collapsedGroups.delete(groupId);
+      } else {
+        collapsedGroups.add(groupId);
       }
-      snippetGroups.splice(groupIndex, 1);
       renderGroups();
     }
+    return;
+  }
+
+  if (Number.isNaN(groupIndex)) {
+    return;
+  }
+
+  const group = snippetGroups[groupIndex];
+  if (!group) {
+    return;
+  }
+
+  if (action === "remove-group") {
+    const confirmDelete = window.confirm(
+      "Soll diese Kategorie inklusive aller Bausteine gelöscht werden?"
+    );
+    if (!confirmDelete) {
+      return;
+    }
+    snippetGroups.splice(groupIndex, 1);
+    if (group.id) {
+      collapsedGroups.delete(group.id);
+    }
+    renderGroups();
   } else if (action === "move-group-up") {
-    if (!Number.isNaN(groupIndex) && groupIndex > 0) {
+    if (groupIndex > 0) {
       const [moved] = snippetGroups.splice(groupIndex, 1);
       snippetGroups.splice(groupIndex - 1, 0, moved);
       renderGroups();
     }
   } else if (action === "move-group-down") {
-    if (!Number.isNaN(groupIndex) && groupIndex < snippetGroups.length - 1) {
+    if (groupIndex < snippetGroups.length - 1) {
       const [moved] = snippetGroups.splice(groupIndex, 1);
       snippetGroups.splice(groupIndex + 1, 0, moved);
       renderGroups();
     }
   } else if (action === "add-item") {
-    if (!Number.isNaN(groupIndex) && snippetGroups[groupIndex]) {
-      snippetGroups[groupIndex].items.push(createEmptyItem());
-      renderGroups();
+    const newItem = createEmptyItem();
+    group.items.push(newItem);
+    scheduleFocus({
+      groupId: group.id,
+      groupIndex,
+      itemIndex: group.items.length - 1,
+      field: "label",
+    });
+    renderGroups();
+  } else if (action === "duplicate-item") {
+    const itemIndex = Number.parseInt(target.dataset.itemIndex ?? "", 10);
+    if (Number.isNaN(itemIndex) || !group.items[itemIndex]) {
+      return;
     }
+    const source = group.items[itemIndex];
+    const duplicateLabel = source.label
+      ? `${source.label} (Kopie)`
+      : "Neuer Baustein";
+    const copy = {
+      ...source,
+      label: duplicateLabel,
+    };
+    const insertIndex = itemIndex + 1;
+    group.items.splice(insertIndex, 0, copy);
+    scheduleFocus({
+      groupId: group.id,
+      groupIndex,
+      itemIndex: insertIndex,
+      field: "label",
+    });
+    renderGroups();
   } else if (action === "remove-item") {
     const itemIndex = Number.parseInt(target.dataset.itemIndex ?? "", 10);
-    if (
-      !Number.isNaN(groupIndex) &&
-      !Number.isNaN(itemIndex) &&
-      snippetGroups[groupIndex]
-    ) {
-      snippetGroups[groupIndex].items.splice(itemIndex, 1);
-      if (snippetGroups[groupIndex].items.length === 0) {
-        snippetGroups[groupIndex].items.push(createEmptyItem());
-      }
-      renderGroups();
+    if (Number.isNaN(itemIndex)) {
+      return;
     }
+    group.items.splice(itemIndex, 1);
+    if (group.items.length === 0) {
+      group.items.push(createEmptyItem());
+    }
+    renderGroups();
   } else if (action === "move-item-up") {
     const itemIndex = Number.parseInt(target.dataset.itemIndex ?? "", 10);
-    if (
-      !Number.isNaN(groupIndex) &&
-      !Number.isNaN(itemIndex) &&
-      snippetGroups[groupIndex] &&
-      itemIndex > 0
-    ) {
-      const items = snippetGroups[groupIndex].items;
-      const [moved] = items.splice(itemIndex, 1);
-      items.splice(itemIndex - 1, 0, moved);
-      renderGroups();
+    if (Number.isNaN(itemIndex) || itemIndex === 0) {
+      return;
     }
+    const items = group.items;
+    const [moved] = items.splice(itemIndex, 1);
+    items.splice(itemIndex - 1, 0, moved);
+    renderGroups();
   } else if (action === "move-item-down") {
     const itemIndex = Number.parseInt(target.dataset.itemIndex ?? "", 10);
-    if (
-      !Number.isNaN(groupIndex) &&
-      !Number.isNaN(itemIndex) &&
-      snippetGroups[groupIndex] &&
-      itemIndex < snippetGroups[groupIndex].items.length - 1
-    ) {
-      const items = snippetGroups[groupIndex].items;
-      const [moved] = items.splice(itemIndex, 1);
-      items.splice(itemIndex + 1, 0, moved);
-      renderGroups();
+    if (Number.isNaN(itemIndex) || itemIndex >= group.items.length - 1) {
+      return;
     }
+    const items = group.items;
+    const [moved] = items.splice(itemIndex, 1);
+    items.splice(itemIndex + 1, 0, moved);
+    renderGroups();
   }
 }
 
@@ -454,12 +630,34 @@ function handleReset() {
   }
   resetQuickSnippets();
   snippetGroups = cloneGroups(defaultQuickSnippetGroups);
+  collapsedGroups.clear();
   showStatus("Standardbausteine wiederhergestellt.", "success");
   renderGroups();
 }
 
 function handleAddGroup() {
-  snippetGroups.push(createEmptyGroup());
+  const newGroup = createEmptyGroup();
+  snippetGroups.push(newGroup);
+  scheduleFocus({
+    groupId: newGroup.id,
+    groupIndex: snippetGroups.length - 1,
+    field: "title",
+  });
+  renderGroups();
+}
+
+function handleExpandAll() {
+  collapsedGroups.clear();
+  renderGroups();
+}
+
+function handleCollapseAll() {
+  collapsedGroups.clear();
+  snippetGroups.forEach((group) => {
+    if (group && typeof group.id === "string") {
+      collapsedGroups.add(group.id);
+    }
+  });
   renderGroups();
 }
 
@@ -502,6 +700,7 @@ function handleImportFile(event) {
       const parsed = JSON.parse(text);
       const sanitized = sanitizeQuickSnippetGroups(parsed);
       snippetGroups = cloneGroups(sanitized);
+      collapsedGroups.clear();
       saveQuickSnippets(snippetGroups);
       renderGroups();
       showStatus("Konfiguration importiert.", "success");
@@ -519,6 +718,8 @@ function handleImportFile(event) {
 }
 
 addGroupButton?.addEventListener("click", handleAddGroup);
+expandAllButton?.addEventListener("click", handleExpandAll);
+collapseAllButton?.addEventListener("click", handleCollapseAll);
 resetButton?.addEventListener("click", handleReset);
 saveButton?.addEventListener("click", handleSave);
 groupContainer?.addEventListener("input", handleInput);
