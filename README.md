@@ -22,6 +22,71 @@ direkt beim Tippen berechnet.
 
 Du kannst NextPlanner entweder direkt als statische Seite testen oder den integrierten Node.js-Server nutzen, der zusätzlich die lokale Datenbank für den Speicher-Button bereitstellt.
 
+## Erste Schritte mit Visual Studio Code
+
+Die folgenden Schritte führen dich durch die komplette Einrichtung des Projekts in [Visual Studio Code](https://code.visualstudio.com/) – vom ersten Klonen bis zum produktiven Arbeiten mit Live-Vorschau, Debugging und Tests.
+
+### 1. Voraussetzungen prüfen
+
+- Installiere [Node.js](https://nodejs.org) (empfohlen Version 18 oder höher). Dadurch stehen gleichzeitig `npm` und die Node-Testumgebung zur Verfügung.
+- Installiere Visual Studio Code und – sofern du es bevorzugst – die Erweiterung **German Language Pack** für eine lokalisierte Oberfläche.
+- Optional aber empfohlen: Erweiterungen **ESLint** (zur Codeanalyse), **Prettier** (Formatierung) und **Live Server** (schnelle Browser-Vorschau). Alle Erweiterungen findest du direkt im VS-Code-Marktplatz (`Strg/Cmd + Shift + X`).
+
+### 2. Repository klonen oder öffnen
+
+1. Öffne VS Code und drücke `Strg/Cmd + Shift + P`, um die Befehlspalette anzuzeigen.
+2. Wähle `Git: Clone` aus und gib die Repository-URL ein (z. B. `https://github.com/<dein-user>/NextPlanner.git`).
+3. Lege einen Zielordner fest und bestätige.
+4. VS Code bietet anschließend an, den Ordner zu öffnen – akzeptiere dies.
+
+Alternativ kannst du einen bereits heruntergeladenen Ordner über **Datei → Ordner öffnen…** wählen.
+
+### 3. Abhängigkeiten installieren
+
+1. Öffne das integrierte Terminal (`Strg/Cmd + ö` oder **Terminal → Neues Terminal**).
+2. Stelle sicher, dass das Terminal im Projektverzeichnis (`NextPlanner`) liegt.
+3. Installiere alle Abhängigkeiten mit:
+
+   ```bash
+   npm install
+   ```
+
+   VS Code erkennt dabei automatisch das `package.json` und stellt Scripts in der Seitenleiste unter „NPM Scripts“ bereit.
+
+### 4. Live-Entwicklung und Vorschau
+
+Du hast zwei gleichwertige Möglichkeiten, die Anwendung während der Entwicklung im Browser zu testen:
+
+- **Integrierter Node.js-Server**: Starte `npm start` im Terminal. Die Anwendung läuft anschließend unter `http://localhost:3000`. Über **Terminal-Aufgaben** oder den NPM-Scripts-Bereich kannst du den Server direkt aus VS Code starten und stoppen.
+- **Live Server Erweiterung**: Öffne `index.html` und klicke rechts unten auf „Go Live“. VS Code hostet die statischen Dateien und aktualisiert die Seite bei jedem Speichern automatisch. Beachte, dass die Speicherfunktion der App (lokale JSON-Datenbank) nur mit dem Node.js-Server verfügbar ist.
+
+### 5. Debugging und Breakpoints
+
+1. Lege bei Bedarf Breakpoints direkt in den JavaScript-Dateien (`js/*.js`) fest.
+2. Verwende für den integrierten Server die Run-&-Debug-Ansicht (`Strg/Cmd + Shift + D`). Über „Add Configuration…“ kannst du eine neue **Node.js Launch**-Konfiguration hinzufügen, die `npm start` startet und automatisch an den Prozess anhängt.
+3. Für die Live-Server-Variante lässt sich das Browser-Debugging über die Erweiterung **Debugger for Chrome** bzw. die integrierte Edge-/Chrome-Unterstützung aktivieren. Starte in der Run-&-Debug-Ansicht eine neue „Launch Chrome gegen localhost“-Konfiguration und öffne dabei die URL, die der Live Server bereitstellt.
+
+### 6. Tests und Qualitätssicherung
+
+1. Führe die vorhandene Testsuite direkt im Terminal mit `npm test` aus. VS Code zeigt Fehler und Assertion-Meldungen im Terminal an.
+2. Konfiguriere optional eine Task unter **Terminal → Konfigurierte Tasks**, um `npm test` regelmäßig per Tastenkürzel (`Strg/Cmd + Shift + B`) zu starten.
+3. Aktiviere ESLint/Prettier, damit du beim Speichern Format- und Stilhinweise erhältst. Über **Einstellungen → Format on Save** kannst du automatische Formatierungen aktivieren.
+
+### 7. Empfohlener Arbeitsablauf
+
+1. Starte `npm start`, um die Anwendung mit Datenbank-Anbindung zu testen.
+2. Öffne parallel `http://localhost:3000` im Browser oder nutze die Live-Server-URL.
+3. Bearbeite HTML-, CSS- oder JS-Dateien in VS Code. Dank Auto-Reload des Browsers siehst du Änderungen sofort.
+4. Prüfe Parser- oder Logikänderungen über `npm test`.
+5. Verwalte Änderungen mit Git direkt in VS Code über die Source-Control-Ansicht (`Strg/Cmd + Shift + G`).
+
+### 8. Häufige Fragen
+
+- **Wo liegt die lokale Datendatei?** – Im Verzeichnis `data/plans.json`. Sie wird beim ersten Speichern automatisch angelegt und ist in `.gitignore` eingetragen.
+- **Warum schlägt „Plan speichern“ fehl?** – Stelle sicher, dass `npm start` läuft. Ohne Server kann die App nicht auf das Dateisystem zugreifen.
+- **Wie ändere ich die Port-Konfiguration?** – Passe den Port in `server.js` an oder setze die Umgebungsvariable `PORT` (z. B. `PORT=4000 npm start`).
+- **Kann ich Tests debuggen?** – Ja. Verwende in der Run-&-Debug-Ansicht die Konfiguration „Node.js: Launch via NPM“, wähle `test` als Script und setze Breakpoints in deinen Testdateien unter `tests/`.
+
 ### Variante A – Integrierter NextPlanner-Server (empfohlen)
 
 1. Stelle sicher, dass [Node.js](https://nodejs.org) installiert ist.
