@@ -1,4 +1,9 @@
 import { ApiError, apiRequest, canUseApi, describeApiError } from "./utils/apiClient.js";
+import {
+  applyFeatureVisibility,
+  getFeatureSettings,
+  subscribeToFeatureSettings,
+} from "./utils/featureSettings.js";
 
 const weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 const monthFormatter = new Intl.DateTimeFormat("de-DE", {
@@ -27,6 +32,14 @@ const copyLastButton = document.getElementById("calendar-copy-last");
 const prevButton = document.getElementById("calendar-prev");
 const nextButton = document.getElementById("calendar-next");
 const todayButton = document.getElementById("calendar-today");
+
+const featureSettings = getFeatureSettings();
+applyFeatureVisibility(document, featureSettings);
+subscribeToFeatureSettings(() => {
+  window.location.reload();
+});
+
+const calendarFeatureEnabled = featureSettings.calendarView !== false;
 
 let currentMonth = startOfMonth(new Date());
 let selectedDateKey = dateToKey(new Date());
@@ -387,44 +400,61 @@ function changeMonth(offset) {
   renderCalendar();
 }
 
-if (calendarGrid) {
-  calendarGrid.addEventListener("click", (event) => {
-    const button = event.target.closest("button.calendar-day");
-    if (!button || !button.dataset.date) {
-      return;
-    }
-    const dateKey = button.dataset.date;
-    selectDate(dateKey);
+if (calendarFeatureEnabled) {
+  if (calendarGrid) {
+    calendarGrid.addEventListener("click", (event) => {
+      const button = event.target.closest("button.calendar-day");
+      if (!button || !button.dataset.date) {
+        return;
+      }
+      const dateKey = button.dataset.date;
+      selectDate(dateKey);
+    });
+  }
+
+  prevButton?.addEventListener("click", () => {
+    changeMonth(-1);
   });
-}
 
-prevButton?.addEventListener("click", () => {
-  changeMonth(-1);
-});
+  nextButton?.addEventListener("click", () => {
+    changeMonth(1);
+  });
 
-nextButton?.addEventListener("click", () => {
-  changeMonth(1);
-});
+  todayButton?.addEventListener("click", () => {
+    const today = new Date();
+    selectedDateKey = dateToKey(today);
+    currentMonth = startOfMonth(today);
+    renderCalendar();
+    renderPlanList(selectedDateKey);
+  });
 
-todayButton?.addEventListener("click", () => {
-  const today = new Date();
-  selectedDateKey = dateToKey(today);
-  currentMonth = startOfMonth(today);
+  copyLastButton?.addEventListener("click", () => {
+    const url = copyLastButton.dataset.url;
+    if (url) {
+      window.location.href = url;
+    }
+  });
+
   renderCalendar();
   renderPlanList(selectedDateKey);
-});
 
-copyLastButton?.addEventListener("click", () => {
-  const url = copyLastButton.dataset.url;
-  if (url) {
-    window.location.href = url;
+  loadPlans().catch((error) => {
+    console.error("Unerwarteter Fehler beim Laden des Kalenders", error);
+    setStatus("Unerwarteter Fehler beim Laden des Kalenders.", "error");
+  });
+} else {
+  setStatus("Der Plan-Kalender ist in den Einstellungen deaktiviert.", "info");
+  const layout = document.querySelector('[data-feature="calendarView"]');
+  if (layout) {
+    layout.innerHTML = "";
+    const card = document.createElement("section");
+    card.className = "page-card feature-disabled-card";
+    const heading = document.createElement("h2");
+    heading.textContent = "Plan-Kalender deaktiviert";
+    const message = document.createElement("p");
+    message.className = "feature-disabled-message";
+    message.textContent = "Aktiviere den Plan-Kalender in den Einstellungen, um gespeicherte Trainingspläne anzuzeigen.";
+    card.append(heading, message);
+    layout.append(card);
   }
-});
-
-renderCalendar();
-renderPlanList(selectedDateKey);
-
-loadPlans().catch((error) => {
-  console.error("Unerwarteter Fehler beim Laden des Kalenders", error);
-  setStatus("Unerwarteter Fehler beim Laden des Kalenders.", "error");
-});
+}

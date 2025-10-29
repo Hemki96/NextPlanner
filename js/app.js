@@ -9,6 +9,11 @@ import { initPlanSaveDialog } from "./ui/planSaveDialog.js";
 import { initTemplateLibraryPanel } from "./ui/templateLibraryPanel.js";
 import { initValidationPanel } from "./ui/validationPanel.js";
 import { ApiError, apiRequest, canUseApi, describeApiError } from "./utils/apiClient.js";
+import {
+  applyFeatureVisibility,
+  getFeatureSettings,
+  subscribeToFeatureSettings,
+} from "./utils/featureSettings.js";
 
 const originalTitle = document.title;
 
@@ -41,30 +46,49 @@ const dom = {
   templatePanel: document.querySelector(".template-panel"),
 };
 
+const featureSettings = getFeatureSettings();
+applyFeatureVisibility(document, featureSettings);
+subscribeToFeatureSettings(() => {
+  window.location.reload();
+});
+
+const quickSnippetsEnabled = featureSettings.quickSnippets !== false;
+const templateLibraryEnabled = featureSettings.templateLibrary !== false;
+const plannerToolsEnabled = featureSettings.plannerTools !== false;
+const syntaxValidationEnabled = featureSettings.syntaxValidation !== false;
+
 const planHighlighter = initPlanHighlighter({
   textarea: dom.planInput,
   highlightLayer: dom.planHighlight,
 });
 
-const validationPanel = initValidationPanel({
-  container: dom.validationPanel,
-  textarea: dom.planInput,
-  highlighter: planHighlighter,
-});
+const validationPanel = syntaxValidationEnabled
+  ? initValidationPanel({
+      container: dom.validationPanel,
+      textarea: dom.planInput,
+      highlighter: planHighlighter,
+    })
+  : { update() {} };
 
-initTemplateLibraryPanel({
-  container: dom.templatePanel,
-  textarea: dom.planInput,
-});
+if (templateLibraryEnabled) {
+  initTemplateLibraryPanel({
+    container: dom.templatePanel,
+    textarea: dom.planInput,
+  });
+}
 
-const templateCapture = initTemplateCapture({
-  blockList: dom.blockListEl,
-});
+const templateCapture = plannerToolsEnabled
+  ? initTemplateCapture({
+      blockList: dom.blockListEl,
+    })
+  : { update() {} };
 
-const planSaveDialog = initPlanSaveDialog({
-  planInput: dom.planInput,
-  saveButton: dom.savePlanButton,
-});
+const planSaveDialog = plannerToolsEnabled
+  ? initPlanSaveDialog({
+      planInput: dom.planInput,
+      saveButton: dom.savePlanButton,
+    })
+  : { update() {} };
 
 /**
  * Liest den aktuellen Text aus dem Eingabefeld, parst ihn und aktualisiert die Anzeige.
@@ -89,27 +113,25 @@ initHelpOverlay({
 });
 
 // Import- und Export-Steuerung aktivieren, damit Pläne gesichert oder geladen werden können.
-initIOControls({
-  planInput: dom.planInput,
-  importInput: dom.importInput,
-  importButton: dom.importButton,
-  exportMarkdownButton: dom.exportMarkdownButton,
-  exportWordButton: dom.exportWordButton,
-});
+if (plannerToolsEnabled) {
+  initIOControls({
+    planInput: dom.planInput,
+    importInput: dom.importInput,
+    importButton: dom.importButton,
+    exportMarkdownButton: dom.exportMarkdownButton,
+    exportWordButton: dom.exportWordButton,
+  });
+}
 
 // Schnellbausteine für häufig genutzte Elemente bereitstellen.
-initQuickSnippets({
-  container: dom.quickSnippetContainer,
-  textarea: dom.planInput,
-});
+if (quickSnippetsEnabled) {
+  initQuickSnippets({
+    container: dom.quickSnippetContainer,
+    textarea: dom.planInput,
+  });
+}
 
-if (
-  dom.layout &&
-  dom.quickPanel &&
-  dom.quickSnippetContainer &&
-  dom.quickSnippetToggle &&
-  dom.quickPanelExpand
-) {
+if (quickSnippetsEnabled && dom.layout && dom.quickPanel && dom.quickSnippetContainer && dom.quickSnippetToggle && dom.quickPanelExpand) {
   const collapseQuickPanel = () => {
     if (dom.quickPanel.hasAttribute("hidden")) {
       return;
@@ -138,6 +160,13 @@ if (
 
   dom.quickSnippetToggle.addEventListener("click", collapseQuickPanel);
   dom.quickPanelExpand.addEventListener("click", expandQuickPanel);
+} else if (!quickSnippetsEnabled) {
+  if (dom.layout) {
+    dom.layout.classList.add("layout--snippets-hidden");
+  }
+  if (dom.quickPanelExpand) {
+    dom.quickPanelExpand.hidden = true;
+  }
 }
 
 async function loadPlanFromQuery() {

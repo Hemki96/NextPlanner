@@ -11,14 +11,14 @@
     <h1>Plan-Kalender</h1>
     <p>Behalte den Überblick über deine gespeicherten Trainingspläne und wechsle mit einem Klick zu einem beliebigen Tag.</p>
     <nav class="page-nav" aria-label="Hauptnavigation">
-      <a href="index.html" class="nav-link is-active" aria-current="page">Plan-Kalender</a>
+      <a href="index.html" class="nav-link is-active" aria-current="page" data-feature="calendarView">Plan-Kalender</a>
       <a href="planner.html" class="nav-link">Planner</a>
-      <a href="templates.html" class="nav-link">Vorlagen</a>
-      <a href="settings.html" class="nav-link">Schnellbausteine</a>
-      <a href="backup.html" class="nav-link">Datensicherung</a>
+      <a href="templates.html" class="nav-link" data-feature="templateLibrary">Vorlagen</a>
+      <a href="settings.html" class="nav-link" data-feature="quickSnippets">Schnellbausteine</a>
+      <a href="backup.html" class="nav-link">Einstellungen</a>
     </nav>
   </header>
-  <main class="calendar-layout">
+  <main class="calendar-layout" data-feature="calendarView" data-feature-keep-space="true">
     <section class="page-card calendar-card">
       <header class="section-header">
         <h2 id="calendar-month-label">Kalender</h2>

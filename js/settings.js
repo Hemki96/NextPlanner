@@ -7,6 +7,11 @@ import {
 } from "./utils/snippetStorage.js";
 import { describeApiError } from "./utils/apiClient.js";
 import { fetchTeamLibrary, pushTeamLibrary, teamLibrarySupported } from "./utils/snippetLibraryClient.js";
+import {
+  applyFeatureVisibility,
+  getFeatureSettings,
+  subscribeToFeatureSettings,
+} from "./utils/featureSettings.js";
 
 const groupContainer = document.getElementById("snippet-groups");
 const addGroupButton = document.getElementById("add-group");
@@ -22,6 +27,14 @@ const teamRefreshButton = document.getElementById("team-library-refresh");
 const teamPushButton = document.getElementById("team-library-push");
 const teamStatusElement = document.getElementById("team-library-status");
 const teamUpdatedElement = document.getElementById("team-library-updated");
+
+const featureSettings = getFeatureSettings();
+applyFeatureVisibility(document, featureSettings);
+subscribeToFeatureSettings(() => {
+  window.location.reload();
+});
+
+const teamLibraryEnabled = featureSettings.teamLibrary !== false;
 
 function createGroupId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -134,6 +147,10 @@ function updateTeamMetadata(updatedAt) {
 }
 
 async function loadTeamLibraryFromServer() {
+  if (!teamLibraryEnabled) {
+    setTeamStatus("Team-Bibliothek ist deaktiviert.", "info");
+    return;
+  }
   if (!teamLibrarySupported()) {
     setTeamStatus("Team-Bibliothek benötigt den lokalen NextPlanner-Server (npm start).", "warning");
     return;
@@ -167,6 +184,10 @@ async function loadTeamLibraryFromServer() {
 }
 
 async function pushTeamLibraryToServer() {
+  if (!teamLibraryEnabled) {
+    setTeamStatus("Team-Bibliothek ist deaktiviert.", "info");
+    return;
+  }
   if (!teamLibrarySupported()) {
     setTeamStatus("Team-Bibliothek benötigt den lokalen NextPlanner-Server (npm start).", "warning");
     return;
@@ -828,23 +849,30 @@ exportButton?.addEventListener("click", handleExport);
 importButton?.addEventListener("click", handleImportClick);
 importInput?.addEventListener("change", handleImportFile);
 
-teamRefreshButton?.addEventListener("click", () => {
-  loadTeamLibraryFromServer().catch((error) => {
-    console.error("Fehler beim Laden der Team-Bibliothek", error);
-    setTeamStatus("Team-Bibliothek konnte nicht geladen werden.", "error");
+if (teamLibraryEnabled) {
+  teamRefreshButton?.addEventListener("click", () => {
+    loadTeamLibraryFromServer().catch((error) => {
+      console.error("Fehler beim Laden der Team-Bibliothek", error);
+      setTeamStatus("Team-Bibliothek konnte nicht geladen werden.", "error");
+    });
   });
-});
 
-teamPushButton?.addEventListener("click", () => {
-  pushTeamLibraryToServer().catch((error) => {
-    console.error("Fehler beim Freigeben der Team-Bibliothek", error);
-    setTeamStatus("Freigabe fehlgeschlagen.", "error");
+  teamPushButton?.addEventListener("click", () => {
+    pushTeamLibraryToServer().catch((error) => {
+      console.error("Fehler beim Freigeben der Team-Bibliothek", error);
+      setTeamStatus("Freigabe fehlgeschlagen.", "error");
+    });
   });
-});
 
-updateTeamMetadata(null);
-if (!teamLibrarySupported()) {
-  setTeamStatus("Team-Bibliothek benötigt den lokalen NextPlanner-Server (npm start).", "warning");
+  updateTeamMetadata(null);
+  if (!teamLibrarySupported()) {
+    setTeamStatus("Team-Bibliothek benötigt den lokalen NextPlanner-Server (npm start).", "warning");
+    teamRefreshButton?.setAttribute("disabled", "disabled");
+    teamPushButton?.setAttribute("disabled", "disabled");
+  }
+} else {
+  updateTeamMetadata(null);
+  setTeamStatus("Team-Bibliothek ist deaktiviert.", "info");
   teamRefreshButton?.setAttribute("disabled", "disabled");
   teamPushButton?.setAttribute("disabled", "disabled");
 }

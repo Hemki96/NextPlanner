@@ -11,14 +11,14 @@
     <h1>Vorlagenbibliothek</h1>
     <p>Speichere deine Lieblingssets, Runden und Blöcke als Vorlage, um sie später mit einem Klick in Trainingspläne zu übernehmen.</p>
     <nav class="page-nav" aria-label="Hauptnavigation">
-      <a href="index.html" class="nav-link">Plan-Kalender</a>
+      <a href="index.html" class="nav-link" data-feature="calendarView">Plan-Kalender</a>
       <a href="planner.html" class="nav-link">Planner</a>
-      <a href="templates.html" class="nav-link is-active" aria-current="page">Vorlagen</a>
-      <a href="settings.html" class="nav-link">Schnellbausteine</a>
-      <a href="backup.html" class="nav-link">Datensicherung</a>
+      <a href="templates.html" class="nav-link is-active" aria-current="page" data-feature="templateLibrary">Vorlagen</a>
+      <a href="settings.html" class="nav-link" data-feature="quickSnippets">Schnellbausteine</a>
+      <a href="backup.html" class="nav-link">Einstellungen</a>
     </nav>
   </header>
-  <main class="page-content">
+  <main class="page-content" data-feature="templateLibrary" data-feature-keep-space="true">
     <section class="page-card">
       <h2>Neue Vorlage anlegen</h2>
       <form id="template-form" class="template-form">
