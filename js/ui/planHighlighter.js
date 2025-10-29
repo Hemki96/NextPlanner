@@ -97,16 +97,16 @@ function wrapToken(match) {
       const trimmed = escaped.replace(/^(\s*#{1,6}\s*)(.*)$/, (_, hashes, title) => {
         return `${hashes}<span class="plan-heading-text">${title}</span>`;
       });
-      return `<strong class="plan-token plan-token-heading">${trimmed}</strong>`;
+      return `<span class="plan-token plan-token-heading">${trimmed}</span>`;
     }
     case "distance":
-      return `<strong class="plan-token plan-token-distance">${escaped}</strong>`;
+      return `<span class="plan-token plan-token-distance">${escaped}</span>`;
     case "round":
-      return `<strong class="plan-token plan-token-round">${escaped}</strong>`;
+      return `<span class="plan-token plan-token-round">${escaped}</span>`;
     case "interval":
-      return `<em class="plan-token plan-token-interval">${escaped}</em>`;
+      return `<span class="plan-token plan-token-interval">${escaped}</span>`;
     case "equipment":
-      return `<em class="plan-token plan-token-equipment">${escaped}</em>`;
+      return `<span class="plan-token plan-token-equipment">${escaped}</span>`;
     case "intensity":
       return `<span class="plan-token intensity-token ${getIntensityColorClass(match.text)}">${escaped}</span>`;
     default:

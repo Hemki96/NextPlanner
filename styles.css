@@ -984,14 +984,14 @@ body {
   box-shadow: inset 4px 0 0 rgba(215, 57, 64, 0.6);
 }
 
-.plan-highlight .plan-token-distance,
-.plan-highlight .plan-token-round {
-  font-weight: 700;
+.plan-highlight .plan-token {
+  font-weight: inherit;
+  font-style: inherit;
+  letter-spacing: inherit;
 }
 
 .plan-highlight .plan-token-heading {
   display: block;
-  font-weight: 700;
   color: var(--accent);
 }
 
@@ -999,18 +999,18 @@ body {
   color: var(--text-primary);
 }
 
+.plan-highlight .plan-token-distance,
 .plan-highlight .plan-token-round {
   color: var(--accent);
 }
 
 .plan-highlight .plan-token-equipment,
 .plan-highlight .plan-token-interval {
-  font-style: italic;
   color: var(--text-secondary);
 }
 
 .plan-highlight .intensity-token {
-  font-weight: 700;
+  font-weight: inherit;
   background: none;
   border: none;
   border-radius: 0;
