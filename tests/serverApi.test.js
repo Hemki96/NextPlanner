@@ -200,6 +200,64 @@ describe("Plan API", () => {
     assert.equal(cleanup.status, 204);
   });
 
+  it("exportiert und stellt Sicherungen über die API bereit", async () => {
+    await store.importBackup({
+      format: "nextplanner/plan-backup",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      data: { nextId: 1, plans: [] },
+    });
+
+    const basePlan = await store.createPlan({
+      title: "Backup-Test",
+      content: "Plan",
+      planDate: "2024-06-15",
+      focus: "AR",
+    });
+
+    const backupResponse = await fetch(`${baseUrl}/api/storage/backup`);
+    assert.equal(backupResponse.status, 200);
+    assert.equal(backupResponse.headers.get("cache-control"), "no-store");
+    const backup = await backupResponse.json();
+    assert.equal(backup.format, "nextplanner/plan-backup");
+    assert.equal(backup.planCount, 1);
+
+    await store.createPlan({
+      title: "Zwischenstand",
+      content: "Plan", 
+      planDate: "2024-06-16",
+      focus: "SP",
+    });
+    const interimPlans = await store.listPlans();
+    assert.equal(interimPlans.length, 2);
+
+    const restoreResponse = await fetch(`${baseUrl}/api/storage/restore`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(backup),
+    });
+    assert.equal(restoreResponse.status, 200);
+    assert.equal(restoreResponse.headers.get("cache-control"), "no-store");
+    const restorePayload = await restoreResponse.json();
+    assert.equal(restorePayload.success, true);
+    assert.equal(restorePayload.planCount, 1);
+
+    const restoredPlans = await store.listPlans();
+    assert.equal(restoredPlans.length, 1);
+    assert.equal(restoredPlans[0].title, basePlan.title);
+
+    const invalidRestore = await fetch(`${baseUrl}/api/storage/restore`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({}),
+    });
+    assert.equal(invalidRestore.status, 400);
+  });
+
   it("unterstützt HEAD und OPTIONS mit CORS-Headern", async () => {
     const optionsResponse = await fetch(`${baseUrl}/api/plans`, {
       method: "OPTIONS",

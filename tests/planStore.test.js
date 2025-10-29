@@ -196,6 +196,46 @@ describe("JsonPlanStore", () => {
     assert.equal(plans.length, 10);
   });
 
+  it("exportiert und importiert vollständige Sicherungen", async () => {
+    const original = await store.createPlan({
+      title: "Basistraining",
+      content: "3x400", 
+      planDate: "2024-06-10",
+      focus: "AR",
+    });
+
+    const backup = await store.exportBackup();
+    assert.equal(backup.format, "nextplanner/plan-backup");
+    assert.equal(backup.version, 1);
+    assert.equal(backup.planCount, 1);
+    assert.ok(backup.data.nextId > original.id);
+    assert.equal(backup.data.plans.length, 1);
+
+    await store.createPlan({
+      title: "Zusatzplan",
+      content: "2x200",
+      planDate: "2024-06-11",
+      focus: "SP",
+    });
+
+    const result = await store.importBackup(backup);
+    assert.equal(result.planCount, 1);
+
+    const plans = await store.listPlans();
+    assert.equal(plans.length, 1);
+    assert.equal(plans[0].title, original.title);
+  });
+
+  it("lehnt Sicherungen mit ungültiger Struktur ab", async () => {
+    await assert.rejects(
+      store.importBackup({}),
+      (error) => {
+        assert.ok(error instanceof PlanValidationError);
+        return true;
+      }
+    );
+  });
+
   it("sichert Schreibvorgänge mit fsync für Datei und Verzeichnis ab", async () => {
     const syncCounts = { file: 0, dir: 0 };
     const originalOpen = fsPromises.open;

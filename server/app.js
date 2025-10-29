@@ -152,10 +152,9 @@ function sendEmpty(res, status, { cors = false, headers = {} } = {}) {
   res.end();
 }
 
-async function readJsonBody(req) {
+async function readJsonBody(req, { limit = 1_000_000 } = {}) {
   const chunks = [];
   let totalLength = 0;
-  const limit = 1_000_000;
 
   const method = req.method ?? "GET";
   if (method === "POST" || method === "PATCH") {
@@ -444,6 +443,41 @@ async function handleApiRequest(req, res, url, store) {
 
   if (method === "OPTIONS") {
     sendEmpty(res, 204, { cors: true, headers: buildApiHeaders() });
+    return;
+  }
+
+  if (url.pathname === "/api/storage/backup") {
+    if (method === "GET" || method === "HEAD") {
+      try {
+        const backup = await store.exportBackup();
+        sendJson(res, 200, backup, { cors: true, method, headers: buildApiHeaders() });
+      } catch (error) {
+        handleApiError(res, error, method);
+      }
+      return;
+    }
+    handleApiError(res, new HttpError(405, "Methode nicht erlaubt"), method);
+    return;
+  }
+
+  if (url.pathname === "/api/storage/restore") {
+    if (method === "POST") {
+      try {
+        const body = await readJsonBody(req, { limit: 5_000_000 });
+        const payload = ensureJsonObject(body);
+        const result = await store.importBackup(payload);
+        const responseBody = {
+          success: true,
+          planCount: result.planCount,
+          restoredAt: new Date().toISOString(),
+        };
+        sendJson(res, 200, responseBody, { cors: true, method, headers: buildApiHeaders() });
+      } catch (error) {
+        handleApiError(res, error, method);
+      }
+      return;
+    }
+    handleApiError(res, new HttpError(405, "Methode nicht erlaubt"), method);
     return;
   }
 
