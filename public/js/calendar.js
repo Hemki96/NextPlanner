@@ -60,12 +60,58 @@ function keyToDate(key) {
   return new Date(year, month - 1, day);
 }
 
-function isoToDateKey(isoString) {
-  if (!isoString) {
+function parsePlanDate(value) {
+  if (!value) {
     return null;
   }
-  const parsed = new Date(isoString);
-  if (Number.isNaN(parsed.getTime())) {
+
+  if (value instanceof Date) {
+    const copy = new Date(value.getTime());
+    return Number.isNaN(copy.getTime()) ? null : copy;
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const fromNumber = value > 0 && value < 10_000_000_000 ? value * 1000 : value;
+    const fromTimestamp = new Date(fromNumber);
+    return Number.isNaN(fromTimestamp.getTime()) ? null : fromTimestamp;
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  let candidate = trimmed;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    candidate = `${trimmed}T00:00:00`;
+  } else if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}$/.test(trimmed)) {
+    candidate = trimmed.replace(/\s+/, "T");
+  } else if (/^\d{2}\.\d{2}\.\d{4}$/.test(trimmed)) {
+    const [day, month, year] = trimmed.split(".");
+    candidate = `${year}-${month}-${day}T00:00:00`;
+  }
+
+  let parsed = new Date(candidate);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed;
+  }
+
+  parsed = new Date(trimmed.replace(/\s+/, "T"));
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed;
+  }
+
+  return null;
+}
+
+function isoToDateKey(isoString) {
+  const parsed = parsePlanDate(isoString);
+  if (!parsed) {
     return null;
   }
   return dateToKey(parsed);
@@ -209,8 +255,8 @@ function formatDateLabel(dateKey) {
 }
 
 function formatTime(isoString) {
-  const parsed = new Date(isoString);
-  if (Number.isNaN(parsed.getTime())) {
+  const parsed = parsePlanDate(isoString);
+  if (!parsed) {
     return "–";
   }
   return timeFormatter.format(parsed);
