@@ -791,7 +791,7 @@ body {
 }
 
 .layout.layout--snippets-hidden {
-  grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1.1fr);
+  grid-template-columns: minmax(0, 2.4fr) minmax(320px, 1.1fr);
   grid-template-areas: "input insights";
 }
 
