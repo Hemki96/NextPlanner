@@ -21,6 +21,9 @@ function createBlock(name, headingLine = null) {
     sets: [],
     distance: 0,
     time: 0,
+    timedDistance: 0,
+    timedTime: 0,
+    averagePaceSeconds: null,
     rounds: [],
     sourceLines,
   };
@@ -92,9 +95,14 @@ export function parsePlan(text) {
   const result = {
     totalDistance: 0,
     totalTime: 0,
+    timedDistance: 0,
+    timedTime: 0,
+    activeTime: 0,
     equipment: new Map(),
     intensities: new Map(),
     blocks: [],
+    issues: [],
+    averagePaceSeconds: null,
   };
 
   let currentBlock = createBlock("Gesamt");
@@ -118,6 +126,9 @@ export function parsePlan(text) {
     const repeatedTime = set.time * multiplier;
     const repeatedPause = set.pause * multiplier;
 
+    const paceSecondsPer100 =
+      repeatedDistance > 0 && repeatedTime > 0 ? (repeatedTime / repeatedDistance) * 100 : null;
+
     currentBlock.sets.push({
       ...set,
       distance: repeatedDistance,
@@ -126,6 +137,7 @@ export function parsePlan(text) {
       rounds: multiplier,
       roundLabel,
       roundId,
+      paceSecondsPer100,
     });
 
     currentBlock.distance += repeatedDistance;
@@ -134,6 +146,11 @@ export function parsePlan(text) {
     if (repeatedTime > 0) {
       currentBlock.time += repeatedTime;
       result.totalTime += repeatedTime;
+      currentBlock.timedTime += repeatedTime;
+      currentBlock.timedDistance += repeatedDistance;
+      result.timedTime += repeatedTime;
+      result.timedDistance += repeatedDistance;
+      result.activeTime += repeatedTime;
     }
 
     if (repeatedPause > 0) {
@@ -150,10 +167,11 @@ export function parsePlan(text) {
     for (const intensity of set.intensities) {
       const key = intensity.toUpperCase();
       const stats =
-        result.intensities.get(key) ?? { label: intensity, distance: 0, sets: 0, time: 0 };
+        result.intensities.get(key) ?? { label: intensity, distance: 0, sets: 0, time: 0, activeTime: 0 };
       stats.distance += repeatedDistance;
       stats.time += repeatedTime + repeatedPause;
       stats.sets += multiplier;
+      stats.activeTime += repeatedTime;
       result.intensities.set(key, stats);
     }
   };
@@ -163,8 +181,16 @@ export function parsePlan(text) {
       return;
     }
 
-    const { count, label, sets, pauses, sourceLines, id } = roundContext;
+    const { count, label, sets, pauses, sourceLines, id, startLine } = roundContext;
     if (sets.length === 0 && pauses.length === 0) {
+      if (startLine) {
+        result.issues.push({
+          type: "round",
+          lineNumber: startLine,
+          message: "Runden-Block ohne Sets oder Pausen.",
+          line: (sourceLines ?? []).join(" ").trim(),
+        });
+      }
       roundContext = null;
       return;
     }
@@ -193,11 +219,18 @@ export function parsePlan(text) {
     if (currentBlock.sets.length === 0 && currentBlock.distance === 0 && currentBlock.time === 0) {
       return;
     }
+    if (currentBlock.timedDistance > 0 && currentBlock.timedTime > 0) {
+      currentBlock.averagePaceSeconds = (currentBlock.timedTime / currentBlock.timedDistance) * 100;
+    } else {
+      currentBlock.averagePaceSeconds = null;
+    }
     result.blocks.push(currentBlock);
   };
 
-  for (const line of lines) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
     const raw = line.trim();
+    const lineNumber = index + 1;
 
     if (!raw) {
       if (roundContext) {
@@ -236,8 +269,26 @@ export function parsePlan(text) {
           sets: [],
           pauses: [],
           sourceLines: [raw],
+          startLine: lineNumber,
         };
+      } else {
+        result.issues.push({
+          type: "round",
+          lineNumber,
+          message: "Rundenanzahl konnte nicht interpretiert werden.",
+          line: raw,
+        });
       }
+      continue;
+    }
+
+    if (/^(?!\s*ende\s+(?:runde|runden|rounds?))/i.test(raw) && /^\s*(?:\d+\s*(?:x\s*)?)?(?:runde|runden|rounds?)/i.test(raw)) {
+      result.issues.push({
+        type: "round",
+        lineNumber,
+        message: "Rundenstruktur erkannt, aber ohne gültige Anzahl.",
+        line: raw,
+      });
       continue;
     }
 
@@ -259,7 +310,7 @@ export function parsePlan(text) {
       roundContext.sourceLines.push(raw);
     }
 
-    const pauseMatch = raw.match(/^P\s*:\s*([0-9:]+)/i);
+    const pauseMatch = raw.match(/^P\s*:\s*(.+)$/i);
     if (pauseMatch) {
       const pause = parseDuration(pauseMatch[1]);
       if (pause > 0) {
@@ -268,12 +319,25 @@ export function parsePlan(text) {
         } else {
           accumulatePause(pause, 1);
         }
+      } else {
+        result.issues.push({
+          type: "pause",
+          lineNumber,
+          message: "Pause konnte nicht in Sekunden umgerechnet werden.",
+          line: raw,
+        });
       }
       continue;
     }
 
     const set = parseSetLine(raw);
     if (!set) {
+      result.issues.push({
+        type: "unknown",
+        lineNumber,
+        message: "Zeile konnte nicht als Set, Pause oder Struktur erkannt werden.",
+        line: raw,
+      });
       continue;
     }
 
@@ -289,5 +353,10 @@ export function parsePlan(text) {
 
   finalizeRound();
   pushBlock();
+  if (result.timedDistance > 0 && result.timedTime > 0) {
+    result.averagePaceSeconds = (result.timedTime / result.timedDistance) * 100;
+  } else {
+    result.averagePaceSeconds = null;
+  }
   return result;
 }

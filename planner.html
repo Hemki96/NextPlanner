@@ -77,7 +77,32 @@
         </button>
       </div>
       <p class="hint">Nutze Überschriften (z.B. <code>## Warm-up</code>) für Blöcke. Formate wie <code>4x50m</code>, <code>w/</code> für Material, <code>@</code> für Intervalle, <code>P:</code> für Pausen sowie Rundenangaben wie <code>3 Runden:</code> werden automatisch erkannt.</p>
+      <section id="validation-panel" class="validation-panel" aria-live="polite">
+        <header class="validation-header">
+          <h3>Syntax-Hinweise</h3>
+          <p class="validation-summary" data-validation-summary>Keine Probleme erkannt</p>
+        </header>
+        <ul class="validation-list" data-validation-list></ul>
+      </section>
     </section>
+    <aside class="template-panel" aria-labelledby="template-panel-title">
+      <div class="template-panel-header">
+        <h2 id="template-panel-title">Vorlagen</h2>
+        <p class="template-panel-hint">Suche, klicke oder ziehe Vorlagen direkt in den Plan.</p>
+        <label class="sr-only" for="template-search">Vorlagen durchsuchen</label>
+        <input
+          type="search"
+          id="template-search"
+          class="template-panel-search"
+          placeholder="Vorlagen durchsuchen"
+          data-template-search
+        />
+      </div>
+      <p class="template-panel-empty" data-template-empty hidden>Noch keine Vorlagen vorhanden.</p>
+      <div class="template-panel-scroll">
+        <div class="template-panel-groups" data-template-list></div>
+      </div>
+    </aside>
     <!-- Rechte Spalte fasst die Kennzahlen und Blockdetails live zusammen -->
     <aside class="summary-panel" aria-live="polite">
       <h2>Zusammenfassung</h2>
@@ -90,6 +115,10 @@
         <div>
           <h3>Gesamtumfang</h3>
           <p id="total-distance">0 m</p>
+        </div>
+        <div>
+          <h3>Ø Pace (aktive Sets)</h3>
+          <p id="average-pace">–</p>
         </div>
         <div>
           <h3>Intensitäten</h3>

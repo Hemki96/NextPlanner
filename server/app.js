@@ -10,6 +10,7 @@ import {
   PlanValidationError,
   StorageIntegrityError,
 } from "../js/storage/jsonPlanStore.js";
+import { JsonSnippetStore } from "../js/storage/jsonSnippetStore.js";
 
 class HttpError extends Error {
   constructor(status, message, { expose = true } = {}) {
@@ -438,7 +439,7 @@ function handleApiError(res, error, method = "GET") {
   });
 }
 
-async function handleApiRequest(req, res, url, store) {
+async function handleApiRequest(req, res, url, planStore, snippetStore) {
   const method = req.method ?? "GET";
 
   if (method === "OPTIONS") {
@@ -449,7 +450,7 @@ async function handleApiRequest(req, res, url, store) {
   if (url.pathname === "/api/storage/backup") {
     if (method === "GET" || method === "HEAD") {
       try {
-        const backup = await store.exportBackup();
+        const backup = await planStore.exportBackup();
         sendJson(res, 200, backup, { cors: true, method, headers: buildApiHeaders() });
       } catch (error) {
         handleApiError(res, error, method);
@@ -465,7 +466,7 @@ async function handleApiRequest(req, res, url, store) {
       try {
         const body = await readJsonBody(req, { limit: 5_000_000 });
         const payload = ensureJsonObject(body);
-        const result = await store.importBackup(payload);
+        const result = await planStore.importBackup(payload);
         const responseBody = {
           success: true,
           planCount: result.planCount,
@@ -481,12 +482,50 @@ async function handleApiRequest(req, res, url, store) {
     return;
   }
 
+  if (url.pathname === "/api/snippets") {
+    if (!snippetStore) {
+      handleApiError(res, new HttpError(503, "Team-Bibliothek nicht verfügbar"), method);
+      return;
+    }
+
+    if (method === "GET" || method === "HEAD") {
+      try {
+        const library = await snippetStore.getLibrary();
+        sendJson(res, 200, library, { cors: true, method, headers: buildApiHeaders() });
+      } catch (error) {
+        handleApiError(res, error, method);
+      }
+      return;
+    }
+
+    if (method === "PUT" || method === "POST") {
+      try {
+        const body = await readJsonBody(req, { limit: 1_000_000 });
+        let groups;
+        if (Array.isArray(body)) {
+          groups = body;
+        } else {
+          const payload = ensureJsonObject(body);
+          groups = Array.isArray(payload.groups) ? payload.groups : payload;
+        }
+        const library = await snippetStore.replaceLibrary(groups);
+        sendJson(res, 200, library, { cors: true, method, headers: buildApiHeaders() });
+      } catch (error) {
+        handleApiError(res, error, method);
+      }
+      return;
+    }
+
+    handleApiError(res, new HttpError(405, "Methode nicht erlaubt"), method);
+    return;
+  }
+
   if (url.pathname === "/api/plans") {
     if (method === "POST") {
       try {
         const body = await readJsonBody(req);
         const payload = validateCreatePayload(body);
-        const plan = await store.createPlan(payload);
+        const plan = await planStore.createPlan(payload);
         const headers = buildApiHeaders({ ETag: buildPlanEtag(plan) });
         sendJson(res, 201, plan, { cors: true, method, headers });
       } catch (error) {
@@ -498,7 +537,7 @@ async function handleApiRequest(req, res, url, store) {
     if (method === "GET" || method === "HEAD") {
       try {
         const { focus, from, to } = url.searchParams;
-        const plans = await store.listPlans({
+        const plans = await planStore.listPlans({
           focus: focus ?? undefined,
           from: from ?? undefined,
           to: to ?? undefined,
@@ -522,7 +561,7 @@ async function handleApiRequest(req, res, url, store) {
 
   if (method === "GET" || method === "HEAD") {
     try {
-      const plan = await store.getPlan(planId);
+      const plan = await planStore.getPlan(planId);
       if (!plan) {
         throw new HttpError(404, "Plan nicht gefunden");
       }
@@ -546,7 +585,7 @@ async function handleApiRequest(req, res, url, store) {
       const ifMatch = req.headers?.["if-match"];
       let plan;
       if (ifMatch) {
-        const current = await store.getPlan(planId);
+        const current = await planStore.getPlan(planId);
         if (!current) {
           throw new HttpError(404, "Plan nicht gefunden");
         }
@@ -554,9 +593,9 @@ async function handleApiRequest(req, res, url, store) {
         if (!ifMatchSatisfied(ifMatch, currentEtag)) {
           throw new PlanConflictError("Plan wurde bereits geändert.", { currentPlan: current });
         }
-        plan = await store.updatePlan(planId, updates, { expectedUpdatedAt: current.updatedAt });
+        plan = await planStore.updatePlan(planId, updates, { expectedUpdatedAt: current.updatedAt });
       } else {
-        plan = await store.updatePlan(planId, updates);
+        plan = await planStore.updatePlan(planId, updates);
       }
       if (!plan) {
         throw new HttpError(404, "Plan nicht gefunden");
@@ -574,7 +613,7 @@ async function handleApiRequest(req, res, url, store) {
       const ifMatch = req.headers?.["if-match"];
       let removed;
       if (ifMatch) {
-        const current = await store.getPlan(planId);
+        const current = await planStore.getPlan(planId);
         if (!current) {
           throw new HttpError(404, "Plan nicht gefunden");
         }
@@ -582,9 +621,9 @@ async function handleApiRequest(req, res, url, store) {
         if (!ifMatchSatisfied(ifMatch, currentEtag)) {
           throw new PlanConflictError("Plan wurde bereits geändert.", { currentPlan: current });
         }
-        removed = await store.deletePlan(planId, { expectedUpdatedAt: current.updatedAt });
+        removed = await planStore.deletePlan(planId, { expectedUpdatedAt: current.updatedAt });
       } else {
-        removed = await store.deletePlan(planId);
+        removed = await planStore.deletePlan(planId);
       }
       if (!removed) {
         throw new HttpError(404, "Plan nicht gefunden");
@@ -599,8 +638,9 @@ async function handleApiRequest(req, res, url, store) {
   handleApiError(res, new HttpError(405, "Methode nicht erlaubt"), method);
 }
 
-export function createRequestHandler({ store, publicDir } = {}) {
+export function createRequestHandler({ store, snippetStore, publicDir } = {}) {
   const planStore = store ?? new JsonPlanStore();
+  const teamSnippetStore = snippetStore ?? new JsonSnippetStore();
   const defaultDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
   const rootDir = path.resolve(publicDir ?? defaultDir);
 
@@ -608,7 +648,7 @@ export function createRequestHandler({ store, publicDir } = {}) {
     try {
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
       if (isApiRequest(url.pathname)) {
-        await handleApiRequest(req, res, url, planStore);
+        await handleApiRequest(req, res, url, planStore, teamSnippetStore);
         return;
       }
       await serveStatic(req, res, url, rootDir);
@@ -625,10 +665,11 @@ export function createRequestHandler({ store, publicDir } = {}) {
 export function createServer(options = {}) {
   const {
     store = new JsonPlanStore(),
+    snippetStore = new JsonSnippetStore(),
     publicDir,
     gracefulShutdownSignals = ["SIGINT", "SIGTERM"],
   } = options;
-  const handler = createRequestHandler({ store, publicDir });
+  const handler = createRequestHandler({ store, snippetStore, publicDir });
   const server = createHttpServer(handler);
 
   const signalHandlers = new Map();
@@ -642,6 +683,9 @@ export function createServer(options = {}) {
     closePromise = (async () => {
       try {
         await store.close();
+        if (snippetStore && typeof snippetStore.close === "function") {
+          await snippetStore.close();
+        }
       } catch (error) {
         console.error("Fehler beim Schließen des Planstores", error);
         throw error;
