@@ -11,7 +11,7 @@ NextPlanner ist ein webbasiertes Tool, mit dem Schwimmtrainer:innen komplette Tr
 
 ## Navigationsstruktur der Anwendung
 - **Planner** (`planner.html`): Kernansicht mit Texteingabe, Syntax-Hilfen, Import-/Export-Funktionen, Validierung und Live-Auswertung.【F:public/planner.html†L1-L165】
-- **Plan-Kalender**, **Vorlagen**, **Schnellbausteine** und **Einstellungen**: Zusätzliche Ansichten für Terminübersichten, Template-Verwaltung, Team-Bibliotheken und Datensicherung.
+- **Plan-Kalender**, **Vorlagen**, **Einstellungen** und **Backups**: Zusätzliche Ansichten für Terminübersichten, Template-Verwaltung, Editor-Optionen inklusive Highlight-Konfiguration sowie Datensicherung.
 
 ## Der Plan Builder im Detail
 Der Plan Builder setzt sich aus mehreren Modulen zusammen, die den eingegebenen Freitext analysieren, aggregieren und visualisieren:
@@ -35,7 +35,7 @@ Der Syntax-Highlighter markiert Trainingsbestandteile inline, ohne den Eingabete
 - Er erkennt Überschriften, Distanzen, Rundenzähler, Abgangszeiten, Material-Abschnitte sowie sämtliche bekannten Intensitätscodes anhand regulärer Ausdrücke.【F:public/js/ui/plan-highlighter.js†L11-L87】
 - Überlappende Matches werden nach Priorität aufgelöst, in Token transformiert und mit semantischen Klassen versehen (z. B. `plan-token-distance`).【F:public/js/ui/plan-highlighter.js†L71-L183】
 - Beim Scrollen oder bei neuen Hinweisen synchronisiert die Highlighter-Schicht ihre Position und kennzeichnet fehlerhafte Zeilen visuell.【F:public/js/ui/plan-highlighter.js†L185-L258】
-- Über das Menü „Editor & Schnellbausteine“ kannst du gezielt festlegen, welche Kategorien hervorgehoben werden (Überschriften, Distanzen, Runden, Intervalle, Material, Intensitäten). Änderungen wirken sich sofort auf den Highlighter im Planner aus.【F:public/settings.html†L1-L81】【F:public/js/settings.js†L1-L320】【F:public/js/utils/highlight-settings.js†L1-L168】
+- Über die Ansicht „Einstellungen“ kannst du gezielt festlegen, welche Kategorien hervorgehoben werden (Überschriften, Distanzen, Runden, Intervalle, Material, Intensitäten). Änderungen wirken sich sofort auf den Highlighter im Planner aus.【F:public/settings.html†L1-L81】【F:public/js/settings.js†L1-L320】【F:public/js/utils/highlight-settings.js†L1-L168】
 
 ## Schnellbausteine
 Das Schnellbaustein-Panel stellt konfigurierbare Textfragmente bereit:
