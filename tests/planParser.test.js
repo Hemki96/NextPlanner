@@ -80,3 +80,34 @@ Das ist ein Kommentar, der ignoriert werden sollte.
   assert.equal(block.sets[0].length, 23);
   assert.deepEqual(block.sets[0].intensities, ['White2']);
 });
+
+test('parsePlan erstellt Hinweise für unbekannte Zeilen und fehlerhafte Angaben', () => {
+  const plan = stripCarriageReturn(`
+## Testblock
+4x50m GSA @0:50
+Unbekannte Anweisung
+P:abc
+Runde xZ:
+6x100m GSA @1:30
+Ende Runde
+`);
+
+  const result = parsePlan(plan);
+
+  assert.equal(result.blocks.length, 1);
+  assert.ok(Array.isArray(result.issues));
+  assert.equal(result.issues.length, 3);
+
+  const [unknown, pause, round] = result.issues;
+  assert.equal(unknown.type, 'unknown');
+  assert.equal(unknown.lineNumber, 4);
+  assert.match(unknown.message, /nicht als Set/);
+
+  assert.equal(pause.type, 'pause');
+  assert.equal(pause.lineNumber, 5);
+  assert.match(pause.message, /Pause konnte nicht/);
+
+  assert.equal(round.type, 'round');
+  assert.equal(round.lineNumber, 6);
+  assert.match(round.message, /Runden/);
+});

@@ -45,6 +45,26 @@
       </div>
       <p id="settings-status" class="form-status" role="status" aria-live="polite"></p>
     </section>
+    <section class="page-card">
+      <header class="section-header">
+        <h2>Team-Bibliothek</h2>
+        <div class="section-actions">
+          <button type="button" class="ghost-button" id="team-library-refresh">Team-Bibliothek laden</button>
+          <button type="button" class="ghost-button" id="team-library-push">Eigene Bausteine freigeben</button>
+        </div>
+      </header>
+      <p class="form-hint">
+        Synchronisiere deine Schnellbausteine mit der gemeinsamen Team-Bibliothek. Die Funktionen stehen zur Verfügung,
+        wenn der lokale NextPlanner-Server läuft (z.&nbsp;B. per <code>npm start</code>).
+      </p>
+      <dl class="team-library-meta">
+        <div>
+          <dt>Letzte Aktualisierung</dt>
+          <dd id="team-library-updated">–</dd>
+        </div>
+      </dl>
+      <p id="team-library-status" class="form-status" role="status" aria-live="polite"></p>
+    </section>
   </main>
   <script type="module" src="js/settings.js"></script>
 </body>

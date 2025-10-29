@@ -6,6 +6,8 @@ import { initQuickSnippets } from "./ui/quickSnippets.js";
 import { initPlanHighlighter } from "./ui/planHighlighter.js";
 import { initTemplateCapture } from "./ui/templateCapture.js";
 import { initPlanSaveDialog } from "./ui/planSaveDialog.js";
+import { initTemplateLibraryPanel } from "./ui/templateLibraryPanel.js";
+import { initValidationPanel } from "./ui/validationPanel.js";
 import { ApiError, apiRequest, canUseApi, describeApiError } from "./utils/apiClient.js";
 
 const originalTitle = document.title;
@@ -18,6 +20,7 @@ const dom = {
   planHighlight: document.getElementById("plan-highlight"),
   totalTimeEl: document.getElementById("total-time"),
   totalDistanceEl: document.getElementById("total-distance"),
+  averagePaceEl: document.getElementById("average-pace"),
   intensityListEl: document.getElementById("intensity-list"),
   equipmentListEl: document.getElementById("equipment-list"),
   blockListEl: document.getElementById("block-list"),
@@ -30,7 +33,25 @@ const dom = {
   exportWordButton: document.getElementById("export-word"),
   savePlanButton: document.getElementById("save-plan-button"),
   quickSnippetContainer: document.getElementById("quick-snippet-container"),
+  validationPanel: document.getElementById("validation-panel"),
+  templatePanel: document.querySelector(".template-panel"),
 };
+
+const planHighlighter = initPlanHighlighter({
+  textarea: dom.planInput,
+  highlightLayer: dom.planHighlight,
+});
+
+const validationPanel = initValidationPanel({
+  container: dom.validationPanel,
+  textarea: dom.planInput,
+  highlighter: planHighlighter,
+});
+
+initTemplateLibraryPanel({
+  container: dom.templatePanel,
+  textarea: dom.planInput,
+});
 
 const templateCapture = initTemplateCapture({
   blockList: dom.blockListEl,
@@ -47,6 +68,7 @@ const planSaveDialog = initPlanSaveDialog({
 function updateSummary() {
   const plan = parsePlan(dom.planInput?.value ?? "");
   renderSummary(plan, dom);
+  validationPanel.update(plan.issues ?? []);
   templateCapture.update(plan);
   planSaveDialog.update(plan);
 }
@@ -54,11 +76,6 @@ function updateSummary() {
 // Automatische Aktualisierung bei jeder Nutzereingabe sowie Initialisierung beim Laden der Seite.
 dom.planInput?.addEventListener("input", updateSummary);
 updateSummary();
-
-const planHighlighter = initPlanHighlighter({
-  textarea: dom.planInput,
-  highlightLayer: dom.planHighlight,
-});
 
 // Initialisiere das Hinweis-Overlay inklusive Fokusmanagement.
 initHelpOverlay({
@@ -88,28 +105,38 @@ async function loadPlanFromQuery() {
   }
   const params = new URLSearchParams(window.location.search);
   const planId = params.get("planId");
-  if (!planId) {
+  const duplicatePlanId = params.get("duplicatePlanId");
+  const lookupId = planId ?? duplicatePlanId;
+  if (!lookupId) {
     return;
   }
 
   try {
-    const { data: plan } = await apiRequest(`/api/plans/${encodeURIComponent(planId)}`);
+    const { data: plan } = await apiRequest(`/api/plans/${encodeURIComponent(lookupId)}`);
     if (!plan?.content) {
-      console.warn(`Plan ${planId} enthielt keinen Inhalt.`);
+      console.warn(`Plan ${lookupId} enthielt keinen Inhalt.`);
       return;
     }
     planHighlighter.setText(plan.content);
     updateSummary();
-    if (plan.title) {
+    if (plan.title && planId) {
       document.title = `${plan.title} – Swim Planner`;
     }
     if (window.history && typeof window.history.replaceState === "function") {
-      window.history.replaceState({}, document.title, window.location.pathname);
+      const nextParams = new URLSearchParams(window.location.search);
+      if (planId) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else if (duplicatePlanId) {
+        nextParams.delete("duplicatePlanId");
+        const newQuery = nextParams.toString();
+        const nextUrl = newQuery ? `${window.location.pathname}?${newQuery}` : window.location.pathname;
+        window.history.replaceState({}, document.title, nextUrl);
+      }
     }
   } catch (error) {
     const message = describeApiError(error);
     const severity = error instanceof ApiError && error.offline ? "warn" : "error";
-    console[severity === "warn" ? "warn" : "error"](`Plan ${planId} konnte nicht geladen werden: ${message}`);
+    console[severity === "warn" ? "warn" : "error"](`Plan ${lookupId} konnte nicht geladen werden: ${message}`);
     document.title = originalTitle;
   }
 }

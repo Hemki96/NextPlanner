@@ -146,10 +146,12 @@ export function initPlanHighlighter({ textarea, highlightLayer }) {
     return {
       refresh() {},
       setText() {},
+      setIssues() {},
     };
   }
 
   let contentEl = null;
+  let issueLines = new Set();
 
   const syncScroll = () => {
     if (!contentEl) {
@@ -159,8 +161,22 @@ export function initPlanHighlighter({ textarea, highlightLayer }) {
   };
 
   const renderHighlight = () => {
-    const markup = highlightPlanText(textarea.value ?? "");
-    highlightLayer.innerHTML = `<pre class="plan-highlight-content">${markup || "&nbsp;"}</pre>`;
+    const text = textarea.value ?? "";
+    const lines = text.split(/\n/);
+    const markup = lines
+      .map((line, index) => {
+        const highlighted = highlightPlanText(line);
+        const lineNumber = index + 1;
+        const classes = ["plan-line"];
+        if (issueLines.has(lineNumber)) {
+          classes.push("has-issue");
+        }
+        const content = highlighted || "&nbsp;";
+        return `<span class="${classes.join(" ")}" data-line="${lineNumber}">${content}</span>`;
+      })
+      .join("\n");
+    const finalMarkup = markup || "&nbsp;";
+    highlightLayer.innerHTML = `<pre class="plan-highlight-content">${finalMarkup}</pre>`;
     contentEl = highlightLayer.firstElementChild;
     syncScroll();
   };
@@ -174,6 +190,19 @@ export function initPlanHighlighter({ textarea, highlightLayer }) {
     renderHighlight();
   };
 
+  const setIssues = (issues) => {
+    if (!issues || !Array.isArray(issues)) {
+      issueLines = new Set();
+    } else {
+      issueLines = new Set(
+        issues
+          .map((issue) => Number.parseInt(issue?.lineNumber ?? "", 10))
+          .filter((lineNumber) => Number.isFinite(lineNumber) && lineNumber > 0),
+      );
+    }
+    renderHighlight();
+  };
+
   textarea.addEventListener("input", refresh);
   textarea.addEventListener("scroll", syncScroll);
 
@@ -182,5 +211,6 @@ export function initPlanHighlighter({ textarea, highlightLayer }) {
   return {
     refresh,
     setText,
+    setIssues,
   };
 }

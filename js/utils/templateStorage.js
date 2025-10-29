@@ -97,6 +97,14 @@ export function persistTemplates(templates) {
 
   if (hasLocalStorage()) {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+    try {
+      if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+        const detail = { count: sanitized.length };
+        window.dispatchEvent(new CustomEvent("nextplanner:templates-updated", { detail }));
+      }
+    } catch (error) {
+      console.warn("Konnte Template-Update-Ereignis nicht auslösen", error);
+    }
   }
 
   return sanitized;

@@ -1,4 +1,4 @@
-import { formatDuration } from "../utils/time.js";
+import { formatDuration, formatPace } from "../utils/time.js";
 import { formatDistance } from "../utils/distance.js";
 import { getIntensityColorClass } from "./intensityColors.js";
 
@@ -39,10 +39,22 @@ function createTemplateButton(label, type, extraClass = "") {
  * Aktualisiert sämtliche sichtbaren Auswertungen basierend auf den Planaggregationen.
  */
 export function renderSummary(plan, dom) {
-  const { totalTimeEl, totalDistanceEl, intensityListEl, equipmentListEl, blockListEl } = dom;
+  const {
+    totalTimeEl,
+    totalDistanceEl,
+    averagePaceEl,
+    intensityListEl,
+    equipmentListEl,
+    blockListEl,
+  } = dom;
 
   totalTimeEl.textContent = formatDuration(plan.totalTime);
   totalDistanceEl.textContent = formatDistance(plan.totalDistance);
+  if (averagePaceEl) {
+    averagePaceEl.textContent = plan.averagePaceSeconds
+      ? formatPace(plan.averagePaceSeconds)
+      : "–";
+  }
 
   intensityListEl.innerHTML = "";
   const intensityEntries = Array.from(plan.intensities.values()).sort((a, b) => b.distance - a.distance);
@@ -51,6 +63,7 @@ export function renderSummary(plan, dom) {
     placeholder.textContent = "Keine Intensität erkannt";
     intensityListEl.appendChild(placeholder);
   } else {
+    const totalActiveTime = plan.activeTime ?? 0;
     for (const item of intensityEntries) {
       const li = document.createElement("li");
       li.classList.add("intensity-summary-item");
@@ -64,6 +77,22 @@ export function renderSummary(plan, dom) {
       distanceValue.className = "intensity-distance";
       distanceValue.textContent = formatDistance(item.distance);
       li.appendChild(distanceValue);
+
+      if (totalActiveTime > 0 && Number.isFinite(item.activeTime) && item.activeTime > 0) {
+        const share = document.createElement("span");
+        share.className = "intensity-share";
+        const percentage = Math.round((item.activeTime / totalActiveTime) * 1000) / 10;
+        share.textContent = `${percentage.toFixed(1).replace(".0", "")} % Zeit`;
+        li.appendChild(share);
+      }
+
+      if (item.distance > 0 && Number.isFinite(item.activeTime) && item.activeTime > 0) {
+        const pace = document.createElement("span");
+        pace.className = "intensity-pace";
+        const paceSeconds = (item.activeTime / item.distance) * 100;
+        pace.textContent = formatPace(paceSeconds);
+        li.appendChild(pace);
+      }
 
       intensityListEl.appendChild(li);
     }
@@ -124,6 +153,13 @@ export function renderSummary(plan, dom) {
     const time = document.createElement("span");
     time.textContent = `Zeit: ${formatDuration(block.time)}`;
     meta.appendChild(time);
+
+    if (block.averagePaceSeconds) {
+      const pace = document.createElement("span");
+      pace.textContent = `Ø Pace: ${formatPace(block.averagePaceSeconds)}`;
+      pace.className = "block-pace";
+      meta.appendChild(pace);
+    }
 
     const sets = document.createElement("span");
     sets.textContent = `Sets: ${block.sets.length}`;
@@ -199,6 +235,13 @@ export function renderSummary(plan, dom) {
           interval.className = "set-detail set-interval";
           interval.innerHTML = `Abgang: <em>${formatDuration(set.interval)}</em>`;
           details.appendChild(interval);
+        }
+
+        if (set.paceSecondsPer100) {
+          const pace = document.createElement("span");
+          pace.className = "set-detail set-pace";
+          pace.innerHTML = `Ø Pace: <em>${formatPace(set.paceSecondsPer100)}</em>`;
+          details.appendChild(pace);
         }
 
         if (set.pause > 0) {
