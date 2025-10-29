@@ -1,4 +1,6 @@
 import { parsePlan } from "../parser/planParser.js";
+import { formatDistance } from "./distance.js";
+import { formatDuration } from "./time.js";
 
 const INTENSITY_COLORS = {
   WHITE: "#9E9E9E",
@@ -68,6 +70,17 @@ function formatBlockTime(seconds) {
   }
   const prime = "′";
   return `${minutes}${prime}${String(remainingSeconds).padStart(2, "0")}min`;
+}
+
+function formatBlockTotals(distance, time) {
+  const parts = [];
+  if (Number.isFinite(distance) && distance > 0) {
+    parts.push(formatDistance(distance));
+  }
+  if (Number.isFinite(time) && time > 0) {
+    parts.push(formatDuration(time));
+  }
+  return parts.join(" / ");
 }
 
 function createIntensitySpan(label, level) {
@@ -282,7 +295,13 @@ function renderBlock(block) {
       return "";
     })
     .join("");
-  return `<section class="plan-block">${heading}${body}</section>`;
+  const totals = formatBlockTotals(block.distance, block.time);
+  const summary = totals
+    ? `<p class="block-summary"><span class="block-summary-label">Summe:</span><span class="block-summary-value">${escapeHtml(
+        totals,
+      )}</span></p>`
+    : "";
+  return `<section class="plan-block">${heading}${body}${summary}</section>`;
 }
 
 function parseTextBlocks(text) {
@@ -393,13 +412,128 @@ function renderPlan(plan, text) {
   return blocks.map((block) => renderBlock(block)).join("");
 }
 
+function extractPlanMetadata(text) {
+  const metadata = {
+    date: "",
+    time: "",
+    title: "",
+    material: "",
+  };
+  if (!text) {
+    return { metadata, cleanedText: "" };
+  }
+
+  const lines = text.split(/\r?\n/);
+  const metadataLines = new Set();
+  let inHeader = true;
+
+  const assignMetadata = (key, value) => {
+    if (!value) {
+      return;
+    }
+    if (key.includes("datum") || key.includes("date")) {
+      metadata.date = value;
+    } else if (key.includes("uhr") || key.includes("zeit") || key.includes("time")) {
+      metadata.time = value;
+    } else if (key.includes("titel") || key.includes("title")) {
+      metadata.title = value;
+    } else if (key.includes("material")) {
+      metadata.material = value;
+    }
+  };
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      if (inHeader) {
+        metadataLines.add(index);
+        continue;
+      }
+      continue;
+    }
+
+    if (/^##\s*/.test(trimmed) || /^#\s*/.test(trimmed) || /^(?:\d+\s*(?:x|×)\s*\d+)/i.test(trimmed) || /^P\s*:/i.test(trimmed)) {
+      inHeader = false;
+      continue;
+    }
+
+    if (!inHeader) {
+      continue;
+    }
+
+    const match = trimmed.match(/^([\p{L}\s]+?):\s*(.+)$/u);
+    if (match) {
+      const [, key, value] = match;
+      assignMetadata(key.toLowerCase(), value.trim());
+      metadataLines.add(index);
+      continue;
+    }
+  }
+
+  const cleanedText = lines
+    .filter((_, index) => !metadataLines.has(index))
+    .join("\n")
+    .replace(/^(?:\s*\n)+/, "");
+
+  return { metadata, cleanedText };
+}
+
+function renderDocumentHeader(metadata, plan) {
+  const headerTitle = metadata.title || plan.blocks?.[0]?.name || "Trainingsplan";
+  const totalDistance = formatDistance(plan.totalDistance ?? 0);
+  const materialList = (() => {
+    if (metadata.material) {
+      return metadata.material;
+    }
+    const equipment = Array.from(plan.equipment?.values?.() ?? [])
+      .map((entry) => entry.label)
+      .filter(Boolean);
+    const unique = [...new Set(equipment.map((label) => label.trim()).filter(Boolean))];
+    if (unique.length === 0) {
+      return "—";
+    }
+    return unique
+      .sort((a, b) => a.localeCompare(b, "de", { sensitivity: "base" }))
+      .join(", ");
+  })();
+
+  const items = [
+    { label: "Datum", value: metadata.date || "—" },
+    { label: "Uhrzeit", value: metadata.time || "—" },
+    { label: "Gesamtmeter", value: totalDistance },
+    { label: "Titel", value: headerTitle },
+    { label: "Benötigtes Material", value: materialList },
+  ];
+
+  const rows = items
+    .map(
+      (item) =>
+        `<div class="header-row"><span class="header-label">${escapeHtml(item.label)}:</span><span class="header-value">${escapeHtml(
+          item.value,
+        )}</span></div>`,
+    )
+    .join("");
+
+  return `<header class="document-header">${rows}</header>`;
+}
+
 export function createWordExportDocument(planText) {
+  const { metadata, cleanedText } = extractPlanMetadata(planText ?? "");
   const plan = parsePlan(planText ?? "");
-  const body = renderPlan(plan, planText ?? "");
-  return `<!DOCTYPE html><html lang="de"><head><meta charset="utf-8" /><title>Swim Planner Export</title><style>
+  const header = renderDocumentHeader(metadata, plan);
+  const body = renderPlan(plan, cleanedText ?? "");
+  const docTitle = escapeHtml(metadata.title || plan.blocks?.[0]?.name || "Swim Planner Export");
+  return `<!DOCTYPE html><html lang="de"><head><meta charset="utf-8" /><title>${docTitle}</title><style>
     @page { size: A4 portrait; margin: 20mm; }
     body { font-family: 'Calibri','Segoe UI',sans-serif; font-size: 11pt; line-height: 1.15; color: #111; margin: 0; padding: 0; }
     body, p { margin-top: 0; margin-bottom: 2.5pt; }
+    header, main { width: 100%; }
+    .document-header { margin-bottom: 10pt; padding-bottom: 6pt; border-bottom: 1pt solid #000; }
+    .header-row { display: flex; justify-content: space-between; margin-bottom: 2pt; }
+    .header-label { font-weight: 600; }
+    .header-value { text-align: right; }
     .document-title { font-size: 16pt; font-weight: 700; margin-bottom: 12pt; }
     .plan-block { margin-bottom: 8pt; }
     .section-heading { font-size: 12.5pt; font-weight: 700; margin-bottom: 4pt; overflow: hidden; }
@@ -418,6 +552,9 @@ export function createWordExportDocument(planText) {
     .circuit-summary { font-style: italic; }
     .circuit-item { display: flex; }
     .circuit-item .circuit-index { min-width: 0.8cm; font-weight: 600; }
+    .block-summary { margin: 4pt 0 6pt; text-align: right; font-weight: 600; }
+    .block-summary-label { margin-right: 4pt; }
+    .block-summary-value { font-weight: 700; }
     .empty-placeholder { font-style: italic; color: #666; }
-  </style></head><body><main>${body}</main></body></html>`;
+  </style></head><body>${header}<main>${body}</main></body></html>`;
 }
