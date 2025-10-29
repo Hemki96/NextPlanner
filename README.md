@@ -84,7 +84,7 @@ Du hast zwei gleichwertige Möglichkeiten, die Anwendung während der Entwicklun
 
 - **Wo liegt die lokale Datendatei?** – Im Verzeichnis `data/plans.json`. Sie wird beim ersten Speichern automatisch angelegt und ist in `.gitignore` eingetragen.
 - **Warum schlägt „Plan speichern“ fehl?** – Stelle sicher, dass `npm start` läuft. Ohne Server kann die App nicht auf das Dateisystem zugreifen.
-- **Wie ändere ich die Port-Konfiguration?** – Passe den Port in `server.js` an oder setze die Umgebungsvariable `PORT` (z. B. `PORT=4000 npm start`).
+- **Wie ändere ich die Port-Konfiguration?** – Passe den Port in `server/server.js` an oder setze die Umgebungsvariable `PORT` (z. B. `PORT=4000 npm start`).
 - **Kann ich Tests debuggen?** – Ja. Verwende in der Run-&-Debug-Ansicht die Konfiguration „Node.js: Launch via NPM“, wähle `test` als Script und setze Breakpoints in deinen Testdateien unter `tests/`.
 
 ### Variante A – Integrierter NextPlanner-Server (empfohlen)

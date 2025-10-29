@@ -96,5 +96,5 @@ Diese Liste spiegelt den Umsetzungsstand der Spezifikation wider. Für jede Vorg
 
 ## 20. Dokumentation
 - [x] `README.md` mit Einstieg & Setup.
-- [x] Detail-Dokumente: `api.md`, `datastore.md`, `etag.md`, `contributing.md`.
-- [x] Diese Checkliste (`compliance_checklist.md`) dokumentiert den Status und verweist auf Kernbereiche.
+- [x] Detail-Dokumente: `API.md`, `DATASTORE.md`, `ETAG.md`, `CONTRIBUTING.md`.
+- [x] Diese Checkliste (`compliance-checklist.md`) dokumentiert den Status und verweist auf Kernbereiche.

@@ -58,7 +58,7 @@ const API_CORS_HEADERS = {
 const API_BASE_HEADERS = Object.freeze({
   "Cache-Control": "no-store",
   "Content-Security-Policy":
-    "default-src 'none'; base-uri 'self'; frame-ancestors 'none';", // tightened for API responses
+    "default-src 'none'; script-src 'self'; base-uri 'self'; frame-ancestors 'none';", // tightened for API responses
   "X-Content-Type-Options": "nosniff",
 });
 
