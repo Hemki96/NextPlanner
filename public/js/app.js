@@ -21,6 +21,7 @@ const originalTitle = document.title;
  * Zentrale DOM-Referenzen, die zwischen Parser und UI ausgetauscht werden.
  */
 const dom = {
+  planEditor: document.querySelector(".plan-editor"),
   planInput: document.getElementById("plan-input"),
   planHighlight: document.getElementById("plan-highlight"),
   totalTimeEl: document.getElementById("total-time"),
@@ -61,6 +62,8 @@ const planHighlighter = initPlanHighlighter({
   textarea: dom.planInput,
   highlightLayer: dom.planHighlight,
 });
+
+dom.planEditor?.classList.add("plan-editor--enhanced");
 
 const validationPanel = syntaxValidationEnabled
   ? initValidationPanel({

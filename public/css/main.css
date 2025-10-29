@@ -1060,12 +1060,16 @@ body {
   padding: 1.5rem;
   font-size: 1rem;
   resize: vertical;
-  color: transparent;
+  color: var(--text-primary);
   caret-color: var(--text-primary);
   line-height: 1.6;
   font-family: inherit;
   position: relative;
   z-index: 1;
+}
+
+.plan-editor--enhanced textarea {
+  color: transparent;
 }
 
 .plan-editor textarea:focus {
@@ -1094,6 +1098,10 @@ body {
   overflow: hidden;
   z-index: 0;
   border-radius: inherit;
+}
+
+.plan-editor:not(.plan-editor--enhanced) .plan-highlight {
+  display: none;
 }
 
 .plan-highlight-content {
