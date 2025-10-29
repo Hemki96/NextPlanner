@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 const DATA_DIR = "data";
 const DEFAULT_FILE_NAME = "plans.json";
+const BACKUP_FORMAT_ID = "nextplanner/plan-backup";
+const BACKUP_VERSION = 1;
 
 export class PlanValidationError extends Error {
   constructor(message) {
@@ -83,6 +85,19 @@ function normalizeMetadata(metadata) {
   return { ...metadata };
 }
 
+function normalizeTimestamp(value, fieldName) {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  }
+  throw new PlanValidationError(`Backup: ${fieldName} muss ein gültiger ISO-Zeitstempel sein.`);
+}
+
 function clonePlan(plan) {
   return {
     id: plan.id,
@@ -93,6 +108,79 @@ function clonePlan(plan) {
     metadata: normalizeMetadata(plan.metadata),
     createdAt: plan.createdAt,
     updatedAt: plan.updatedAt,
+  };
+}
+
+function ensurePositiveInteger(value, label) {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new PlanValidationError(`Backup: ${label} muss eine positive Ganzzahl sein.`);
+  }
+  return value;
+}
+
+function ensureBackupObject(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new PlanValidationError(`Backup: ${label} muss ein Objekt sein.`);
+  }
+  return value;
+}
+
+function normalizeBackupPlan(rawPlan) {
+  const plan = ensureBackupObject(rawPlan, "Plan");
+  const id = ensurePositiveInteger(plan.id, "Plan-ID");
+  const title = normalizeTitle(plan.title);
+  const content = normalizeContent(plan.content);
+  const planDate = toIsoDate(plan.planDate);
+  const focus = normalizeFocus(plan.focus);
+  const metadata = normalizeMetadata(plan.metadata);
+  const createdAt = normalizeTimestamp(plan.createdAt, "createdAt");
+  const updatedAt = normalizeTimestamp(plan.updatedAt, "updatedAt");
+  return clonePlan({
+    id,
+    title,
+    content,
+    planDate,
+    focus,
+    metadata,
+    createdAt,
+    updatedAt,
+  });
+}
+
+function normalizeBackupPayload(payload) {
+  const root = ensureBackupObject(payload, "Dateiinhalt");
+  if (root.format !== BACKUP_FORMAT_ID) {
+    throw new PlanValidationError("Backup: Dieses Format wird nicht unterstützt.");
+  }
+  if (root.version !== BACKUP_VERSION) {
+    throw new PlanValidationError("Backup: Diese Version wird nicht unterstützt.");
+  }
+  if (root.exportedAt !== undefined) {
+    normalizeTimestamp(root.exportedAt, "exportedAt");
+  }
+  const data = ensureBackupObject(root.data, "Datenblock");
+  const nextId = ensurePositiveInteger(data.nextId, "nextId");
+  if (!Array.isArray(data.plans)) {
+    throw new PlanValidationError("Backup: 'plans' muss ein Array sein.");
+  }
+  const plans = data.plans.map((plan) => normalizeBackupPlan(plan));
+  const seenIds = new Set();
+  let maxId = 0;
+  for (const plan of plans) {
+    if (seenIds.has(plan.id)) {
+      throw new PlanValidationError("Backup: Plan-IDs müssen eindeutig sein.");
+    }
+    seenIds.add(plan.id);
+    if (plan.id > maxId) {
+      maxId = plan.id;
+    }
+  }
+  if (plans.length > 0 && nextId <= maxId) {
+    throw new PlanValidationError("Backup: nextId muss größer als jede Plan-ID sein.");
+  }
+  return {
+    nextId,
+    plans,
   };
 }
 
@@ -413,6 +501,31 @@ export class JsonPlanStore {
         return a.planDate.localeCompare(b.planDate);
       })
       .map((plan) => clonePlan(plan));
+  }
+
+  async exportBackup() {
+    await this.#ensureReady();
+    return {
+      format: BACKUP_FORMAT_ID,
+      version: BACKUP_VERSION,
+      exportedAt: new Date().toISOString(),
+      planCount: this.#data.plans.length,
+      data: {
+        nextId: this.#data.nextId,
+        plans: this.#data.plans.map((plan) => clonePlan(plan)),
+      },
+    };
+  }
+
+  async importBackup(payload) {
+    await this.#ensureReady();
+    const normalized = normalizeBackupPayload(payload);
+    this.#data = {
+      nextId: normalized.nextId,
+      plans: normalized.plans,
+    };
+    await this.#writeToDisk();
+    return { planCount: this.#data.plans.length };
   }
 
   async close() {
