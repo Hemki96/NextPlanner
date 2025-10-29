@@ -39,7 +39,7 @@ describe("Plan API", () => {
 
   after(async () => {
     await new Promise((resolve) => server.close(resolve));
-    store?.close();
+    await store?.close();
     rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -71,12 +71,12 @@ describe("Plan API", () => {
     assert.equal(plans.length, 1);
     assert.equal(plans[0].id, created.id);
 
-    const stored = store.getPlan(created.id);
+    const stored = await store.getPlan(created.id);
     assert.equal(stored.metadata.coach, "Kim");
   });
 
   it("aktualisiert und löscht Pläne", async () => {
-    const created = store.createPlan({
+    const created = await store.createPlan({
       title: "Sprint",
       content: "6x50",
       planDate: "2024-06-02",
@@ -99,6 +99,52 @@ describe("Plan API", () => {
       method: "DELETE",
     });
     assert.equal(deleteResponse.status, 204);
-    assert.equal(store.getPlan(created.id), null);
+    assert.equal(await store.getPlan(created.id), null);
+  });
+
+  it("validiert Content-Type und Nutzlast", async () => {
+    const badContentType = await fetch(`${baseUrl}/api/plans`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain",
+      },
+      body: "title=foo",
+    });
+    assert.equal(badContentType.status, 415);
+
+    const missingFields = await fetch(`${baseUrl}/api/plans`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ title: "Plan" }),
+    });
+    assert.equal(missingFields.status, 400);
+    const message = await missingFields.json();
+    assert.match(message.error, /content ist erforderlich/);
+  });
+
+  it("unterstützt HEAD und OPTIONS mit CORS-Headern", async () => {
+    const optionsResponse = await fetch(`${baseUrl}/api/plans`, {
+      method: "OPTIONS",
+    });
+    assert.equal(optionsResponse.status, 204);
+    assert.equal(optionsResponse.headers.get("access-control-allow-origin"), "*");
+
+    const created = await store.createPlan({
+      title: "Technik",
+      content: "Drills",
+      planDate: "2024-06-03",
+      focus: "TE",
+    });
+
+    const headResponse = await fetch(`${baseUrl}/api/plans/${created.id}`, {
+      method: "HEAD",
+    });
+    assert.equal(headResponse.status, 200);
+    assert.equal(headResponse.headers.get("content-type"), "application/json; charset=utf-8");
+    assert.equal(headResponse.headers.get("access-control-allow-origin"), "*");
+    const body = await headResponse.text();
+    assert.equal(body, "");
   });
 });

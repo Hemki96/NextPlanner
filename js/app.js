@@ -6,6 +6,7 @@ import { initQuickSnippets } from "./ui/quickSnippets.js";
 import { initPlanHighlighter } from "./ui/planHighlighter.js";
 import { initTemplateCapture } from "./ui/templateCapture.js";
 import { initPlanSaveDialog } from "./ui/planSaveDialog.js";
+import { ApiError, apiRequest, canUseApi, describeApiError } from "./utils/apiClient.js";
 
 const originalTitle = document.title;
 
@@ -82,7 +83,7 @@ initQuickSnippets({
 });
 
 async function loadPlanFromQuery() {
-  if (typeof window === "undefined" || typeof fetch !== "function") {
+  if (typeof window === "undefined" || !canUseApi()) {
     return;
   }
   const params = new URLSearchParams(window.location.search);
@@ -92,12 +93,7 @@ async function loadPlanFromQuery() {
   }
 
   try {
-    const response = await fetch(`/api/plans/${encodeURIComponent(planId)}`);
-    if (!response.ok) {
-      console.warn(`Plan ${planId} konnte nicht geladen werden (Status ${response.status}).`);
-      return;
-    }
-    const plan = await response.json();
+    const { data: plan } = await apiRequest(`/api/plans/${encodeURIComponent(planId)}`);
     if (!plan?.content) {
       console.warn(`Plan ${planId} enthielt keinen Inhalt.`);
       return;
@@ -111,7 +107,9 @@ async function loadPlanFromQuery() {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   } catch (error) {
-    console.error(`Plan ${planId} konnte nicht geladen werden`, error);
+    const message = describeApiError(error);
+    const severity = error instanceof ApiError && error.offline ? "warn" : "error";
+    console[severity === "warn" ? "warn" : "error"](`Plan ${planId} konnte nicht geladen werden: ${message}`);
     document.title = originalTitle;
   }
 }

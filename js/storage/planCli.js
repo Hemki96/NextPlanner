@@ -1,5 +1,11 @@
 #!/usr/bin/env node
-import { JsonPlanStore } from "./jsonPlanStore.js";
+import process from "node:process";
+
+import {
+  JsonPlanStore,
+  PlanValidationError,
+  StorageIntegrityError,
+} from "./jsonPlanStore.js";
 
 function printUsage() {
   console.log(`Verwendung: node js/storage/planCli.js <befehl> [optionen]
@@ -15,6 +21,9 @@ Befehle:
       Aktualisiert einen existierenden Plan.
   delete --id=1
       Löscht einen Plan.
+  Optionen:
+  --storage-file="./data/plans.json"
+      Überschreibt den Speicherort der Plan-Datei.
 `);
 }
 
@@ -42,29 +51,41 @@ function parseMetadataOption(option) {
   try {
     return JSON.parse(option);
   } catch (error) {
-    throw new Error(`Metadaten konnten nicht gelesen werden: ${error.message}`);
+    throw new PlanValidationError(
+      `Metadaten konnten nicht gelesen werden: ${error.message}`
+    );
   }
 }
 
-const [command, ...rest] = process.argv.slice(2);
-
-if (!command || command === "--help" || command === "-h") {
-  printUsage();
-  process.exit(command ? 0 : 1);
+function determineStorageFile(args) {
+  let storageFile;
+  const filtered = [];
+  for (const arg of args) {
+    if (arg.startsWith("--storage-file=")) {
+      storageFile = arg.slice("--storage-file=".length);
+    } else {
+      filtered.push(arg);
+    }
+  }
+  return { storageFile, filtered };
 }
 
-const store = new JsonPlanStore();
+const EXIT_SUCCESS = 0;
+const EXIT_VALIDATION = 1;
+const EXIT_IO = 2;
 
-try {
+async function run(command, rest, store) {
   const options = parseArgs(rest);
 
   switch (command) {
     case "add": {
       const { title, date, focus, content, metadata } = options;
       if (!title || !date || !focus || !content) {
-        throw new Error("Für 'add' sind --title, --date, --focus und --content erforderlich.");
+        throw new PlanValidationError(
+          "Für 'add' sind --title, --date, --focus und --content erforderlich."
+        );
       }
-      const plan = store.createPlan({
+      const plan = await store.createPlan({
         title,
         planDate: date,
         focus,
@@ -73,70 +94,106 @@ try {
       });
       console.log("Plan gespeichert:");
       console.log(JSON.stringify(plan, null, 2));
-      break;
+      return EXIT_SUCCESS;
     }
     case "list": {
       const { focus, from, to } = options;
-      const plans = store.listPlans({ focus, from, to });
+      const plans = await store.listPlans({ focus, from, to });
       if (plans.length === 0) {
         console.log("Keine Pläne gefunden.");
-        break;
+        return EXIT_SUCCESS;
       }
       for (const plan of plans) {
         console.log(`- [${plan.focus}] ${plan.title} (${plan.planDate}) #${plan.id}`);
       }
-      break;
+      return EXIT_SUCCESS;
     }
     case "show": {
       const { id } = options;
       if (!id) {
-        throw new Error("Für 'show' wird --id benötigt.");
+        throw new PlanValidationError("Für 'show' wird --id benötigt.");
       }
-      const plan = store.getPlan(Number(id));
+      const plan = await store.getPlan(Number(id));
       if (!plan) {
         console.log("Plan nicht gefunden.");
       } else {
         console.log(JSON.stringify(plan, null, 2));
       }
-      break;
+      return EXIT_SUCCESS;
     }
     case "update": {
       const { id, title, date, focus, content, metadata } = options;
       if (!id) {
-        throw new Error("Für 'update' wird --id benötigt.");
+        throw new PlanValidationError("Für 'update' wird --id benötigt.");
       }
-      const updated = store.updatePlan(Number(id), {
-        title,
-        planDate: date,
-        focus,
-        content,
-        metadata: parseMetadataOption(metadata),
-      });
+      const updates = {};
+      if (title !== undefined) updates.title = title;
+      if (date !== undefined) updates.planDate = date;
+      if (focus !== undefined) updates.focus = focus;
+      if (content !== undefined) updates.content = content;
+      if (metadata !== undefined) updates.metadata = parseMetadataOption(metadata);
+      const updated = await store.updatePlan(Number(id), updates);
       if (!updated) {
         console.log("Plan nicht gefunden oder keine Änderungen vorgenommen.");
       } else {
         console.log("Plan aktualisiert:");
         console.log(JSON.stringify(updated, null, 2));
       }
-      break;
+      return EXIT_SUCCESS;
     }
     case "delete": {
       const { id } = options;
       if (!id) {
-        throw new Error("Für 'delete' wird --id benötigt.");
+        throw new PlanValidationError("Für 'delete' wird --id benötigt.");
       }
-      const removed = store.deletePlan(Number(id));
+      const removed = await store.deletePlan(Number(id));
       console.log(removed ? "Plan gelöscht." : "Plan nicht gefunden.");
-      break;
+      return EXIT_SUCCESS;
     }
     default:
       console.error(`Unbekannter Befehl '${command}'.`);
       printUsage();
-      process.exit(1);
+      return EXIT_VALIDATION;
   }
-} catch (error) {
-  console.error(error.message);
-  process.exit(1);
-} finally {
-  store.close();
 }
+
+async function main() {
+  const rawArgs = process.argv.slice(2);
+  if (rawArgs.length === 0 || rawArgs.includes("--help") || rawArgs.includes("-h")) {
+    printUsage();
+    process.exit(rawArgs.length === 0 ? EXIT_VALIDATION : EXIT_SUCCESS);
+  }
+
+  const { storageFile, filtered } = determineStorageFile(rawArgs);
+  const [command, ...rest] = filtered;
+
+  if (!command) {
+    printUsage();
+    process.exit(EXIT_VALIDATION);
+  }
+
+  const store = new JsonPlanStore(storageFile ? { storageFile } : undefined);
+
+  try {
+    const exitCode = await run(command, rest, store);
+    await store.close();
+    process.exit(exitCode);
+  } catch (error) {
+    await store.close().catch(() => {});
+    if (error instanceof PlanValidationError) {
+      console.error(error.message);
+      process.exit(EXIT_VALIDATION);
+    }
+    if (error instanceof StorageIntegrityError) {
+      console.error(error.message);
+      if (error.backupFile) {
+        console.error(`Backup: ${error.backupFile}`);
+      }
+      process.exit(EXIT_IO);
+    }
+    console.error(error.message);
+    process.exit(EXIT_IO);
+  }
+}
+
+main();
