@@ -12,17 +12,17 @@
     <h1>Swim Planner</h1>
     <p>Erstelle strukturierte Trainingspläne für das Schwimmtraining und erhalte sofort Auswertungen zu Umfang, Dauer, Intensität und Materialbedarf.</p>
     <nav class="page-nav" aria-label="Hauptnavigation">
-      <a href="index.html" class="nav-link">Plan-Kalender</a>
+      <a href="index.html" class="nav-link" data-feature="calendarView">Plan-Kalender</a>
       <a href="planner.html" class="nav-link is-active" aria-current="page">Planner</a>
-      <a href="templates.html" class="nav-link">Vorlagen</a>
-      <a href="settings.html" class="nav-link">Schnellbausteine</a>
-      <a href="backup.html" class="nav-link">Datensicherung</a>
+      <a href="templates.html" class="nav-link" data-feature="templateLibrary">Vorlagen</a>
+      <a href="settings.html" class="nav-link" data-feature="quickSnippets">Schnellbausteine</a>
+      <a href="backup.html" class="nav-link">Einstellungen</a>
     </nav>
   </header>
   <!-- Dreispaltiges Layout: links Schnellbausteine, in der Mitte Eingabe, rechts Auswertung -->
   <main class="layout">
     <!-- Linke Spalte mit den Schnellbausteinen zum schnellen Einfügen -->
-    <aside class="quick-panel" aria-labelledby="quick-snippet-title">
+    <aside class="quick-panel" aria-labelledby="quick-snippet-title" data-feature="quickSnippets">
       <div class="quick-snippet-header">
         <div class="quick-snippet-title-row">
           <h2 id="quick-snippet-title">Schnellbausteine</h2>
@@ -30,6 +30,7 @@
             type="button"
             id="quick-snippet-toggle"
             class="quick-panel-toggle"
+            data-feature="quickSnippets"
             aria-expanded="true"
             aria-controls="quick-snippet-container"
           >
@@ -52,6 +53,7 @@
           type="button"
           id="quick-panel-expand"
           class="quick-panel-toggle quick-panel-expand"
+          data-feature="quickSnippets"
           aria-controls="quick-snippet-container"
           aria-expanded="false"
           hidden
@@ -68,7 +70,7 @@
           spellcheck="false"
         ></textarea>
       </div>
-      <div class="input-actions">
+      <div class="input-actions" data-feature="plannerTools">
         <button
           type="button"
           id="help-button"
@@ -100,7 +102,7 @@
         </button>
       </div>
       <p class="hint">Nutze Überschriften (z.B. <code>## Warm-up</code>) für Blöcke. Formate wie <code>4x50m</code>, <code>w/</code> für Material, <code>@</code> für Intervalle, <code>P:</code> für Pausen sowie Rundenangaben wie <code>3 Runden:</code> werden automatisch erkannt.</p>
-      <section id="validation-panel" class="validation-panel" aria-live="polite">
+      <section id="validation-panel" class="validation-panel" aria-live="polite" data-feature="syntaxValidation">
         <header class="validation-header">
           <h3>Syntax-Hinweise</h3>
           <p class="validation-summary" data-validation-summary>Keine Probleme erkannt</p>
@@ -109,7 +111,7 @@
       </section>
     </section>
     <section class="insights-panel">
-      <aside class="template-panel" aria-labelledby="template-panel-title">
+      <aside class="template-panel" aria-labelledby="template-panel-title" data-feature="templateLibrary">
         <div class="template-panel-header">
           <h2 id="template-panel-title">Vorlagen</h2>
           <p class="template-panel-hint">Suche, klicke oder ziehe Vorlagen direkt in den Plan.</p>
@@ -128,7 +130,7 @@
         </div>
       </aside>
       <!-- Rechte Spalte fasst die Kennzahlen und Blockdetails live zusammen -->
-      <aside class="summary-panel" aria-live="polite">
+      <aside class="summary-panel" aria-live="polite" data-feature="insightsPanel">
         <h2>Zusammenfassung</h2>
         <!-- Kennzahlen-Raster für Zeit, Distanz, Intensitäten und Equipment -->
         <div class="summary-grid">
@@ -164,7 +166,7 @@
   <footer class="page-footer">
     <p><strong>Intensitätslegende:</strong> CLEAR, White2, White3, PINK4, PINK5, RED6, RED7, ORANGE8, ORANGE9, ORANGE10, PURPLE9, PURPLE10, BLUE8, BLUE9, BLUE10, GREEN, GOLD. Zusätzliche Kürzel: <abbr title="Arme">Ar</abbr>, <abbr title="Beine">Be</abbr>, <abbr title="Gesamte Lage">GSA</abbr>.</p>
   </footer>
-  <div id="template-capture" class="template-overlay" aria-hidden="true" hidden>
+  <div id="template-capture" class="template-overlay" aria-hidden="true" hidden data-feature="plannerTools">
     <div class="template-dialog" role="dialog" aria-modal="true" aria-labelledby="capture-heading">
       <header class="template-dialog-header">
         <h2 id="capture-heading">Vorlage speichern</h2>
@@ -193,7 +195,7 @@
       </form>
     </div>
   </div>
-  <div id="plan-save-overlay" class="template-overlay" aria-hidden="true" hidden>
+  <div id="plan-save-overlay" class="template-overlay" aria-hidden="true" hidden data-feature="plannerTools">
     <div class="template-dialog" role="dialog" aria-modal="true" aria-labelledby="plan-save-heading">
       <header class="template-dialog-header">
         <h2 id="plan-save-heading">Plan speichern</h2>

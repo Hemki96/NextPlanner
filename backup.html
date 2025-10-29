@@ -3,26 +3,39 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Swim Planner – Datensicherung</title>
+  <title>Swim Planner – Einstellungen</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="page-header">
-    <h1>Datensicherung &amp; Wiederherstellung</h1>
+    <h1>Anwendungseinstellungen</h1>
     <p>
-      Erstelle vollständige Sicherungsdateien deiner gespeicherten Trainingspläne und spiele sie bei Bedarf wieder in die App ein.
-      Die Sicherungen werden im JSON-Format gespeichert und enthalten sämtliche Metadaten.
+      Bestimme, welche Bereiche des NextPlanners standardmäßig sichtbar sind und verwalte Sicherungen deiner Daten.
+      Alle Einstellungen werden lokal im Browser gespeichert und lassen sich jederzeit zurücksetzen.
     </p>
     <nav class="page-nav" aria-label="Hauptnavigation">
-      <a href="index.html" class="nav-link">Plan-Kalender</a>
+      <a href="index.html" class="nav-link" data-feature="calendarView">Plan-Kalender</a>
       <a href="planner.html" class="nav-link">Planner</a>
-      <a href="templates.html" class="nav-link">Vorlagen</a>
-      <a href="settings.html" class="nav-link">Schnellbausteine</a>
-      <a href="backup.html" class="nav-link is-active" aria-current="page">Datensicherung</a>
+      <a href="templates.html" class="nav-link" data-feature="templateLibrary">Vorlagen</a>
+      <a href="settings.html" class="nav-link" data-feature="quickSnippets">Schnellbausteine</a>
+      <a href="backup.html" class="nav-link is-active" aria-current="page">Einstellungen</a>
     </nav>
   </header>
 
   <main class="page-content">
+    <section class="page-card">
+      <header class="section-header">
+        <h2>Funktionen ein- und ausblenden</h2>
+        <button type="button" class="ghost-button" id="feature-settings-reset">Alle aktivieren</button>
+      </header>
+      <p class="form-hint">
+        Lege fest, welche Bereiche der Anwendung standardmäßig sichtbar sind. Änderungen werden sofort übernommen und gelten
+        für alle Geräte, die denselben Browser-Speicher verwenden.
+      </p>
+      <ul id="feature-settings-list" class="feature-toggle-list" aria-live="polite"></ul>
+      <p id="feature-settings-status" class="form-status" role="status" aria-live="polite"></p>
+    </section>
+
     <section class="page-card">
       <header class="section-header">
         <h2>Vollständige Datensicherung</h2>
@@ -63,6 +76,6 @@
     </section>
   </main>
 
-  <script type="module" src="js/backup.js"></script>
+  <script type="module" src="js/appSettings.js"></script>
 </body>
 </html>

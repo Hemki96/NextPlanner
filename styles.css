@@ -436,6 +436,134 @@ body {
   color: var(--text-primary);
 }
 
+.feature-toggle-list {
+  margin: 1.25rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 1rem;
+}
+
+.feature-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 0.75);
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(12px);
+}
+
+.feature-toggle-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.feature-toggle-title {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+}
+
+.feature-toggle-description {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.feature-toggle-control {
+  display: flex;
+  align-items: center;
+}
+
+.feature-toggle-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.feature-toggle-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.feature-toggle-slider {
+  width: 52px;
+  height: 30px;
+  border-radius: 999px;
+  background: rgba(12, 50, 89, 0.2);
+  border: 1px solid rgba(12, 50, 89, 0.25);
+  position: relative;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.feature-toggle-slider::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 4px 10px rgba(12, 37, 64, 0.25);
+  transition: transform 0.2s ease;
+}
+
+.feature-toggle-input:checked + .feature-toggle-slider {
+  background: rgba(0, 119, 255, 0.6);
+  border-color: rgba(0, 119, 255, 0.65);
+}
+
+.feature-toggle-input:checked + .feature-toggle-slider::after {
+  transform: translateX(22px);
+}
+
+.feature-toggle-input:focus-visible + .feature-toggle-slider {
+  box-shadow: 0 0 0 3px rgba(0, 119, 255, 0.3);
+}
+
+.feature-toggle-state {
+  min-width: 4.5ch;
+  text-align: right;
+  color: var(--text-secondary);
+}
+
+.feature-disabled-card {
+  text-align: center;
+}
+
+.feature-disabled-card h2 {
+  margin-top: 0;
+}
+
+.feature-disabled-message {
+  margin: 0.75rem 0 0;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+@media (max-width: 720px) {
+  .feature-toggle {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .feature-toggle-control {
+    justify-content: flex-start;
+  }
+
+  .feature-toggle-state {
+    text-align: left;
+  }
+}
+
 .empty-hint {
   margin: 0;
   color: var(--text-secondary);

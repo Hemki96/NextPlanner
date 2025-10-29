@@ -5,6 +5,11 @@ import {
   createTemplateRecord,
   parseTagsInput,
 } from "./utils/templateStorage.js";
+import {
+  applyFeatureVisibility,
+  getFeatureSettings,
+  subscribeToFeatureSettings,
+} from "./utils/featureSettings.js";
 
 const form = document.getElementById("template-form");
 const typeSelect = document.getElementById("template-type");
@@ -17,6 +22,14 @@ const cancelButton = document.getElementById("template-cancel");
 const statusElement = document.getElementById("template-status");
 const listContainer = document.getElementById("template-list");
 const exportButton = document.getElementById("export-templates");
+
+const featureSettings = getFeatureSettings();
+applyFeatureVisibility(document, featureSettings);
+subscribeToFeatureSettings(() => {
+  window.location.reload();
+});
+
+const templateFeatureEnabled = featureSettings.templateLibrary !== false;
 
 let templates = loadTemplates();
 let editId = null;
@@ -236,76 +249,92 @@ function handleDelete(id) {
   }
 }
 
-form?.addEventListener("submit", (event) => {
-  event.preventDefault();
+if (templateFeatureEnabled) {
+  form?.addEventListener("submit", (event) => {
+    event.preventDefault();
 
-  const type = typeSelect.value;
-  const title = titleInput.value.trim();
-  const notes = notesInput.value.trim();
-  const tags = parseTagsInput(tagsInput?.value ?? "");
-  const content = contentTextarea.value.trim();
+    const type = typeSelect.value;
+    const title = titleInput.value.trim();
+    const notes = notesInput.value.trim();
+    const tags = parseTagsInput(tagsInput?.value ?? "");
+    const content = contentTextarea.value.trim();
 
-  if (!content) {
-    showStatus("Der Vorlagentext darf nicht leer sein.", "warning");
-    contentTextarea.focus();
-    return;
-  }
-
-  if (editId) {
-    templates = templates.map((entry) =>
-      entry.id === editId
-        ? { ...entry, type, title: title || entry.title, notes, content, tags }
-        : entry
-    );
-    showStatus("Vorlage aktualisiert.", "success");
-  } else {
-    const newTemplate = createTemplateRecord({
-      type,
-      title: title || "Unbenannte Vorlage",
-      notes,
-      content,
-      tags,
-    });
-    if (!newTemplate) {
-      showStatus("Vorlage konnte nicht gespeichert werden.", "warning");
+    if (!content) {
+      showStatus("Der Vorlagentext darf nicht leer sein.", "warning");
+      contentTextarea.focus();
       return;
     }
-    templates.push(newTemplate);
-    showStatus("Vorlage gespeichert.", "success");
-  }
 
-  templates = persistTemplates(templates);
+    if (editId) {
+      templates = templates.map((entry) =>
+        entry.id === editId
+          ? { ...entry, type, title: title || entry.title, notes, content, tags }
+          : entry
+      );
+      showStatus("Vorlage aktualisiert.", "success");
+    } else {
+      const newTemplate = createTemplateRecord({
+        type,
+        title: title || "Unbenannte Vorlage",
+        notes,
+        content,
+        tags,
+      });
+      if (!newTemplate) {
+        showStatus("Vorlage konnte nicht gespeichert werden.", "warning");
+        return;
+      }
+      templates.push(newTemplate);
+      showStatus("Vorlage gespeichert.", "success");
+    }
+
+    templates = persistTemplates(templates);
+    renderTemplates();
+    resetForm();
+  });
+
+  cancelButton?.addEventListener("click", () => {
+    resetForm();
+    showStatus("Bearbeitung verworfen.", "info");
+  });
+
+  exportButton?.addEventListener("click", () => {
+    exportTemplates();
+  });
+
+  listContainer?.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLButtonElement)) {
+      return;
+    }
+    const action = target.dataset.action;
+    const id = target.dataset.id;
+    if (!id) {
+      return;
+    }
+
+    if (action === "copy") {
+      handleCopy(id);
+    } else if (action === "edit") {
+      handleEdit(id);
+    } else if (action === "delete") {
+      handleDelete(id);
+    }
+  });
+
   renderTemplates();
-  resetForm();
-});
-
-cancelButton?.addEventListener("click", () => {
-  resetForm();
-  showStatus("Bearbeitung verworfen.", "info");
-});
-
-exportButton?.addEventListener("click", () => {
-  exportTemplates();
-});
-
-listContainer?.addEventListener("click", (event) => {
-  const target = event.target;
-  if (!(target instanceof HTMLButtonElement)) {
-    return;
+} else {
+  showStatus("Die Vorlagenfunktion ist in den Einstellungen deaktiviert.", "info");
+  if (form) {
+    form.querySelectorAll("input, select, textarea, button").forEach((element) => {
+      element.disabled = true;
+    });
   }
-  const action = target.dataset.action;
-  const id = target.dataset.id;
-  if (!id) {
-    return;
+  if (listContainer) {
+    listContainer.innerHTML = "";
+    const message = document.createElement("p");
+    message.className = "feature-disabled-message";
+    message.textContent = "Vorlagen sind deaktiviert. Aktiviere die Funktion in den Einstellungen.";
+    listContainer.appendChild(message);
   }
-
-  if (action === "copy") {
-    handleCopy(id);
-  } else if (action === "edit") {
-    handleEdit(id);
-  } else if (action === "delete") {
-    handleDelete(id);
-  }
-});
-
-renderTemplates();
+}

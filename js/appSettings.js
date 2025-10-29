@@ -1,4 +1,17 @@
 import { apiRequest, describeApiError } from "./utils/apiClient.js";
+import {
+  FEATURE_DEFINITIONS,
+  applyFeatureVisibility,
+  getFeatureSettings,
+  resetFeatureSettings,
+  setFeatureEnabled,
+  subscribeToFeatureSettings,
+} from "./utils/featureSettings.js";
+
+const featureList = document.getElementById("feature-settings-list");
+const featureStatus = document.getElementById("feature-settings-status");
+const featureResetButton = document.getElementById("feature-settings-reset");
+let featureStatusTimeout = null;
 
 const downloadButton = document.getElementById("download-backup");
 const backupStatus = document.getElementById("backup-status");
@@ -20,6 +33,136 @@ function setStatus(element, type, message) {
   }
   element.textContent = message;
   element.dataset.statusType = type;
+}
+
+function updateToggleStateLabel(checkbox) {
+  const label = checkbox?.closest("label");
+  if (!label) {
+    return;
+  }
+  const state = label.querySelector(".feature-toggle-state");
+  if (state) {
+    state.textContent = checkbox.checked ? "Aktiv" : "Inaktiv";
+  }
+}
+
+function createFeatureToggle(feature, enabled) {
+  const item = document.createElement("li");
+  item.className = "feature-toggle";
+  item.dataset.featureKey = feature.key;
+
+  const info = document.createElement("div");
+  info.className = "feature-toggle-info";
+
+  const heading = document.createElement("h3");
+  heading.className = "feature-toggle-title";
+  const headingId = `feature-toggle-${feature.key}-title`;
+  heading.id = headingId;
+  heading.textContent = feature.label;
+  info.appendChild(heading);
+
+  const description = document.createElement("p");
+  description.className = "feature-toggle-description";
+  const descriptionId = `feature-toggle-${feature.key}-description`;
+  description.id = descriptionId;
+  description.textContent = feature.description;
+  info.appendChild(description);
+
+  const control = document.createElement("div");
+  control.className = "feature-toggle-control";
+
+  const label = document.createElement("label");
+  label.className = "feature-toggle-switch";
+
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.className = "feature-toggle-input";
+  checkbox.checked = enabled;
+  checkbox.dataset.featureKey = feature.key;
+  checkbox.setAttribute("aria-labelledby", headingId);
+  checkbox.setAttribute("aria-describedby", descriptionId);
+
+  const slider = document.createElement("span");
+  slider.className = "feature-toggle-slider";
+  slider.setAttribute("aria-hidden", "true");
+
+  const state = document.createElement("span");
+  state.className = "feature-toggle-state";
+  state.textContent = enabled ? "Aktiv" : "Inaktiv";
+
+  label.append(checkbox, slider, state);
+  control.append(label);
+
+  item.append(info, control);
+  return item;
+}
+
+function renderFeatureToggles(settings = getFeatureSettings()) {
+  if (!featureList) {
+    return;
+  }
+  featureList.innerHTML = "";
+  FEATURE_DEFINITIONS.forEach((feature) => {
+    const enabled = settings[feature.key] !== false;
+    const toggle = createFeatureToggle(feature, enabled);
+    featureList.appendChild(toggle);
+  });
+}
+
+function handleFeatureChange(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") {
+    return;
+  }
+  const featureKey = target.dataset.featureKey;
+  if (!featureKey) {
+    return;
+  }
+  const updatedSettings = setFeatureEnabled(featureKey, target.checked);
+  applyFeatureVisibility(document, updatedSettings);
+  updateToggleStateLabel(target);
+  setStatus(
+    featureStatus,
+    "success",
+    target.checked
+      ? `${FEATURE_DEFINITIONS.find((f) => f.key === featureKey)?.label ?? "Funktion"} aktiviert.`
+      : `${FEATURE_DEFINITIONS.find((f) => f.key === featureKey)?.label ?? "Funktion"} deaktiviert.`
+  );
+  if (featureStatusTimeout) {
+    window.clearTimeout(featureStatusTimeout);
+  }
+  featureStatusTimeout = window.setTimeout(() => {
+    setStatus(featureStatus, "info", "");
+  }, 4000);
+}
+
+function handleFeatureReset() {
+  const defaults = resetFeatureSettings();
+  renderFeatureToggles(defaults);
+  applyFeatureVisibility(document, defaults);
+  setStatus(featureStatus, "info", "Alle Funktionen wurden reaktiviert.");
+  if (featureStatusTimeout) {
+    window.clearTimeout(featureStatusTimeout);
+  }
+  featureStatusTimeout = window.setTimeout(() => {
+    setStatus(featureStatus, "info", "");
+  }, 4000);
+}
+
+function initFeatureControls() {
+  if (!featureList) {
+    return;
+  }
+  renderFeatureToggles();
+  featureList.addEventListener("change", handleFeatureChange);
+  if (featureResetButton) {
+    featureResetButton.addEventListener("click", handleFeatureReset);
+  }
+  applyFeatureVisibility(document);
+  subscribeToFeatureSettings((settings) => {
+    renderFeatureToggles(settings);
+    applyFeatureVisibility(document, settings);
+  });
 }
 
 function formatPlanCount(count) {
@@ -127,11 +270,7 @@ async function handleRestoreSubmit(event) {
     resetRestoreForm();
   } catch (error) {
     const message = describeApiError(error) || error.message;
-    setStatus(
-      restoreStatus,
-      "warning",
-      message || "Die Sicherung konnte nicht eingespielt werden."
-    );
+    setStatus(restoreStatus, "warning", message || "Die Sicherung konnte nicht eingespielt werden.");
   } finally {
     if (restoreSubmit) {
       restoreSubmit.disabled = false;
@@ -146,6 +285,8 @@ function handleRestoreReset() {
   resetRestoreForm();
   setStatus(restoreStatus, "info", "Auswahl wurde zurückgesetzt.");
 }
+
+initFeatureControls();
 
 if (downloadButton) {
   downloadButton.addEventListener("click", () => {
