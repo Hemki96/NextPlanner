@@ -174,9 +174,9 @@ export function initPlanHighlighter({ textarea, highlightLayer }) {
         const content = highlighted || "&nbsp;";
         return `<span class="${classes.join(" ")}" data-line="${lineNumber}">${content}</span>`;
       })
-      .join("\n");
+      .join("");
     const finalMarkup = markup || "&nbsp;";
-    highlightLayer.innerHTML = `<pre class="plan-highlight-content">${finalMarkup}</pre>`;
+    highlightLayer.innerHTML = `<div class="plan-highlight-content" role="presentation">${finalMarkup}</div>`;
     contentEl = highlightLayer.firstElementChild;
     syncScroll();
   };
