@@ -14,12 +14,13 @@ import {
 import { JsonSnippetStore } from "./stores/json-snippet-store.js";
 
 class HttpError extends Error {
-  constructor(status, message, { expose = true, code = null } = {}) {
+  constructor(status, message, { expose = true, code = null, hint = null } = {}) {
     super(message);
     this.name = "HttpError";
     this.status = status;
     this.expose = expose;
     this.code = code ?? `http-${status}`;
+    this.hint = hint;
   }
 }
 
@@ -239,31 +240,52 @@ function sendEmpty(res, status, { cors = false, headers = {}, origin } = {}) {
   res.end();
 }
 
+function sendApiJson(res, status, payload, { method = "GET", headers, origin } = {}) {
+  sendJson(res, status, payload, {
+    cors: true,
+    method,
+    origin,
+    headers: buildApiHeaders(headers),
+  });
+}
+
+function sendApiEmpty(res, status, { headers, origin } = {}) {
+  sendEmpty(res, status, {
+    cors: true,
+    origin,
+    headers: buildApiHeaders(headers),
+  });
+}
+
 async function readJsonBody(req, { limit = 1_000_000 } = {}) {
-  const chunks = [];
+  req.setEncoding("utf8");
+  let body = "";
   let totalLength = 0;
 
   const method = req.method ?? "GET";
   if (method === "POST" || method === "PUT") {
     const contentType = req.headers["content-type"] ?? "";
     if (!/^application\/json(?:;|$)/i.test(contentType)) {
-      throw new HttpError(415, "Content-Type muss application/json sein");
+      throw new HttpError(415, "Content-Type muss application/json sein", {
+        hint: "Setzen Sie den Header 'Content-Type' auf 'application/json', um JSON-Daten zu senden.",
+      });
     }
   }
 
   for await (const chunk of req) {
-    totalLength += chunk.length;
+    totalLength += Buffer.byteLength(chunk);
     if (totalLength > limit) {
-      throw new HttpError(413, "Request body too large");
+      throw new HttpError(413, "Request body too large", {
+        hint: "Reduzieren Sie die Größe der Anfrage oder senden Sie weniger Daten pro Aufruf.",
+      });
     }
-    chunks.push(chunk);
+    body += chunk;
   }
 
-  if (chunks.length === 0) {
+  if (!body) {
     return {};
   }
 
-  const body = Buffer.concat(chunks).toString("utf8");
   if (!body.trim()) {
     return {};
   }
@@ -271,14 +293,18 @@ async function readJsonBody(req, { limit = 1_000_000 } = {}) {
   try {
     const parsed = JSON.parse(body);
     if (parsed === null || typeof parsed !== "object") {
-      throw new HttpError(400, "JSON body muss ein Objekt sein");
+      throw new HttpError(400, "JSON body muss ein Objekt sein", {
+        hint: "Senden Sie ein JSON-Objekt (z. B. {\"title\":\"...\"}) statt eines Arrays oder eines einfachen Werts.",
+      });
     }
     return parsed;
   } catch (error) {
     if (error instanceof HttpError) {
       throw error;
     }
-    throw new HttpError(400, "Ungültige JSON-Nutzlast");
+    throw new HttpError(400, "Ungültige JSON-Nutzlast", {
+      hint: "Prüfen Sie die JSON-Syntax. Häufige Fehler sind fehlende Anführungszeichen oder Kommas.",
+    });
   }
 }
 
@@ -409,7 +435,9 @@ function parseIdFromPath(pathname) {
 
 function ensureJsonObject(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new HttpError(400, "JSON body muss ein Objekt sein");
+    throw new HttpError(400, "JSON body muss ein Objekt sein", {
+      hint: "Verwenden Sie ein JSON-Objekt mit Schlüssel-Wert-Paaren, um die Daten zu übermitteln.",
+    });
   }
   return payload;
 }
@@ -422,7 +450,9 @@ function validateMetadata(metadata) {
     return {};
   }
   if (typeof metadata !== "object" || Array.isArray(metadata)) {
-    throw new HttpError(400, "metadata muss ein Objekt sein");
+    throw new HttpError(400, "metadata muss ein Objekt sein", {
+      hint: "'metadata' erwartet ein JSON-Objekt, z. B. {\"priority\":\"hoch\"}.",
+    });
   }
   return metadata;
 }
@@ -431,16 +461,24 @@ function validateCreatePayload(payload) {
   const data = ensureJsonObject(payload);
   const { title, content, planDate, focus, metadata } = data;
   if (typeof title !== "string" || !title.trim()) {
-    throw new HttpError(400, "title ist erforderlich und muss ein String sein");
+    throw new HttpError(400, "title ist erforderlich und muss ein String sein", {
+      hint: "Geben Sie einen nicht-leeren Text im Feld 'title' an.",
+    });
   }
   if (typeof content !== "string" || !content.trim()) {
-    throw new HttpError(400, "content ist erforderlich und muss ein String sein");
+    throw new HttpError(400, "content ist erforderlich und muss ein String sein", {
+      hint: "Füllen Sie das Feld 'content' mit einer Beschreibung des Plans aus.",
+    });
   }
   if (typeof planDate !== "string" || !planDate.trim()) {
-    throw new HttpError(400, "planDate ist erforderlich und muss ein ISO-Datum sein");
+    throw new HttpError(400, "planDate ist erforderlich und muss ein ISO-Datum sein", {
+      hint: "Verwenden Sie ein ISO-Datum, z. B. '2025-01-31'.",
+    });
   }
   if (typeof focus !== "string" || !focus.trim()) {
-    throw new HttpError(400, "focus ist erforderlich und muss ein String sein");
+    throw new HttpError(400, "focus ist erforderlich und muss ein String sein", {
+      hint: "Definieren Sie einen Schwerpunkt im Feld 'focus', z. B. 'Teamkommunikation'.",
+    });
   }
   return {
     title,
@@ -451,70 +489,71 @@ function validateCreatePayload(payload) {
   };
 }
 
-function buildErrorPayload(code, message, details) {
+function buildErrorPayload(code, message, details, hint) {
   const payload = { error: { code, message } };
   if (details !== undefined) {
     payload.error.details = details;
+  }
+  if (hint) {
+    payload.error.hint = hint;
   }
   return payload;
 }
 
 function handleApiError(res, error, method = "GET", origin) {
+  const sendError = (status, code, message, details, headers, hint) => {
+    sendApiJson(res, status, buildErrorPayload(code, message, details, hint), {
+      method,
+      origin,
+      headers,
+    });
+  };
+
   if (error instanceof HttpError) {
     const message = error.expose ? error.message : "Unbekannter Fehler";
-    const payload = buildErrorPayload(error.code ?? `http-${error.status}`, message);
-    sendJson(res, error.status, payload, {
-      cors: true,
-      method,
-      headers: buildApiHeaders(),
-      origin,
-    });
+    sendError(
+      error.status,
+      error.code ?? `http-${error.status}`,
+      message,
+      undefined,
+      undefined,
+      error.hint,
+    );
     return;
   }
   if (error instanceof PlanValidationError) {
-    sendJson(
-      res,
+    sendError(
       400,
-      buildErrorPayload("plan-validation", error.message),
-      {
-        cors: true,
-        method,
-        headers: buildApiHeaders(),
-        origin,
-      },
+      "plan-validation",
+      error.message,
+      undefined,
+      undefined,
+      "Bitte prüfen Sie die angegebenen Felder und korrigieren Sie ungültige Werte.",
     );
     return;
   }
   if (error instanceof StorageIntegrityError) {
     const details = error.backupFile ? { backupFile: error.backupFile } : undefined;
-    sendJson(
-      res,
+    sendError(
       503,
-      buildErrorPayload("storage-integrity", error.message, details),
-      {
-        cors: true,
-        method,
-        headers: buildApiHeaders(),
-        origin,
-      },
+      "storage-integrity",
+      error.message,
+      details,
+      undefined,
+      "Die lokalen Daten konnten nicht gespeichert werden. Bitte sichern Sie Ihre Eingaben und versuchen Sie es später erneut.",
     );
     return;
   }
   if (error instanceof PlanConflictError) {
     const details = error.currentPlan ? { currentPlan: error.currentPlan } : undefined;
-    const headers = error.currentPlan
-      ? buildApiHeaders({ ETag: buildPlanEtag(error.currentPlan) })
-      : buildApiHeaders();
-    sendJson(
-      res,
+    const headers = error.currentPlan ? { ETag: buildPlanEtag(error.currentPlan) } : undefined;
+    sendError(
       412,
-      buildErrorPayload("plan-conflict", error.message, details),
-      {
-        cors: true,
-        method,
-        headers,
-        origin,
-      },
+      "plan-conflict",
+      error.message,
+      details,
+      headers,
+      "Der Plan wurde inzwischen geändert. Laden Sie die aktuelle Version und übernehmen Sie Ihre Anpassungen erneut.",
     );
     return;
   }
@@ -525,16 +564,13 @@ function handleApiError(res, error, method = "GET", origin) {
         ? error.message
         : String(error)
       : "Interner Serverfehler";
-  sendJson(
-    res,
+  sendError(
     500,
-    buildErrorPayload("internal-error", message),
-    {
-      cors: true,
-      method,
-      headers: buildApiHeaders(),
-      origin,
-    },
+    "internal-error",
+    message,
+    undefined,
+    undefined,
+    "Bitte versuchen Sie es später erneut oder wenden Sie sich an den Support, falls das Problem bestehen bleibt.",
   );
 }
 
@@ -550,10 +586,13 @@ async function handleApiRequest(
   const method = (req.method ?? "GET").toUpperCase();
 
   if (method === "OPTIONS") {
-    const headers = buildApiHeaders({
-      "Access-Control-Allow-Methods": API_CORS_HEADERS["Access-Control-Allow-Methods"],
+    sendApiEmpty(res, 204, {
+      headers: {
+        "Access-Control-Allow-Methods":
+          API_CORS_HEADERS["Access-Control-Allow-Methods"],
+      },
+      origin: requestOrigin,
     });
-    sendEmpty(res, 204, { cors: true, headers, origin: requestOrigin });
     return;
   }
 
@@ -566,12 +605,7 @@ async function handleApiRequest(
     if ((method === "GET" || method === "HEAD") && !isRestorePath) {
       try {
         const backup = await planStore.exportBackup();
-        sendJson(res, 200, backup, {
-          cors: true,
-          method,
-          headers: buildApiHeaders(),
-          origin: requestOrigin,
-        });
+        sendApiJson(res, 200, backup, { method, origin: requestOrigin });
       } catch (error) {
         handleApiError(res, error, method, requestOrigin);
       }
@@ -587,18 +621,20 @@ async function handleApiRequest(
           planCount: result.planCount,
           restoredAt: new Date().toISOString(),
         };
-        sendJson(res, 200, responseBody, {
-          cors: true,
-          method,
-          headers: buildApiHeaders(),
-          origin: requestOrigin,
-        });
+        sendApiJson(res, 200, responseBody, { method, origin: requestOrigin });
       } catch (error) {
         handleApiError(res, error, method, requestOrigin);
       }
       return;
     }
-    handleApiError(res, new HttpError(405, "Methode nicht erlaubt"), method, requestOrigin);
+    handleApiError(
+      res,
+      new HttpError(405, "Methode nicht erlaubt", {
+        hint: "Für Sicherungen stehen GET/HEAD (Export) und POST (Import) zur Verfügung.",
+      }),
+      method,
+      requestOrigin,
+    );
     return;
   }
 
@@ -606,7 +642,9 @@ async function handleApiRequest(
     if (!snippetStore) {
       handleApiError(
         res,
-        new HttpError(503, "Team-Bibliothek nicht verfügbar"),
+        new HttpError(503, "Team-Bibliothek nicht verfügbar", {
+          hint: "Aktivieren oder konfigurieren Sie die Team-Bibliothek, um auf Snippets zuzugreifen.",
+        }),
         method,
         requestOrigin,
       );
@@ -616,12 +654,7 @@ async function handleApiRequest(
     if (method === "GET" || method === "HEAD") {
       try {
         const library = await snippetStore.getLibrary();
-        sendJson(res, 200, library, {
-          cors: true,
-          method,
-          headers: buildApiHeaders(),
-          origin: requestOrigin,
-        });
+        sendApiJson(res, 200, library, { method, origin: requestOrigin });
       } catch (error) {
         handleApiError(res, error, method, requestOrigin);
       }
@@ -635,22 +668,25 @@ async function handleApiRequest(
         if (!Array.isArray(payload)) {
           throw new HttpError(400, "Erwartet wurde ein Array von Gruppen", {
             code: "invalid-snippet-payload",
+            hint: "Senden Sie ein Array mit Gruppenobjekten, jeweils inklusive 'title' und 'snippets'.",
           });
         }
         const library = await snippetStore.replaceLibrary(payload);
-        sendJson(res, 200, library, {
-          cors: true,
-          method,
-          headers: buildApiHeaders(),
-          origin: requestOrigin,
-        });
+        sendApiJson(res, 200, library, { method, origin: requestOrigin });
       } catch (error) {
         handleApiError(res, error, method, requestOrigin);
       }
       return;
     }
 
-    handleApiError(res, new HttpError(405, "Methode nicht erlaubt"), method, requestOrigin);
+    handleApiError(
+      res,
+      new HttpError(405, "Methode nicht erlaubt", {
+        hint: "Verwenden Sie GET/HEAD zum Abrufen oder PUT zum Ersetzen der Snippet-Bibliothek.",
+      }),
+      method,
+      requestOrigin,
+    );
     return;
   }
 
@@ -660,15 +696,13 @@ async function handleApiRequest(
         const body = await readJsonBody(req);
         const payload = validateCreatePayload(body);
         const plan = await planStore.createPlan(payload);
-        const headers = buildApiHeaders({
-          ETag: buildPlanEtag(plan),
-          Location: `/api/plans/${plan.id}`,
-        });
-        sendJson(res, 201, plan, {
-          cors: true,
+        sendApiJson(res, 201, plan, {
           method,
-          headers,
           origin: requestOrigin,
+          headers: {
+            ETag: buildPlanEtag(plan),
+            Location: `/api/plans/${plan.id}`,
+          },
         });
       } catch (error) {
         handleApiError(res, error, method, requestOrigin);
@@ -684,25 +718,34 @@ async function handleApiRequest(
           from: from ?? undefined,
           to: to ?? undefined,
         });
-        sendJson(res, 200, plans, {
-          cors: true,
-          method,
-          headers: buildApiHeaders(),
-          origin: requestOrigin,
-        });
+        sendApiJson(res, 200, plans, { method, origin: requestOrigin });
       } catch (error) {
         handleApiError(res, error, method, requestOrigin);
       }
       return;
     }
 
-    handleApiError(res, new HttpError(405, "Methode nicht erlaubt"), method, requestOrigin);
+    handleApiError(
+      res,
+      new HttpError(405, "Methode nicht erlaubt", {
+        hint: "Nutzen Sie POST zum Anlegen oder GET/HEAD zum Auflisten von Plänen.",
+      }),
+      method,
+      requestOrigin,
+    );
     return;
   }
 
   const planId = parseIdFromPath(url.pathname);
   if (planId === null) {
-    handleApiError(res, new HttpError(404, "Endpunkt nicht gefunden"), method, requestOrigin);
+    handleApiError(
+      res,
+      new HttpError(404, "Endpunkt nicht gefunden", {
+        hint: "Prüfen Sie die URL. Einzelpläne erreichen Sie unter /api/plans/{id}.",
+      }),
+      method,
+      requestOrigin,
+    );
     return;
   }
 
@@ -710,23 +753,22 @@ async function handleApiRequest(
     try {
       const plan = await planStore.getPlan(planId);
       if (!plan) {
-        throw new HttpError(404, "Plan nicht gefunden");
+        throw new HttpError(404, "Plan nicht gefunden", {
+          hint: "Stellen Sie sicher, dass die Plan-ID korrekt ist oder der Plan noch existiert.",
+        });
       }
       const etag = buildPlanEtag(plan);
-      const responseHeaders = buildApiHeaders({ ETag: etag });
       if (etagMatches(req.headers?.["if-none-match"], etag)) {
-        sendEmpty(res, 304, {
-          cors: true,
-          headers: responseHeaders,
+        sendApiEmpty(res, 304, {
+          headers: { ETag: etag },
           origin: requestOrigin,
         });
         return;
       }
-      sendJson(res, 200, plan, {
-        cors: true,
+      sendApiJson(res, 200, plan, {
         method,
-        headers: responseHeaders,
         origin: requestOrigin,
+        headers: { ETag: etag },
       });
     } catch (error) {
       handleApiError(res, error, method, requestOrigin);
@@ -740,11 +782,14 @@ async function handleApiRequest(
       if (!ifMatch) {
         throw new HttpError(412, "If-Match Header ist erforderlich", {
           code: "missing-if-match",
+          hint: "Senden Sie den aktuellen ETag des Plans im Header 'If-Match', um Konflikte zu vermeiden.",
         });
       }
       const current = await planStore.getPlan(planId);
       if (!current) {
-        throw new HttpError(404, "Plan nicht gefunden");
+        throw new HttpError(404, "Plan nicht gefunden", {
+          hint: "Stellen Sie sicher, dass die Plan-ID korrekt ist oder der Plan noch existiert.",
+        });
       }
       const currentEtag = buildPlanEtag(current);
       if (!ifMatchSatisfied(ifMatch, currentEtag)) {
@@ -756,14 +801,14 @@ async function handleApiRequest(
         expectedUpdatedAt: current.updatedAt,
       });
       if (!plan) {
-        throw new HttpError(404, "Plan nicht gefunden");
+        throw new HttpError(404, "Plan nicht gefunden", {
+          hint: "Der Plan wurde eventuell gleichzeitig gelöscht. Laden Sie die Übersicht neu.",
+        });
       }
-      const responseHeaders = buildApiHeaders({ ETag: buildPlanEtag(plan) });
-      sendJson(res, 200, plan, {
-        cors: true,
+      sendApiJson(res, 200, plan, {
         method,
-        headers: responseHeaders,
         origin: requestOrigin,
+        headers: { ETag: buildPlanEtag(plan) },
       });
     } catch (error) {
       handleApiError(res, error, method, requestOrigin);
@@ -777,11 +822,14 @@ async function handleApiRequest(
       if (!ifMatch) {
         throw new HttpError(412, "If-Match Header ist erforderlich", {
           code: "missing-if-match",
+          hint: "Übermitteln Sie den zuletzt erhaltenen ETag im Header 'If-Match', um den Löschvorgang freizugeben.",
         });
       }
       const current = await planStore.getPlan(planId);
       if (!current) {
-        throw new HttpError(404, "Plan nicht gefunden");
+        throw new HttpError(404, "Plan nicht gefunden", {
+          hint: "Prüfen Sie, ob der Plan bereits entfernt oder archiviert wurde.",
+        });
       }
       const currentEtag = buildPlanEtag(current);
       if (!ifMatchSatisfied(ifMatch, currentEtag)) {
@@ -791,20 +839,25 @@ async function handleApiRequest(
         expectedUpdatedAt: current.updatedAt,
       });
       if (!removed) {
-        throw new HttpError(404, "Plan nicht gefunden");
+        throw new HttpError(404, "Plan nicht gefunden", {
+          hint: "Der Plan wurde möglicherweise parallel gelöscht. Aktualisieren Sie die Liste.",
+        });
       }
-      sendEmpty(res, 204, {
-        cors: true,
-        headers: buildApiHeaders(),
-        origin: requestOrigin,
-      });
+      sendApiEmpty(res, 204, { origin: requestOrigin });
     } catch (error) {
       handleApiError(res, error, method, requestOrigin);
     }
     return;
   }
 
-  handleApiError(res, new HttpError(405, "Methode nicht erlaubt"), method, requestOrigin);
+  handleApiError(
+    res,
+    new HttpError(405, "Methode nicht erlaubt", {
+      hint: "Erlaubte Methoden sind GET/HEAD (lesen), PUT (aktualisieren) und DELETE (entfernen).",
+    }),
+    method,
+    requestOrigin,
+  );
 }
 
 export function createRequestHandler({ store, snippetStore, publicDir } = {}) {
@@ -837,7 +890,12 @@ export function createRequestHandler({ store, snippetStore, publicDir } = {}) {
         sendJson(
           res,
           500,
-          buildErrorPayload("internal-error", "Interner Serverfehler"),
+          buildErrorPayload(
+            "internal-error",
+            "Interner Serverfehler",
+            undefined,
+            "Die Anfrage konnte nicht abgeschlossen werden. Laden Sie die Seite neu und versuchen Sie es erneut.",
+          ),
         );
       } else {
         res.end();
