@@ -1,4 +1,12 @@
-import { getQuickSnippets } from "../utils/snippet-storage.js";
+import {
+  getQuickSnippets,
+  saveQuickSnippets,
+  sanitizeQuickSnippetGroups,
+} from "../utils/snippet-storage.js";
+import {
+  fetchTeamLibrary,
+  teamLibrarySupported,
+} from "../utils/snippet-library-client.js";
 
 function ensureTrailingNewlines(text, minCount) {
   const match = text.match(/\n+$/);
@@ -44,41 +52,68 @@ export function initQuickSnippets({ container, textarea }) {
     return;
   }
 
-  const snippetGroups = getQuickSnippets();
-  container.innerHTML = "";
+  let snippetGroups = getQuickSnippets();
 
-  snippetGroups.forEach((group, groupIndex) => {
-    const groupEl = document.createElement("section");
-    groupEl.className = "quick-snippet-group";
+  function render(groups) {
+    container.innerHTML = "";
 
-    const heading = document.createElement("h4");
-    heading.textContent = group.title;
-    groupEl.appendChild(heading);
+    groups.forEach((group, groupIndex) => {
+      const groupEl = document.createElement("section");
+      groupEl.className = "quick-snippet-group";
 
-    if (group.description) {
-      const description = document.createElement("p");
-      description.className = "quick-snippet-description";
-      description.textContent = group.description;
-      groupEl.appendChild(description);
+      const heading = document.createElement("h4");
+      heading.textContent = group.title;
+      groupEl.appendChild(heading);
+
+      if (group.description) {
+        const description = document.createElement("p");
+        description.className = "quick-snippet-description";
+        description.textContent = group.description;
+        groupEl.appendChild(description);
+      }
+
+      const buttonRow = document.createElement("div");
+      buttonRow.className = "quick-snippet-buttons";
+
+      group.items.forEach((item, itemIndex) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "quick-snippet-button";
+        button.textContent = item.label;
+        button.dataset.groupIndex = String(groupIndex);
+        button.dataset.itemIndex = String(itemIndex);
+        button.title = `Baustein "${item.label}" einfügen`;
+        buttonRow.appendChild(button);
+      });
+
+      groupEl.appendChild(buttonRow);
+      container.appendChild(groupEl);
+    });
+  }
+
+  async function syncTeamLibrary() {
+    if (!teamLibrarySupported()) {
+      return;
     }
 
-    const buttonRow = document.createElement("div");
-    buttonRow.className = "quick-snippet-buttons";
+    try {
+      const { groups } = await fetchTeamLibrary();
+      const sanitized = sanitizeQuickSnippetGroups(groups);
+      const serializedCurrent = JSON.stringify(snippetGroups);
+      const serializedIncoming = JSON.stringify(sanitized);
+      if (serializedCurrent === serializedIncoming) {
+        return;
+      }
+      snippetGroups = sanitized;
+      saveQuickSnippets(snippetGroups);
+      render(snippetGroups);
+    } catch (error) {
+      console.warn("Team-Schnellbausteine konnten nicht geladen werden.", error);
+    }
+  }
 
-    group.items.forEach((item, itemIndex) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "quick-snippet-button";
-      button.textContent = item.label;
-      button.dataset.groupIndex = String(groupIndex);
-      button.dataset.itemIndex = String(itemIndex);
-      button.title = `Baustein "${item.label}" einfügen`;
-      buttonRow.appendChild(button);
-    });
-
-    groupEl.appendChild(buttonRow);
-    container.appendChild(groupEl);
-  });
+  render(snippetGroups);
+  syncTeamLibrary();
 
   container.addEventListener("click", (event) => {
     const target = event.target;
