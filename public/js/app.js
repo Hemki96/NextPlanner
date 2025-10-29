@@ -9,6 +9,7 @@ import { initPlanSaveDialog } from "./ui/plan-save-dialog.js";
 import { initTemplateLibraryPanel } from "./ui/template-library-panel.js";
 import { initValidationPanel } from "./ui/validation-panel.js";
 import { ApiError, apiRequest, canUseApi, describeApiError } from "./utils/api-client.js";
+import { ensurePlanSkeleton } from "./utils/plan-defaults.js";
 import {
   applyFeatureVisibility,
   getFeatureSettings,
@@ -46,6 +47,8 @@ const dom = {
   validationPanel: document.getElementById("validation-panel"),
   templatePanel: document.querySelector(".template-panel"),
 };
+
+ensurePlanSkeleton(dom.planInput);
 
 const featureSettings = getFeatureSettings();
 applyFeatureVisibility(document, featureSettings);
