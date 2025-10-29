@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, promises as fsPromises } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { join, dirname } from "node:path";
+import { describe, it, beforeEach, afterEach, mock } from "node:test";
 
-import { JsonPlanStore } from "../js/storage/jsonPlanStore.js";
+import {
+  JsonPlanStore,
+  PlanConflictError,
+  PlanValidationError,
+  StorageIntegrityError,
+} from "../js/storage/jsonPlanStore.js";
 
 function createTempPath() {
   return mkdtempSync(join(tmpdir(), "nextplanner-store-"));
@@ -14,19 +19,21 @@ describe("JsonPlanStore", () => {
   let tempDir;
   let store;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     tempDir = createTempPath();
     const storageFile = join(tempDir, "plans.json");
     store = new JsonPlanStore({ storageFile });
+    // Wait for the lazy initialization to finish to avoid race conditions in tests.
+    await store.listPlans();
   });
 
-  afterEach(() => {
-    store?.close();
+  afterEach(async () => {
+    await store?.close();
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("speichert und lädt Pläne mit Metadaten", () => {
-    const created = store.createPlan({
+  it("speichert und lädt Pläne mit Metadaten", async () => {
+    const created = await store.createPlan({
       title: "Frühjahrszyklus",
       content: "Aufwärmen -> Technik -> Hauptsatz",
       planDate: "2024-05-01",
@@ -35,50 +42,50 @@ describe("JsonPlanStore", () => {
     });
 
     assert.ok(created.id > 0);
-    const loaded = store.getPlan(created.id);
+    const loaded = await store.getPlan(created.id);
     assert.equal(loaded.title, "Frühjahrszyklus");
     assert.equal(loaded.focus, "AR");
     assert.equal(loaded.metadata.duration, 90);
     assert.equal(loaded.metadata.coach, "Alex");
   });
 
-  it("filtert Pläne nach Datum und Fokus", () => {
-    store.createPlan({
+  it("filtert Pläne nach Datum und Fokus", async () => {
+    await store.createPlan({
       title: "Grundlagenausdauer",
       content: "Lang ziehen",
       planDate: "2024-04-15",
       focus: "AR",
     });
-    store.createPlan({
+    await store.createPlan({
       title: "Sprint",
       content: "Sprints",
       planDate: "2024-04-20",
       focus: "SP",
     });
-    store.createPlan({
+    await store.createPlan({
       title: "Technik",
       content: "Drills",
       planDate: "2024-05-05",
       focus: "TE",
     });
 
-    const aprilPlans = store.listPlans({ from: "2024-04-01", to: "2024-04-30" });
+    const aprilPlans = await store.listPlans({ from: "2024-04-01", to: "2024-04-30" });
     assert.equal(aprilPlans.length, 2);
 
-    const focusPlans = store.listPlans({ focus: "TE" });
+    const focusPlans = await store.listPlans({ focus: "TE" });
     assert.equal(focusPlans.length, 1);
     assert.equal(focusPlans[0].title, "Technik");
   });
 
-  it("aktualisiert bestehende Pläne", () => {
-    const plan = store.createPlan({
+  it("aktualisiert bestehende Pläne", async () => {
+    const plan = await store.createPlan({
       title: "Intervall",
       content: "4x100",
       planDate: "2024-03-01",
       focus: "AR",
     });
 
-    const updated = store.updatePlan(plan.id, {
+    const updated = await store.updatePlan(plan.id, {
       focus: "SP",
       metadata: { notes: "Vorbereitung Wettkampf" },
     });
@@ -87,16 +94,195 @@ describe("JsonPlanStore", () => {
     assert.equal(updated.metadata.notes, "Vorbereitung Wettkampf");
   });
 
-  it("löscht Pläne", () => {
-    const plan = store.createPlan({
+  it("verhindert Updates mit veralteten Versionsständen", async () => {
+    const plan = await store.createPlan({
+      title: "Grundlage",
+      content: "5x200",
+      planDate: "2024-03-05",
+      focus: "GA",
+    });
+
+    const baseline = await store.getPlan(plan.id);
+    assert.ok(baseline);
+
+    const fresh = await store.updatePlan(plan.id, { focus: "SP" }, { expectedUpdatedAt: baseline.updatedAt });
+    assert.equal(fresh.focus, "SP");
+
+    await assert.rejects(
+      store.updatePlan(plan.id, { focus: "TE" }, { expectedUpdatedAt: baseline.updatedAt }),
+      (error) => {
+        assert.ok(error instanceof PlanConflictError);
+        assert.ok(error.currentPlan);
+        assert.equal(error.currentPlan.focus, "SP");
+        return true;
+      }
+    );
+  });
+
+  it("löscht Pläne", async () => {
+    const plan = await store.createPlan({
       title: "Test",
       content: "Plan",
       planDate: "2024-02-01",
       focus: "AR",
     });
 
-    const removed = store.deletePlan(plan.id);
+    const removed = await store.deletePlan(plan.id);
     assert.equal(removed, true);
-    assert.equal(store.getPlan(plan.id), null);
+    assert.equal(await store.getPlan(plan.id), null);
+  });
+
+  it("verhindert das Löschen mit veralteten Versionsständen", async () => {
+    const plan = await store.createPlan({
+      title: "Konfliktfall",
+      content: "Plan",
+      planDate: "2024-02-10",
+      focus: "AR",
+    });
+
+    const snapshot = await store.getPlan(plan.id);
+    assert.ok(snapshot);
+
+    await store.updatePlan(plan.id, { focus: "TE" }, { expectedUpdatedAt: snapshot.updatedAt });
+
+    await assert.rejects(
+      store.deletePlan(plan.id, { expectedUpdatedAt: snapshot.updatedAt }),
+      PlanConflictError
+    );
+    const stillPresent = await store.getPlan(plan.id);
+    assert.ok(stillPresent);
+  });
+
+  it("meldet Validierungsfehler mit eigener Fehlerklasse", async () => {
+    await assert.rejects(
+      store.createPlan({
+        title: "",
+        content: "",
+        planDate: "2024-01-01",
+        focus: "AR",
+      }),
+      PlanValidationError
+    );
+  });
+
+  it("erstellt Sicherung bei korrupten Dateien und wirft Fehler", async () => {
+    await store.close();
+    const storageFile = join(tempDir, "plans.json");
+    writeFileSync(storageFile, "{ this is invalid json", "utf8");
+
+    store = new JsonPlanStore({ storageFile });
+
+    await assert.rejects(store.listPlans(), StorageIntegrityError);
+
+    const plans = await store.listPlans();
+    assert.equal(plans.length, 0);
+  });
+
+  it("serialisiert gleichzeitige Schreibzugriffe", async () => {
+    const operations = [];
+    for (let index = 0; index < 10; index += 1) {
+      operations.push(
+        store.createPlan({
+          title: `Plan ${index}`,
+          content: "Training",
+          planDate: "2024-01-01",
+          focus: "AR",
+        })
+      );
+    }
+
+    await Promise.all(operations);
+    const plans = await store.listPlans();
+    assert.equal(plans.length, 10);
+  });
+
+  it("sichert Schreibvorgänge mit fsync für Datei und Verzeichnis ab", async () => {
+    const syncCounts = { file: 0, dir: 0 };
+    const originalOpen = fsPromises.open;
+    const openMock = mock.method(fsPromises, "open", async (...args) => {
+      const handle = await originalOpen(...args);
+      const targetPath = String(args[0]);
+      if (targetPath.endsWith(".tmp")) {
+        const originalSync = handle.sync.bind(handle);
+        handle.sync = async (...syncArgs) => {
+          syncCounts.file += 1;
+          return originalSync(...syncArgs);
+        };
+      } else if (targetPath === dirname(store.storageFile) && typeof handle.sync === "function") {
+        const originalSync = handle.sync.bind(handle);
+        handle.sync = async (...syncArgs) => {
+          syncCounts.dir += 1;
+          return originalSync(...syncArgs);
+        };
+      }
+      return handle;
+    });
+
+    try {
+      await store.createPlan({
+        title: "Stabilitätstest",
+        content: "Kraftzirkel",
+        planDate: "2024-07-01",
+        focus: "AR",
+      });
+    } finally {
+      openMock.mock.restore();
+    }
+
+    assert.ok(syncCounts.file >= 1);
+    assert.ok(syncCounts.dir >= 1);
+  });
+
+  it("fällt auf Best-Effort-Verhalten zurück, wenn Verzeichnis-fsync nicht unterstützt wird", async () => {
+    const originalOpen = fsPromises.open;
+    const warnMock = mock.method(console, "warn", () => {});
+    const dirPath = dirname(store.storageFile);
+
+    const unsupportedError = new Error("Directory fsync unsupported");
+    unsupportedError.code = "EINVAL";
+
+    const openMock = mock.method(fsPromises, "open", async (...args) => {
+      if (String(args[0]) === dirPath) {
+        throw unsupportedError;
+      }
+      return originalOpen(...args);
+    });
+
+    try {
+      await store.createPlan({
+        title: "Fallback Test 1",
+        content: "Kraft",
+        planDate: "2024-08-01",
+        focus: "AR",
+      });
+    } finally {
+      openMock.mock.restore();
+    }
+
+    assert.equal(warnMock.mock.calls.length, 1);
+
+    const guardMock = mock.method(fsPromises, "open", async (...args) => {
+      if (String(args[0]) === dirPath) {
+        throw new Error("Directory fsync should have been skipped");
+      }
+      return originalOpen(...args);
+    });
+
+    try {
+      await store.createPlan({
+        title: "Fallback Test 2",
+        content: "Sprint",
+        planDate: "2024-08-02",
+        focus: "SP",
+      });
+    } finally {
+      guardMock.mock.restore();
+    }
+
+    assert.equal(warnMock.mock.calls.length, 1);
+    warnMock.mock.restore();
+
+    const plans = await store.listPlans();
+    assert.equal(plans.length, 2);
   });
 });

@@ -1,3 +1,5 @@
+import { ApiError, apiRequest, canUseApi, describeApiError } from "../utils/apiClient.js";
+
 const PREFS_STORAGE_KEY = "nextplanner.plan.save.dialog";
 
 function readPreferences() {
@@ -104,16 +106,8 @@ function currentTimeForInput() {
   return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 }
 
-function canUseApi() {
-  if (typeof window === "undefined") {
-    return false;
-  }
-  const protocol = window.location?.protocol;
-  return protocol !== "file:";
-}
-
 async function persistPlanViaApi(plan) {
-  if (!canUseApi() || typeof fetch !== "function") {
+  if (!canUseApi()) {
     return {
       ok: false,
       reason:
@@ -122,43 +116,18 @@ async function persistPlanViaApi(plan) {
   }
 
   try {
-    const response = await fetch("/api/plans", {
+    const { data } = await apiRequest("/api/plans", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(plan),
+      json: plan,
     });
-
-    if (!response.ok) {
-      let reason = `Serverfehler (${response.status})`;
-      try {
-        const payload = await response.json();
-        if (payload?.error) {
-          reason = payload.error;
-        }
-      } catch (error) {
-        try {
-          const text = await response.text();
-          if (text) {
-            reason = text;
-          }
-        } catch {
-          // Ignorieren, wir verwenden die Standardfehlermeldung.
-        }
-      }
-      return { ok: false, reason };
-    }
-
-    const saved = await response.json();
-    return { ok: true, plan: saved };
+    return { ok: true, plan: data };
   } catch (error) {
-    return {
-      ok: false,
-      reason: error?.message
-        ? `${error.message}. Bitte prüfe, ob der lokale Server läuft ('npm start').`
-        : "Netzwerkfehler. Bitte prüfe, ob der lokale Server läuft ('npm start').",
-    };
+    const message = describeApiError(error);
+    const offline = error instanceof ApiError && error.offline;
+    const reason = offline
+      ? message
+      : `${message}. Bitte prüfe, ob der lokale Server läuft ('npm start').`;
+    return { ok: false, reason };
   }
 }
 

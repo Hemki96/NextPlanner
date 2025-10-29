@@ -490,6 +490,7 @@ body {
   gap: 1.25rem;
 }
 
+
 .snippet-settings-group {
   border: 1px solid rgba(0, 119, 255, 0.18);
   border-radius: 16px;
@@ -497,14 +498,63 @@ body {
   background: rgba(255, 255, 255, 0.75);
   display: grid;
   gap: 0.9rem;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.snippet-settings-group.is-collapsed {
+  background: rgba(255, 255, 255, 0.5);
+  border-color: rgba(0, 119, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(0, 119, 255, 0.04);
 }
 
 .snippet-settings-header {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+}
+
+.snippet-settings-title-row {
+  display: flex;
+  flex: 1 1 260px;
+  min-width: 0;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.snippet-settings-toggle {
+  border: 1px solid rgba(0, 119, 255, 0.28);
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 999px;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.snippet-settings-toggle::before {
+  content: "▾";
+  font-size: 0.9rem;
+  transition: transform 0.2s ease;
+}
+
+.snippet-settings-group.is-collapsed .snippet-settings-toggle::before {
+  transform: rotate(-90deg);
+}
+
+.snippet-settings-toggle:hover,
+.snippet-settings-toggle:focus-visible {
+  background: rgba(0, 119, 255, 0.1);
+  color: var(--text-primary);
+  border-color: rgba(0, 119, 255, 0.4);
+  box-shadow: 0 0 0 3px rgba(0, 119, 255, 0.18);
+  outline: none;
 }
 
 .snippet-settings-title {
@@ -514,6 +564,25 @@ body {
   padding: 0.6rem 0.85rem;
   font: inherit;
   font-weight: 600;
+  min-width: 0;
+}
+
+.snippet-settings-group.is-collapsed .snippet-settings-title {
+  opacity: 0.75;
+}
+
+.snippet-settings-count {
+  white-space: nowrap;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 0.35rem 0.8rem;
+  background: rgba(0, 119, 255, 0.12);
+  color: var(--text-secondary);
+}
+
+.snippet-settings-group.is-collapsed .snippet-settings-count {
+  background: rgba(0, 119, 255, 0.08);
 }
 
 .snippet-settings-title:focus {
@@ -526,6 +595,13 @@ body {
 .snippet-settings-header-actions {
   display: flex;
   gap: 0.6rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.ghost-button.is-quiet {
+  padding: 0.35rem 0.9rem;
+  font-size: 0.82rem;
 }
 
 .snippet-settings-description {
@@ -543,6 +619,15 @@ body {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(0, 119, 255, 0.2);
   background: #fff;
+}
+
+.snippet-settings-body {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.snippet-settings-group.is-collapsed .snippet-settings-body {
+  display: none;
 }
 
 .snippet-settings-items {
@@ -630,6 +715,12 @@ body {
 .snippet-settings-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.snippet-settings-add-item {
+  align-self: flex-start;
 }
 
 @media (max-width: 720px) {
@@ -647,6 +738,16 @@ body {
 
   .snippet-settings-title {
     flex: 1 1 100%;
+  }
+
+  .snippet-settings-title-row {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 0.5rem;
+  }
+
+  .snippet-settings-count {
+    order: 3;
   }
 }
 

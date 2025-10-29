@@ -1,3 +1,5 @@
+import { ApiError, apiRequest, canUseApi, describeApiError } from "./utils/apiClient.js";
+
 const weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 const monthFormatter = new Intl.DateTimeFormat("de-DE", {
   month: "long",
@@ -307,11 +309,7 @@ async function loadPlans() {
   }
 
   try {
-    const response = await fetch("/api/plans");
-    if (!response.ok) {
-      throw new Error(`Serverfehler (${response.status})`);
-    }
-    const data = await response.json();
+    const { data } = await apiRequest("/api/plans");
     plans = Array.isArray(data) ? data : [];
     buildIndex();
     if (!plansByDate.has(selectedDateKey) && plansByDate.size > 0) {
@@ -323,12 +321,9 @@ async function loadPlans() {
     renderPlanList(selectedDateKey);
   } catch (error) {
     console.error("Konnte Pläne für den Kalender nicht laden", error);
-    setStatus(
-      error?.message
-        ? `Pläne konnten nicht geladen werden: ${error.message}`
-        : "Pläne konnten nicht geladen werden. Bitte prüfe, ob der lokale Server läuft.",
-      "error",
-    );
+    const message = describeApiError(error);
+    const statusType = error instanceof ApiError && error.offline ? "warning" : "error";
+    setStatus(`Pläne konnten nicht geladen werden: ${message}`, statusType);
     renderCalendar();
     renderPlanList(selectedDateKey);
   }
@@ -337,14 +332,6 @@ async function loadPlans() {
 function changeMonth(offset) {
   currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + offset, 1);
   renderCalendar();
-}
-
-function canUseApi() {
-  if (typeof window === "undefined") {
-    return false;
-  }
-  const protocol = window.location?.protocol;
-  return protocol !== "file:";
 }
 
 if (calendarGrid) {
