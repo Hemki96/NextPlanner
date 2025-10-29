@@ -1,4 +1,5 @@
 import { triggerDownload } from "../utils/download.js";
+import { createWordExportDocument } from "../utils/wordExport.js";
 
 /**
  * Stellt Import- und Export-Funktionen für den Trainingsplan bereit, damit
@@ -16,17 +17,6 @@ export function initIOControls({
     return;
   }
 
-  /**
-   * Escaped HTML, damit Texte sicher in einem Word-kompatiblen Dokument landen.
-   */
-  const escapeHtml = (value) =>
-    value
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
-
   const readPlanText = () => planInput.value ?? "";
 
   exportMarkdownButton?.addEventListener("click", () => {
@@ -39,9 +29,7 @@ export function initIOControls({
 
   exportWordButton?.addEventListener("click", () => {
     const content = readPlanText();
-    const htmlDocument = `<!DOCTYPE html><html lang="de"><head><meta charset="utf-8" /><title>Swim Planner Export</title><style>body{font-family:'Segoe UI',Arial,sans-serif;background:#fff;color:#1a1a1a;margin:2rem;}pre{white-space:pre-wrap;font:inherit;}</style></head><body><h1>Swim Planner</h1><pre>${escapeHtml(
-      content,
-    )}</pre></body></html>`;
+    const htmlDocument = createWordExportDocument(content);
     const blob = new Blob([htmlDocument], {
       type: "application/msword",
     });
