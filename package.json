@@ -4,8 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "node server/server.js",
+    "start": "node server/server.js",
     "test": "node --test",
-    "plan:cli": "node js/storage/planCli.js",
-    "start": "node server.js"
+    "lint:js": "node scripts/lint-js.js",
+    "lint:css": "node scripts/lint-css.js",
+    "fmt": "node scripts/fmt.js",
+    "plan:cli": "node server/cli/plan-cli.js"
   }
 }

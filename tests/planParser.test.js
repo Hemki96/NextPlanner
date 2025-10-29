@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parsePlan } from '../js/parser/planParser.js';
+import { parsePlan } from '../public/js/parser/plan-parser.js';
 
 const stripCarriageReturn = (text) => text.replace(/\r/g, '');
 

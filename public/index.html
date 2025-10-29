@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Swim Planner – Plan-Kalender</title>
+  <link rel="stylesheet" href="/css/main.css" />
+</head>
+<body>
+  <header class="page-header">
+    <h1>Plan-Kalender</h1>
+    <p>Behalte den Überblick über deine gespeicherten Trainingspläne und wechsle mit einem Klick zu einem beliebigen Tag.</p>
+    <nav class="page-nav" aria-label="Hauptnavigation">
+      <a href="/index.html" class="nav-link is-active" aria-current="page" data-feature="calendarView">Plan-Kalender</a>
+      <a href="/planner.html" class="nav-link">Planner</a>
+      <a href="/templates.html" class="nav-link" data-feature="templateLibrary">Vorlagen</a>
+      <a href="/settings.html" class="nav-link" data-feature="quickSnippets">Schnellbausteine</a>
+      <a href="/backup.html" class="nav-link">Einstellungen</a>
+    </nav>
+  </header>
+  <main class="calendar-layout" data-feature="calendarView" data-feature-keep-space="true">
+    <section class="page-card calendar-card">
+      <header class="section-header">
+        <h2 id="calendar-month-label">Kalender</h2>
+        <div class="section-actions">
+          <button type="button" class="ghost-button" id="calendar-prev" aria-label="Vorheriger Monat">←</button>
+          <button type="button" class="ghost-button" id="calendar-today">Heute</button>
+          <button type="button" class="ghost-button" id="calendar-next" aria-label="Nächster Monat">→</button>
+        </div>
+      </header>
+      <p class="calendar-hint">Tage mit gespeicherten Plänen sind markiert. Wähle ein Datum, um die zugehörigen Pläne anzuzeigen.</p>
+      <div id="calendar-grid" class="calendar-grid" role="grid" aria-labelledby="calendar-month-label"></div>
+    </section>
+    <section class="page-card calendar-card">
+      <header class="section-header">
+        <h2>Pläne am <span id="calendar-selected-date">–</span></h2>
+      </header>
+      <div id="plan-list" class="plan-list" aria-live="polite"></div>
+      <div class="calendar-create">
+        <a id="calendar-create-plan" class="primary-button" href="/planner.html">Neuen Plan anlegen</a>
+        <button type="button" id="calendar-copy-last" class="ghost-button calendar-copy-last">
+          Letztes Training übernehmen
+        </button>
+        <p id="calendar-create-hint" class="calendar-create-hint"></p>
+      </div>
+      <p id="calendar-status" class="form-status" role="status" aria-live="polite"></p>
+    </section>
+  </main>
+  <script type="module" src="/js/calendar.js" defer></script>
+</body>
+</html>

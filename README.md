@@ -82,9 +82,9 @@ Du hast zwei gleichwertige Möglichkeiten, die Anwendung während der Entwicklun
 
 ### 8. Häufige Fragen
 
-- **Wo liegt die lokale Datendatei?** – Im Verzeichnis `data/plans.json`. Sie wird beim ersten Speichern automatisch angelegt und ist in `.gitignore` eingetragen.
+- **Wo liegen die lokalen Datendateien?** – Die Anwendung legt `data/plans.json` (Pläne) und `data/team-snippets.json` (Schnellbausteine) bei Bedarf automatisch an; beide Pfade sind in `.gitignore` ausgeschlossen.
 - **Warum schlägt „Plan speichern“ fehl?** – Stelle sicher, dass `npm start` läuft. Ohne Server kann die App nicht auf das Dateisystem zugreifen.
-- **Wie ändere ich die Port-Konfiguration?** – Passe den Port in `server.js` an oder setze die Umgebungsvariable `PORT` (z. B. `PORT=4000 npm start`).
+- **Wie ändere ich die Port-Konfiguration?** – Passe den Port in `server/server.js` an oder setze die Umgebungsvariable `PORT` (z. B. `PORT=4000 npm start`).
 - **Kann ich Tests debuggen?** – Ja. Verwende in der Run-&-Debug-Ansicht die Konfiguration „Node.js: Launch via NPM“, wähle `test` als Script und setze Breakpoints in deinen Testdateien unter `tests/`.
 
 ### Variante A – Integrierter NextPlanner-Server (empfohlen)
@@ -117,7 +117,7 @@ Du hast zwei gleichwertige Möglichkeiten, die Anwendung während der Entwicklun
 
 Zusätzlich zum Freitext-Editor kannst du komplette Workouts inklusive Metadaten lokal auf Dateibasis sichern.
 Der JSON-Speicher legt die Daten standardmäßig unter `data/plans.json` ab (die Datei wird bei Bedarf automatisch erstellt und
-ist vom Repository ausgeschlossen).
+ist vom Repository ausgeschlossen). Zusätzlich erzeugt die Team-Snippet-Bibliothek eine `data/team-snippets.json`, sobald sie mit eigenen Gruppen befüllt wird.
 
 ### Plan über den Speicher-Button sichern
 
@@ -168,15 +168,15 @@ Die CLI und der integrierte Server greifen auf dieselbe JSON-Datei zu wie die We
 Der Prototyp benötigt keinen Build-Schritt. Die Architektur ist in einzelne ES-Module
 aufgeteilt:
 
-- `js/app.js` verdrahtet DOM-Interaktionen und orchestriert Parser und Rendering.
-- `js/parser/planParser.js` kapselt die komplette Analyse des Freitextes.
-- `js/ui/summaryRenderer.js` formatiert die Live-Auswertungen im UI.
-- `js/ui/helpOverlay.js` übernimmt Fokus- und Overlay-Steuerung.
-- `js/ui/ioControls.js` steuert Datei-Import und -Export.
-- `js/utils/*.js` stellt Formatierungs- und Berechnungs-Helfer bereit.
+- `public/js/app.js` verdrahtet DOM-Interaktionen und orchestriert Parser und Rendering.
+- `public/js/parser/plan-parser.js` kapselt die komplette Analyse des Freitextes.
+- `public/js/ui/summary-renderer.js` formatiert die Live-Auswertungen im UI.
+- `public/js/ui/help-overlay.js` übernimmt Fokus- und Overlay-Steuerung.
+- `public/js/ui/io-controls.js` steuert Datei-Import und -Export.
+- `public/js/utils/*.js` stellt Formatierungs- und Berechnungs-Helfer bereit.
 
-Styles liegen weiterhin in `styles.css`. Öffne `index.html` direkt im Browser, um Änderungen
-sofort zu testen.
+Styles liegen gebündelt in `public/css/main.css`. Öffne `public/index.html` direkt im
+Browser oder starte den Server (`npm start`), um Änderungen sofort zu testen.
 
 ## Tests
 

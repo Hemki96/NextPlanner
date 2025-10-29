@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Swim Planner – Planner</title>
+  <link rel="stylesheet" href="/css/main.css" />
+</head>
+<body>
+  <!-- Einleitender Kopfbereich mit Titel und kurzer Beschreibung des Tools -->
+  <header class="page-header">
+    <h1>Swim Planner</h1>
+    <p>Erstelle strukturierte Trainingspläne für das Schwimmtraining und erhalte sofort Auswertungen zu Umfang, Dauer, Intensität und Materialbedarf.</p>
+    <nav class="page-nav" aria-label="Hauptnavigation">
+      <a href="/index.html" class="nav-link" data-feature="calendarView">Plan-Kalender</a>
+      <a href="/planner.html" class="nav-link is-active" aria-current="page">Planner</a>
+      <a href="/templates.html" class="nav-link" data-feature="templateLibrary">Vorlagen</a>
+      <a href="/settings.html" class="nav-link" data-feature="quickSnippets">Schnellbausteine</a>
+      <a href="/backup.html" class="nav-link">Einstellungen</a>
+    </nav>
+  </header>
+  <!-- Dreispaltiges Layout: links Schnellbausteine, in der Mitte Eingabe, rechts Auswertung -->
+  <main class="layout">
+    <!-- Linke Spalte mit den Schnellbausteinen zum schnellen Einfügen -->
+    <aside class="quick-panel" aria-labelledby="quick-snippet-title" data-feature="quickSnippets">
+      <div class="quick-snippet-header">
+        <div class="quick-snippet-title-row">
+          <h2 id="quick-snippet-title">Schnellbausteine</h2>
+          <button
+            type="button"
+            id="quick-snippet-toggle"
+            class="quick-panel-toggle"
+            data-feature="quickSnippets"
+            aria-expanded="true"
+            aria-controls="quick-snippet-container"
+          >
+            Leiste ausblenden
+          </button>
+        </div>
+        <p class="quick-snippet-hint">
+          Füge häufig genutzte Strukturbausteine für Blöcke, Runden, Material,
+          Intensitäten, Abgangszeiten, Pausen und Beschreibungen per Klick in
+          den Plan ein.
+        </p>
+      </div>
+      <div id="quick-snippet-container" class="quick-snippet-groups"></div>
+    </aside>
+    <!-- Mittlere Spalte mit dem Freitext-Editor für den Trainingsplan -->
+    <section class="input-panel">
+      <div class="input-panel-header">
+        <h2>Trainingsplan eingeben</h2>
+        <button
+          type="button"
+          id="quick-panel-expand"
+          class="quick-panel-toggle quick-panel-expand"
+          data-feature="quickSnippets"
+          aria-controls="quick-snippet-container"
+          aria-expanded="false"
+          hidden
+        >
+          Schnellbausteine anzeigen
+        </button>
+      </div>
+      <label class="sr-only" for="plan-input">Trainingsplan</label>
+      <div class="plan-editor">
+        <div id="plan-highlight" class="plan-highlight" aria-hidden="true"></div>
+        <textarea
+          id="plan-input"
+          placeholder="Beispiel:\n## Warm-up\n4x50m GSA @1:00 w/ Pullbuoy\nP:00:20\n\n## Hauptsatz\n3 Runden:\n6x100m GSA @1:40 ORANGE8 w/ Paddles\n4x50m Be @0:55 PINK4 w/ Flossen\nEnde Runde\n200m GSA CLEAR\n\n## Cool-down\n200m locker GSA CLEAR"
+          spellcheck="false"
+        ></textarea>
+      </div>
+      <div class="input-actions" data-feature="plannerTools">
+        <button
+          type="button"
+          id="help-button"
+          class="secondary-button"
+          aria-haspopup="dialog"
+          aria-controls="help-overlay"
+        >
+          Hinweise &amp; Syntax
+        </button>
+        <button type="button" id="import-button" class="secondary-button">
+          Plan importieren
+        </button>
+        <input
+          type="file"
+          id="import-input"
+          class="sr-only"
+          accept=".txt,.md,.markdown,.doc,.html,.htm"
+          aria-hidden="true"
+          tabindex="-1"
+        />
+        <button type="button" id="save-plan-button" class="primary-button">
+          Plan speichern
+        </button>
+        <button type="button" id="export-markdown" class="secondary-button">
+          Als Markdown exportieren
+        </button>
+        <button type="button" id="export-word" class="secondary-button">
+          Als Word exportieren
+        </button>
+      </div>
+      <p class="hint">Nutze Überschriften (z.B. <code>## Warm-up</code>) für Blöcke. Formate wie <code>4x50m</code>, <code>w/</code> für Material, <code>@</code> für Intervalle, <code>P:</code> für Pausen sowie Rundenangaben wie <code>3 Runden:</code> werden automatisch erkannt.</p>
+      <section id="validation-panel" class="validation-panel" aria-live="polite" data-feature="syntaxValidation">
+        <header class="validation-header">
+          <h3>Syntax-Hinweise</h3>
+          <p class="validation-summary" data-validation-summary>Keine Probleme erkannt</p>
+        </header>
+        <ul class="validation-list" data-validation-list></ul>
+      </section>
+    </section>
+    <section class="insights-panel">
+      <aside class="template-panel" aria-labelledby="template-panel-title" data-feature="templateLibrary">
+        <div class="template-panel-header">
+          <h2 id="template-panel-title">Vorlagen</h2>
+          <p class="template-panel-hint">Suche, klicke oder ziehe Vorlagen direkt in den Plan.</p>
+          <label class="sr-only" for="template-search">Vorlagen durchsuchen</label>
+          <input
+            type="search"
+            id="template-search"
+            class="template-panel-search"
+            placeholder="Vorlagen durchsuchen"
+            data-template-search
+          />
+        </div>
+        <p class="template-panel-empty" data-template-empty hidden>Noch keine Vorlagen vorhanden.</p>
+        <div class="template-panel-scroll">
+          <div class="template-panel-groups" data-template-list></div>
+        </div>
+      </aside>
+      <!-- Rechte Spalte fasst die Kennzahlen und Blockdetails live zusammen -->
+      <aside class="summary-panel" aria-live="polite" data-feature="insightsPanel">
+        <h2>Zusammenfassung</h2>
+        <!-- Kennzahlen-Raster für Zeit, Distanz, Intensitäten und Equipment -->
+        <div class="summary-grid">
+          <div>
+            <h3>Gesamtzeit</h3>
+            <p id="total-time">0:00</p>
+          </div>
+          <div>
+            <h3>Gesamtumfang</h3>
+            <p id="total-distance">0 m</p>
+          </div>
+          <div>
+            <h3>Ø Pace (aktive Sets)</h3>
+            <p id="average-pace">–</p>
+          </div>
+          <div>
+            <h3>Intensitäten</h3>
+            <ul id="intensity-list" class="tag-list"></ul>
+          </div>
+          <div>
+            <h3>Material</h3>
+            <ul id="equipment-list" class="tag-list"></ul>
+          </div>
+        </div>
+        <!-- Übersicht der einzelnen Trainingsblöcke inklusive Fokusinformationen -->
+        <div class="block-summary">
+          <h3>Blöcke</h3>
+          <ul id="block-list" class="block-list"></ul>
+        </div>
+      </aside>
+    </section>
+  </main>
+  <footer class="page-footer">
+    <p><strong>Intensitätslegende:</strong> CLEAR, White2, White3, PINK4, PINK5, RED6, RED7, ORANGE8, ORANGE9, ORANGE10, PURPLE9, PURPLE10, BLUE8, BLUE9, BLUE10, GREEN, GOLD. Zusätzliche Kürzel: <abbr title="Arme">Ar</abbr>, <abbr title="Beine">Be</abbr>, <abbr title="Gesamte Lage">GSA</abbr>.</p>
+  </footer>
+  <div id="template-capture" class="template-overlay" aria-hidden="true" hidden data-feature="plannerTools">
+    <div class="template-dialog" role="dialog" aria-modal="true" aria-labelledby="capture-heading">
+      <header class="template-dialog-header">
+        <h2 id="capture-heading">Vorlage speichern</h2>
+        <button type="button" class="icon-button" id="capture-close" aria-label="Dialog schließen">×</button>
+      </header>
+      <form id="template-capture-form" class="template-dialog-form">
+        <p class="template-dialog-type">Typ: <strong id="capture-type-label"></strong></p>
+        <label class="form-field">
+          <span>Titel</span>
+          <input id="capture-title" type="text" required />
+        </label>
+        <label class="form-field">
+          <span>Tags (optional)</span>
+          <input id="capture-tags" type="text" placeholder="z.B. Ausdauer, Technik" />
+          <span class="field-hint">Mehrere Tags mit Komma trennen.</span>
+        </label>
+        <label class="form-field">
+          <span>Inhalt</span>
+          <textarea id="capture-content" rows="6" required></textarea>
+        </label>
+        <p id="capture-status" class="form-status" role="status" aria-live="polite"></p>
+        <div class="form-actions">
+          <button type="button" class="ghost-button" id="capture-cancel">Abbrechen</button>
+          <button type="submit" class="primary-button">Vorlage speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <div id="plan-save-overlay" class="template-overlay" aria-hidden="true" hidden data-feature="plannerTools">
+    <div class="template-dialog" role="dialog" aria-modal="true" aria-labelledby="plan-save-heading">
+      <header class="template-dialog-header">
+        <h2 id="plan-save-heading">Plan speichern</h2>
+        <button type="button" class="icon-button" id="plan-save-close" aria-label="Dialog schließen">×</button>
+      </header>
+      <form id="plan-save-form" class="template-dialog-form">
+        <div class="form-grid">
+          <label class="form-field">
+            <span>Titel</span>
+            <input id="plan-save-title" type="text" name="title" required />
+          </label>
+          <label class="form-field">
+            <span>Datum</span>
+            <input id="plan-save-date" type="date" name="date" required />
+          </label>
+          <label class="form-field">
+            <span>Uhrzeit</span>
+            <input id="plan-save-time" type="time" name="time" required />
+          </label>
+          <label class="form-field">
+            <span>Fokus</span>
+            <input
+              id="plan-save-focus"
+              type="text"
+              name="focus"
+              required
+              placeholder="z.B. Ausdauer, Technik"
+            />
+          </label>
+        </div>
+        <label class="form-field">
+          <span>Zusätzliche Notizen (optional)</span>
+          <textarea
+            id="plan-save-notes"
+            name="notes"
+            rows="3"
+            placeholder="z.B. Verantwortliche, Besonderheiten"
+          ></textarea>
+        </label>
+        <p id="plan-save-status" class="form-status" role="status" aria-live="polite"></p>
+        <div class="form-actions">
+          <button type="button" class="ghost-button" id="plan-save-cancel">Abbrechen</button>
+          <button type="submit" class="primary-button">Plan sichern</button>
+        </div>
+        <p class="form-hint">
+          Starte den lokalen NextPlanner-Server (z.&nbsp;B. per <code>npm start</code>), um Pläne direkt in der JSON-Datenbank zu
+          speichern. Ohne Server lässt sich der Plan nicht sichern.
+        </p>
+      </form>
+    </div>
+  </div>
+  <!-- Overlay mit einer ausführlichen Dokumentation der Schlüsselbegriffe und Kürzel -->
+  <div class="help-overlay" id="help-overlay" aria-hidden="true">
+    <div class="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title">
+      <header class="help-header">
+        <h2 id="help-title">Syntax-Hinweise</h2>
+        <button type="button" id="help-close" class="icon-button" aria-label="Hinweise schließen">×</button>
+      </header>
+      <div class="help-content">
+        <section>
+          <h3>Blöcke strukturieren</h3>
+          <p>Nutze Markdown-Überschriften wie <code>## Einschwimmen</code>, um Abschnitte zu kennzeichnen. Jeder Block wird separat zusammengefasst.</p>
+        </section>
+        <section>
+          <h3>Sets definieren</h3>
+          <ul>
+            <li><strong>Anzahl &amp; Strecke:</strong> <code>4x50m</code> bedeutet 4 Wiederholungen à 50 Meter.</li>
+            <li><strong>Lagencodes:</strong> <code>GSA</code> (Gesamte Lage), <code>Ar</code> (Arme), <code>Be</code> (Beine).</li>
+            <li><strong>Material:</strong> <code>w/ Pullbuoy</code>, <code>w/ Paddles</code>, <code>w/ Flossen</code>, weitere Begriffe werden als Equipment übernommen.</li>
+            <li><strong>Intervalle:</strong> <code>@1:30</code> gibt das Intervall pro Wiederholung an.</li>
+            <li><strong>Pause:</strong> <code>P:00:20</code> addiert eine Pause nach dem Set.</li>
+            <li><strong>Runden:</strong> <code>3 Runden:</code> oder <code>Runde x3</code> gruppiert mehrere Zeilen und zählt sie mehrfach. Eine Leerzeile oder <code>Ende Runde</code> beendet die Gruppe.</li>
+          </ul>
+        </section>
+        <section>
+          <h3>Intensitäten</h3>
+          <p>Folgende Intensitätsstufen werden erkannt (Groß-/Kleinschreibung egal):</p>
+          <ul class="tag-list">
+            <li>CLEAR</li>
+            <li>White2</li>
+            <li>White3</li>
+            <li>PINK4</li>
+            <li>PINK5</li>
+            <li>RED6</li>
+            <li>RED7</li>
+            <li>ORANGE8</li>
+            <li>ORANGE9</li>
+            <li>ORANGE10</li>
+            <li>PURPLE9</li>
+            <li>PURPLE10</li>
+            <li>BLUE8</li>
+            <li>BLUE9</li>
+            <li>BLUE10</li>
+            <li>GREEN</li>
+            <li>GOLD</li>
+          </ul>
+        </section>
+        <section>
+          <h3>Zusätzliche Hinweise</h3>
+          <ul>
+            <li>Mehrere Materialien können hintereinander mit <code>w/</code> aufgeführt werden.</li>
+            <li>Intervalle und Pausen unterstützen <code>mm:ss</code> oder <code>hh:mm:ss</code>.</li>
+            <li>Frei formulierte Beschreibungen werden angezeigt, beeinflussen aber keine Kennzahlen.</li>
+            <li>Speichere komplette Workouts über „Plan speichern“, sobald der lokale Server läuft – die Daten landen dann direkt in der JSON-Datenbank.</li>
+            <li>Nutze optional <code>npm run plan:cli</code>, um Pläne inklusive Datum, Fokus und Metadaten lokal in <code>data/plans.json</code> zu verwalten.</li>
+          </ul>
+        </section>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/js/app.js" defer></script>
+</body>
+</html>

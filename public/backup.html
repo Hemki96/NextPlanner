@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Swim Planner – Einstellungen</title>
+  <link rel="stylesheet" href="/css/main.css" />
+</head>
+<body>
+  <header class="page-header">
+    <h1>Anwendungseinstellungen</h1>
+    <p>
+      Bestimme, welche Bereiche des NextPlanners standardmäßig sichtbar sind und verwalte Sicherungen deiner Daten.
+      Alle Einstellungen werden lokal im Browser gespeichert und lassen sich jederzeit zurücksetzen.
+    </p>
+    <nav class="page-nav" aria-label="Hauptnavigation">
+      <a href="/index.html" class="nav-link" data-feature="calendarView">Plan-Kalender</a>
+      <a href="/planner.html" class="nav-link">Planner</a>
+      <a href="/templates.html" class="nav-link" data-feature="templateLibrary">Vorlagen</a>
+      <a href="/settings.html" class="nav-link" data-feature="quickSnippets">Schnellbausteine</a>
+      <a href="/backup.html" class="nav-link is-active" aria-current="page">Einstellungen</a>
+    </nav>
+  </header>
+
+  <main class="page-content">
+    <section class="page-card">
+      <header class="section-header">
+        <h2>Funktionen ein- und ausblenden</h2>
+        <button type="button" class="ghost-button" id="feature-settings-reset">Alle aktivieren</button>
+      </header>
+      <p class="form-hint">
+        Lege fest, welche Bereiche der Anwendung standardmäßig sichtbar sind. Änderungen werden sofort übernommen und gelten
+        für alle Geräte, die denselben Browser-Speicher verwenden.
+      </p>
+      <ul id="feature-settings-list" class="feature-toggle-list" aria-live="polite"></ul>
+      <p id="feature-settings-status" class="form-status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="page-card">
+      <header class="section-header">
+        <h2>Vollständige Datensicherung</h2>
+      </header>
+      <p class="form-hint">
+        Lade eine Sicherungsdatei mit allen gespeicherten Trainingsplänen herunter. Die Datei kann zu einem späteren Zeitpunkt
+        wieder importiert werden und dient als vollständiger Export des Plan-Speichers.
+      </p>
+      <div class="form-actions">
+        <button type="button" class="primary-button" id="download-backup">Sicherung herunterladen</button>
+      </div>
+      <p id="backup-status" class="form-status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="page-card">
+      <header class="section-header">
+        <h2>Vollständiges Neueinspielen</h2>
+      </header>
+      <p class="form-hint">
+        Spiele eine zuvor erstellte Sicherungsdatei wieder ein. Dabei werden alle aktuell gespeicherten Pläne unwiderruflich
+        durch die Daten aus der Sicherung ersetzt.
+      </p>
+      <form id="restore-form" class="restore-form">
+        <div class="form-grid">
+          <label class="form-field">
+            <span>Sicherungsdatei auswählen</span>
+            <input type="file" id="restore-file" accept="application/json" required />
+            <span class="field-hint">Unterstützt werden Sicherungen im NextPlanner-Format (*.json).</span>
+            <span id="restore-file-name" class="field-hint" aria-live="polite"></span>
+          </label>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="primary-button" id="restore-submit">Daten vollständig einspielen</button>
+          <button type="button" class="ghost-button" id="restore-reset">Auswahl zurücksetzen</button>
+        </div>
+      </form>
+      <p id="restore-status" class="form-status" role="status" aria-live="polite"></p>
+    </section>
+  </main>
+
+  <script type="module" src="/js/app-settings.js" defer></script>
+</body>
+</html>

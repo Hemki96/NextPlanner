@@ -9,7 +9,7 @@ import {
   PlanConflictError,
   PlanValidationError,
   StorageIntegrityError,
-} from "../js/storage/jsonPlanStore.js";
+} from "../server/stores/json-plan-store.js";
 
 function createTempPath() {
   return mkdtempSync(join(tmpdir(), "nextplanner-store-"));
