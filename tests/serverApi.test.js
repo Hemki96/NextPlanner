@@ -61,12 +61,16 @@ describe("Plan API", () => {
     });
 
     assert.equal(response.status, 201);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    const createdEtag = response.headers.get("etag");
+    assert.ok(createdEtag);
     const created = await response.json();
     assert.ok(created.id > 0);
     assert.equal(created.title, "Testplan");
 
     const listResponse = await fetch(`${baseUrl}/api/plans`);
     assert.equal(listResponse.status, 200);
+    assert.equal(listResponse.headers.get("cache-control"), "no-store");
     const plans = await listResponse.json();
     assert.equal(plans.length, 1);
     assert.equal(plans[0].id, created.id);
@@ -83,22 +87,37 @@ describe("Plan API", () => {
       focus: "SP",
     });
 
+    const initialResponse = await fetch(`${baseUrl}/api/plans/${created.id}`);
+    assert.equal(initialResponse.status, 200);
+    assert.equal(initialResponse.headers.get("cache-control"), "no-store");
+    const initialEtag = initialResponse.headers.get("etag");
+    assert.ok(initialEtag);
+
     const updateResponse = await fetch(`${baseUrl}/api/plans/${created.id}`, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
+        "If-Match": initialEtag,
       },
       body: JSON.stringify({ focus: "TE" }),
     });
 
     assert.equal(updateResponse.status, 200);
+    assert.equal(updateResponse.headers.get("cache-control"), "no-store");
+    const updateEtag = updateResponse.headers.get("etag");
+    assert.ok(updateEtag);
+    assert.notEqual(updateEtag, initialEtag);
     const updated = await updateResponse.json();
     assert.equal(updated.focus, "TE");
 
     const deleteResponse = await fetch(`${baseUrl}/api/plans/${created.id}`, {
       method: "DELETE",
+      headers: {
+        "If-Match": updateEtag,
+      },
     });
     assert.equal(deleteResponse.status, 204);
+    assert.equal(deleteResponse.headers.get("cache-control"), "no-store");
     assert.equal(await store.getPlan(created.id), null);
   });
 
@@ -124,6 +143,63 @@ describe("Plan API", () => {
     assert.match(message.error, /content ist erforderlich/);
   });
 
+  it("verhindert Änderungen mit veralteten ETags", async () => {
+    const plan = await store.createPlan({
+      title: "Double Update",
+      content: "Plan",
+      planDate: "2024-06-05",
+      focus: "AR",
+    });
+
+    const initial = await fetch(`${baseUrl}/api/plans/${plan.id}`);
+    const initialEtag = initial.headers.get("etag");
+    assert.ok(initialEtag);
+
+    const firstUpdate = await fetch(`${baseUrl}/api/plans/${plan.id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "If-Match": initialEtag,
+      },
+      body: JSON.stringify({ focus: "TE" }),
+    });
+    assert.equal(firstUpdate.status, 200);
+    const freshEtag = firstUpdate.headers.get("etag");
+    assert.ok(freshEtag);
+
+    const conflict = await fetch(`${baseUrl}/api/plans/${plan.id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "If-Match": initialEtag,
+      },
+      body: JSON.stringify({ focus: "SP" }),
+    });
+    assert.equal(conflict.status, 412);
+    assert.equal(conflict.headers.get("etag"), freshEtag);
+    const conflictBody = await conflict.json();
+    assert.equal(conflictBody.currentPlan.focus, "TE");
+
+    const deleteConflict = await fetch(`${baseUrl}/api/plans/${plan.id}`, {
+      method: "DELETE",
+      headers: {
+        "If-Match": initialEtag,
+      },
+    });
+    assert.equal(deleteConflict.status, 412);
+    assert.equal(deleteConflict.headers.get("etag"), freshEtag);
+    const deleteBody = await deleteConflict.json();
+    assert.equal(deleteBody.currentPlan.focus, "TE");
+
+    const cleanup = await fetch(`${baseUrl}/api/plans/${plan.id}`, {
+      method: "DELETE",
+      headers: {
+        "If-Match": freshEtag,
+      },
+    });
+    assert.equal(cleanup.status, 204);
+  });
+
   it("unterstützt HEAD und OPTIONS mit CORS-Headern", async () => {
     const optionsResponse = await fetch(`${baseUrl}/api/plans`, {
       method: "OPTIONS",
@@ -146,6 +222,41 @@ describe("Plan API", () => {
     assert.equal(headResponse.headers.get("access-control-allow-origin"), "*");
     const body = await headResponse.text();
     assert.equal(body, "");
+  });
+
+  it("liefert 304 für unveränderte Pläne", async () => {
+    const plan = await store.createPlan({
+      title: "Caching-Test",
+      content: "Plan",
+      planDate: "2024-06-06",
+      focus: "AR",
+    });
+
+    const first = await fetch(`${baseUrl}/api/plans/${plan.id}`);
+    assert.equal(first.status, 200);
+    const etag = first.headers.get("etag");
+    assert.ok(etag);
+
+    const conditional = await fetch(`${baseUrl}/api/plans/${plan.id}`, {
+      headers: { "If-None-Match": etag },
+    });
+    assert.equal(conditional.status, 304);
+    assert.equal(conditional.headers.get("etag"), etag);
+    assert.equal(await conditional.text(), "");
+
+    const headConditional = await fetch(`${baseUrl}/api/plans/${plan.id}`, {
+      method: "HEAD",
+      headers: { "If-None-Match": etag },
+    });
+    assert.equal(headConditional.status, 304);
+    assert.equal(headConditional.headers.get("etag"), etag);
+    assert.equal(await headConditional.text(), "");
+
+    const cleanup = await fetch(`${baseUrl}/api/plans/${plan.id}`, {
+      method: "DELETE",
+      headers: { "If-Match": etag },
+    });
+    assert.equal(cleanup.status, 204);
   });
 
   it("liefert statische Dateien gestreamt mit Cache-Headern", async () => {

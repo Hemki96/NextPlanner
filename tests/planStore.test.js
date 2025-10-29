@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { describe, it, beforeEach, afterEach, mock } from "node:test";
 
-import { JsonPlanStore, PlanValidationError, StorageIntegrityError } from "../js/storage/jsonPlanStore.js";
+import {
+  JsonPlanStore,
+  PlanConflictError,
+  PlanValidationError,
+  StorageIntegrityError,
+} from "../js/storage/jsonPlanStore.js";
 
 function createTempPath() {
   return mkdtempSync(join(tmpdir(), "nextplanner-store-"));
@@ -89,6 +94,31 @@ describe("JsonPlanStore", () => {
     assert.equal(updated.metadata.notes, "Vorbereitung Wettkampf");
   });
 
+  it("verhindert Updates mit veralteten Versionsständen", async () => {
+    const plan = await store.createPlan({
+      title: "Grundlage",
+      content: "5x200",
+      planDate: "2024-03-05",
+      focus: "GA",
+    });
+
+    const baseline = await store.getPlan(plan.id);
+    assert.ok(baseline);
+
+    const fresh = await store.updatePlan(plan.id, { focus: "SP" }, { expectedUpdatedAt: baseline.updatedAt });
+    assert.equal(fresh.focus, "SP");
+
+    await assert.rejects(
+      store.updatePlan(plan.id, { focus: "TE" }, { expectedUpdatedAt: baseline.updatedAt }),
+      (error) => {
+        assert.ok(error instanceof PlanConflictError);
+        assert.ok(error.currentPlan);
+        assert.equal(error.currentPlan.focus, "SP");
+        return true;
+      }
+    );
+  });
+
   it("löscht Pläne", async () => {
     const plan = await store.createPlan({
       title: "Test",
@@ -100,6 +130,27 @@ describe("JsonPlanStore", () => {
     const removed = await store.deletePlan(plan.id);
     assert.equal(removed, true);
     assert.equal(await store.getPlan(plan.id), null);
+  });
+
+  it("verhindert das Löschen mit veralteten Versionsständen", async () => {
+    const plan = await store.createPlan({
+      title: "Konfliktfall",
+      content: "Plan",
+      planDate: "2024-02-10",
+      focus: "AR",
+    });
+
+    const snapshot = await store.getPlan(plan.id);
+    assert.ok(snapshot);
+
+    await store.updatePlan(plan.id, { focus: "TE" }, { expectedUpdatedAt: snapshot.updatedAt });
+
+    await assert.rejects(
+      store.deletePlan(plan.id, { expectedUpdatedAt: snapshot.updatedAt }),
+      PlanConflictError
+    );
+    const stillPresent = await store.getPlan(plan.id);
+    assert.ok(stillPresent);
   });
 
   it("meldet Validierungsfehler mit eigener Fehlerklasse", async () => {

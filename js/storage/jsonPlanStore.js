@@ -20,6 +20,15 @@ export class StorageIntegrityError extends Error {
   }
 }
 
+export class PlanConflictError extends Error {
+  constructor(message, { currentPlan, expectedUpdatedAt } = {}) {
+    super(message);
+    this.name = "PlanConflictError";
+    this.expectedUpdatedAt = expectedUpdatedAt ?? null;
+    this.currentPlan = currentPlan ? clonePlan(currentPlan) : null;
+  }
+}
+
 async function ensureDirectory(filePath) {
   const directory = dirname(filePath);
   await fs.mkdir(directory, { recursive: true });
@@ -319,13 +328,20 @@ export class JsonPlanStore {
     return clonePlan(plan);
   }
 
-  async updatePlan(id, updates = {}) {
+  async updatePlan(id, updates = {}, options = {}) {
     await this.#ensureReady();
     const index = this.#findPlanIndex(id);
     if (index === -1) {
       return null;
     }
     const plan = this.#data.plans[index];
+    const { expectedUpdatedAt } = options ?? {};
+    if (expectedUpdatedAt && plan.updatedAt !== expectedUpdatedAt) {
+      throw new PlanConflictError("Plan wurde bereits geändert.", {
+        currentPlan: plan,
+        expectedUpdatedAt,
+      });
+    }
     if (updates.title !== undefined) {
       plan.title = normalizeTitle(updates.title);
     }
@@ -346,11 +362,19 @@ export class JsonPlanStore {
     return clonePlan(plan);
   }
 
-  async deletePlan(id) {
+  async deletePlan(id, options = {}) {
     await this.#ensureReady();
     const index = this.#findPlanIndex(id);
     if (index === -1) {
       return false;
+    }
+    const plan = this.#data.plans[index];
+    const { expectedUpdatedAt } = options ?? {};
+    if (expectedUpdatedAt && plan.updatedAt !== expectedUpdatedAt) {
+      throw new PlanConflictError("Plan wurde bereits geändert.", {
+        currentPlan: plan,
+        expectedUpdatedAt,
+      });
     }
     this.#data.plans.splice(index, 1);
     await this.#writeToDisk();

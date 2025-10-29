@@ -3,6 +3,7 @@ import process from "node:process";
 
 import {
   JsonPlanStore,
+  PlanConflictError,
   PlanValidationError,
   StorageIntegrityError,
 } from "./jsonPlanStore.js";
@@ -183,6 +184,14 @@ async function main() {
     if (error instanceof PlanValidationError) {
       console.error(error.message);
       process.exit(EXIT_VALIDATION);
+    }
+    if (error instanceof PlanConflictError) {
+      console.error(error.message);
+      if (error.currentPlan) {
+        console.error("Aktueller Stand:");
+        console.error(JSON.stringify(error.currentPlan, null, 2));
+      }
+      process.exit(EXIT_IO);
     }
     if (error instanceof StorageIntegrityError) {
       console.error(error.message);

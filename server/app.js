@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   JsonPlanStore,
+  PlanConflictError,
   PlanValidationError,
   StorageIntegrityError,
 } from "../js/storage/jsonPlanStore.js";
@@ -42,10 +43,41 @@ function withCorsHeaders(headers = {}) {
   return { ...API_CORS_HEADERS, ...headers };
 }
 
+const API_BASE_HEADERS = Object.freeze({
+  "Cache-Control": "no-store",
+});
+
+function buildApiHeaders(extra = {}) {
+  return { ...API_BASE_HEADERS, ...extra };
+}
+
 function buildEtag(fileStat) {
   const sizeHex = fileStat.size.toString(16);
   const mtimeHex = Math.floor(fileStat.mtimeMs).toString(16);
   return `"${sizeHex}-${mtimeHex}"`;
+}
+
+function buildPlanEtag(plan) {
+  const value = `plan-${plan.id}@${plan.updatedAt}`;
+  return `"${value}"`;
+}
+
+function ifMatchSatisfied(header, currentEtag) {
+  if (!header) {
+    return true;
+  }
+  const trimmed = header.trim();
+  if (!trimmed) {
+    return false;
+  }
+  if (trimmed === "*") {
+    return true;
+  }
+  const candidates = trimmed
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+  return candidates.some((candidate) => candidate === currentEtag);
 }
 
 function parseHttpDate(value) {
@@ -95,13 +127,14 @@ function isRequestFresh(headers, etag, mtimeMs) {
   return Math.floor(mtimeMs / 1000) <= Math.floor(since / 1000);
 }
 
-function sendJson(res, status, payload, { cors = false, method = "GET" } = {}) {
+function sendJson(res, status, payload, { cors = false, method = "GET", headers = {} } = {}) {
   const body = JSON.stringify(payload, null, 2);
-  const headers = {
+  const baseHeaders = {
     "Content-Type": "application/json; charset=utf-8",
     "Content-Length": Buffer.byteLength(body),
   };
-  res.writeHead(status, cors ? withCorsHeaders(headers) : headers);
+  const finalHeaders = { ...(headers ?? {}), ...baseHeaders };
+  res.writeHead(status, cors ? withCorsHeaders(finalHeaders) : finalHeaders);
   if (method !== "HEAD") {
     res.end(body);
   } else {
@@ -109,11 +142,12 @@ function sendJson(res, status, payload, { cors = false, method = "GET" } = {}) {
   }
 }
 
-function sendEmpty(res, status, { cors = false } = {}) {
+function sendEmpty(res, status, { cors = false, headers = {} } = {}) {
+  const finalHeaders = { ...(headers ?? {}) };
   if (cors) {
-    res.writeHead(status, withCorsHeaders());
+    res.writeHead(status, withCorsHeaders(finalHeaders));
   } else {
-    res.writeHead(status);
+    res.writeHead(status, finalHeaders);
   }
   res.end();
 }
@@ -359,11 +393,19 @@ function validateUpdatePayload(payload) {
 function handleApiError(res, error, method = "GET") {
   if (error instanceof HttpError) {
     const payload = { error: error.message };
-    sendJson(res, error.status, payload, { cors: true, method });
+    sendJson(res, error.status, payload, {
+      cors: true,
+      method,
+      headers: buildApiHeaders(),
+    });
     return;
   }
   if (error instanceof PlanValidationError) {
-    sendJson(res, 400, { error: error.message }, { cors: true, method });
+    sendJson(res, 400, { error: error.message }, {
+      cors: true,
+      method,
+      headers: buildApiHeaders(),
+    });
     return;
   }
   if (error instanceof StorageIntegrityError) {
@@ -371,19 +413,37 @@ function handleApiError(res, error, method = "GET") {
     if (error.backupFile) {
       body.backupFile = error.backupFile;
     }
-    sendJson(res, 503, body, { cors: true, method });
+    sendJson(res, 503, body, {
+      cors: true,
+      method,
+      headers: buildApiHeaders(),
+    });
+    return;
+  }
+  if (error instanceof PlanConflictError) {
+    const body = { error: error.message };
+    let headers = buildApiHeaders();
+    if (error.currentPlan) {
+      body.currentPlan = error.currentPlan;
+      headers = buildApiHeaders({ ETag: buildPlanEtag(error.currentPlan) });
+    }
+    sendJson(res, 412, body, { cors: true, method, headers });
     return;
   }
   console.error("Unexpected API error", error);
   const message = process.env.NODE_ENV === "development" ? error.message : "Interner Serverfehler";
-  sendJson(res, 500, { error: message }, { cors: true, method });
+  sendJson(res, 500, { error: message }, {
+    cors: true,
+    method,
+    headers: buildApiHeaders(),
+  });
 }
 
 async function handleApiRequest(req, res, url, store) {
   const method = req.method ?? "GET";
 
   if (method === "OPTIONS") {
-    sendEmpty(res, 204, { cors: true });
+    sendEmpty(res, 204, { cors: true, headers: buildApiHeaders() });
     return;
   }
 
@@ -393,7 +453,8 @@ async function handleApiRequest(req, res, url, store) {
         const body = await readJsonBody(req);
         const payload = validateCreatePayload(body);
         const plan = await store.createPlan(payload);
-        sendJson(res, 201, plan, { cors: true, method });
+        const headers = buildApiHeaders({ ETag: buildPlanEtag(plan) });
+        sendJson(res, 201, plan, { cors: true, method, headers });
       } catch (error) {
         handleApiError(res, error, method);
       }
@@ -408,7 +469,7 @@ async function handleApiRequest(req, res, url, store) {
           from: from ?? undefined,
           to: to ?? undefined,
         });
-        sendJson(res, 200, plans, { cors: true, method });
+        sendJson(res, 200, plans, { cors: true, method, headers: buildApiHeaders() });
       } catch (error) {
         handleApiError(res, error, method);
       }
@@ -431,7 +492,13 @@ async function handleApiRequest(req, res, url, store) {
       if (!plan) {
         throw new HttpError(404, "Plan nicht gefunden");
       }
-      sendJson(res, 200, plan, { cors: true, method });
+      const etag = buildPlanEtag(plan);
+      const responseHeaders = buildApiHeaders({ ETag: etag });
+      if (etagMatches(req.headers?.["if-none-match"], etag)) {
+        sendEmpty(res, 304, { cors: true, headers: responseHeaders });
+        return;
+      }
+      sendJson(res, 200, plan, { cors: true, method, headers: responseHeaders });
     } catch (error) {
       handleApiError(res, error, method);
     }
@@ -442,11 +509,26 @@ async function handleApiRequest(req, res, url, store) {
     try {
       const body = await readJsonBody(req);
       const updates = validateUpdatePayload(body);
-      const plan = await store.updatePlan(planId, updates);
+      const ifMatch = req.headers?.["if-match"];
+      let plan;
+      if (ifMatch) {
+        const current = await store.getPlan(planId);
+        if (!current) {
+          throw new HttpError(404, "Plan nicht gefunden");
+        }
+        const currentEtag = buildPlanEtag(current);
+        if (!ifMatchSatisfied(ifMatch, currentEtag)) {
+          throw new PlanConflictError("Plan wurde bereits geändert.", { currentPlan: current });
+        }
+        plan = await store.updatePlan(planId, updates, { expectedUpdatedAt: current.updatedAt });
+      } else {
+        plan = await store.updatePlan(planId, updates);
+      }
       if (!plan) {
         throw new HttpError(404, "Plan nicht gefunden");
       }
-      sendJson(res, 200, plan, { cors: true, method });
+      const responseHeaders = buildApiHeaders({ ETag: buildPlanEtag(plan) });
+      sendJson(res, 200, plan, { cors: true, method, headers: responseHeaders });
     } catch (error) {
       handleApiError(res, error, method);
     }
@@ -455,11 +537,25 @@ async function handleApiRequest(req, res, url, store) {
 
   if (method === "DELETE") {
     try {
-      const removed = await store.deletePlan(planId);
+      const ifMatch = req.headers?.["if-match"];
+      let removed;
+      if (ifMatch) {
+        const current = await store.getPlan(planId);
+        if (!current) {
+          throw new HttpError(404, "Plan nicht gefunden");
+        }
+        const currentEtag = buildPlanEtag(current);
+        if (!ifMatchSatisfied(ifMatch, currentEtag)) {
+          throw new PlanConflictError("Plan wurde bereits geändert.", { currentPlan: current });
+        }
+        removed = await store.deletePlan(planId, { expectedUpdatedAt: current.updatedAt });
+      } else {
+        removed = await store.deletePlan(planId);
+      }
       if (!removed) {
         throw new HttpError(404, "Plan nicht gefunden");
       }
-      sendEmpty(res, 204, { cors: true });
+      sendEmpty(res, 204, { cors: true, headers: buildApiHeaders() });
     } catch (error) {
       handleApiError(res, error, method);
     }
