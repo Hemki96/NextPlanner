@@ -1,24 +1,35 @@
 <!DOCTYPE html>
 <html lang="de">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Swim Planner – Schnellbausteine konfigurieren</title>
-  <link rel="stylesheet" href="/css/main.css" />
-</head>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Swim Planner – Editor-Einstellungen</title>
+    <link rel="stylesheet" href="/css/main.css" />
+  </head>
 <body>
   <header class="page-header">
-    <h1>Schnellbausteine konfigurieren</h1>
-    <p>Passe die Kategorien und Einträge der Schnellbausteine an deine Trainingssprache an. Die Einstellungen werden lokal im Browser gespeichert.</p>
+    <h1>Editor &amp; Schnellbausteine konfigurieren</h1>
+    <p>Passe die Hervorhebungen im Plan-Editor sowie die Kategorien und Einträge der Schnellbausteine an deine Trainingssprache an. Die Einstellungen werden lokal im Browser gespeichert.</p>
     <nav class="page-nav" aria-label="Hauptnavigation">
       <a href="/index.html" class="nav-link" data-feature="calendarView">Plan-Kalender</a>
       <a href="/planner.html" class="nav-link">Planner</a>
       <a href="/templates.html" class="nav-link" data-feature="templateLibrary">Vorlagen</a>
-      <a href="/settings.html" class="nav-link is-active" aria-current="page">Schnellbausteine</a>
-      <a href="/backup.html" class="nav-link">Einstellungen</a>
+      <a href="/settings.html" class="nav-link is-active" aria-current="page">Einstellungen</a>
+      <a href="/backup.html" class="nav-link">Backups</a>
     </nav>
   </header>
   <main class="page-content">
+    <section class="page-card">
+      <header class="section-header">
+        <h2>Plan-Markierungen</h2>
+        <div class="section-actions">
+          <button type="button" class="ghost-button" id="highlight-settings-reset">Standard wiederherstellen</button>
+        </div>
+      </header>
+      <p class="form-hint">Wähle aus, welche Eingaben im Plan-Editor farblich hervorgehoben werden – zum Beispiel Überschriften, Distanzen oder Intensitätscodes.</p>
+      <ul id="highlight-settings-list" class="feature-toggle-list"></ul>
+      <p id="highlight-settings-status" class="form-status" role="status" aria-live="polite"></p>
+    </section>
     <section class="page-card" data-feature="teamLibrary">
       <header class="section-header">
         <h2>Kategorien &amp; Einträge</h2>
