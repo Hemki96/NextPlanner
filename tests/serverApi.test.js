@@ -3,7 +3,7 @@ import { once } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, it, before, after } from "node:test";
+import { describe, it, before, after, mock } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { JsonPlanStore } from "../js/storage/jsonPlanStore.js";
@@ -146,5 +146,41 @@ describe("Plan API", () => {
     assert.equal(headResponse.headers.get("access-control-allow-origin"), "*");
     const body = await headResponse.text();
     assert.equal(body, "");
+  });
+
+  it("liefert statische Dateien gestreamt mit Cache-Headern", async () => {
+    const response = await fetch(`${baseUrl}/index.html`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "public, max-age=300");
+    assert.ok(response.headers.get("etag"));
+    const text = await response.text();
+    assert.ok(text.includes("<!DOCTYPE html>"));
+
+    const headResponse = await fetch(`${baseUrl}/styles.css`, { method: "HEAD" });
+    assert.equal(headResponse.status, 200);
+    assert.ok(Number.parseInt(headResponse.headers.get("content-length") ?? "0", 10) > 0);
+    assert.equal(headResponse.headers.get("cache-control"), "public, max-age=300");
+    assert.equal(await headResponse.text(), "");
+  });
+
+  it("schließt den Store beim Server-Shutdown", async () => {
+    const temp = createTempStore();
+    const localStore = temp.store;
+    const closeMock = mock.method(localStore, "close", async () => {});
+    const localServer = createServer({
+      store: localStore,
+      publicDir: repoRoot,
+      gracefulShutdownSignals: [],
+    });
+    localServer.listen(0);
+    await once(localServer, "listening");
+
+    await new Promise((resolve) => localServer.close(resolve));
+
+    assert.equal(closeMock.mock.calls.length, 1);
+
+    closeMock.mock.restore();
+    await localStore.close();
+    rmSync(temp.dir, { recursive: true, force: true });
   });
 });

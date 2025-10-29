@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, promises as fsPromises } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { join, dirname } from "node:path";
+import { describe, it, beforeEach, afterEach, mock } from "node:test";
 
 import { JsonPlanStore, PlanValidationError, StorageIntegrityError } from "../js/storage/jsonPlanStore.js";
 
@@ -143,5 +143,42 @@ describe("JsonPlanStore", () => {
     await Promise.all(operations);
     const plans = await store.listPlans();
     assert.equal(plans.length, 10);
+  });
+
+  it("sichert Schreibvorgänge mit fsync für Datei und Verzeichnis ab", async () => {
+    const syncCounts = { file: 0, dir: 0 };
+    const originalOpen = fsPromises.open;
+    const openMock = mock.method(fsPromises, "open", async (...args) => {
+      const handle = await originalOpen(...args);
+      const targetPath = String(args[0]);
+      if (targetPath.endsWith(".tmp")) {
+        const originalSync = handle.sync.bind(handle);
+        handle.sync = async (...syncArgs) => {
+          syncCounts.file += 1;
+          return originalSync(...syncArgs);
+        };
+      } else if (targetPath === dirname(store.storageFile) && typeof handle.sync === "function") {
+        const originalSync = handle.sync.bind(handle);
+        handle.sync = async (...syncArgs) => {
+          syncCounts.dir += 1;
+          return originalSync(...syncArgs);
+        };
+      }
+      return handle;
+    });
+
+    try {
+      await store.createPlan({
+        title: "Stabilitätstest",
+        content: "Kraftzirkel",
+        planDate: "2024-07-01",
+        focus: "AR",
+      });
+    } finally {
+      openMock.mock.restore();
+    }
+
+    assert.ok(syncCounts.file >= 1);
+    assert.ok(syncCounts.dir >= 1);
   });
 });

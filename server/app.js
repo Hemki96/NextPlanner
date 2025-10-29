@@ -1,5 +1,6 @@
 import { createServer as createHttpServer } from "node:http";
-import { readFile, stat } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -39,6 +40,12 @@ const API_CORS_HEADERS = {
 
 function withCorsHeaders(headers = {}) {
   return { ...API_CORS_HEADERS, ...headers };
+}
+
+function buildEtag(fileStat) {
+  const sizeHex = fileStat.size.toString(16);
+  const mtimeHex = Math.floor(fileStat.mtimeMs).toString(16);
+  return `"${sizeHex}-${mtimeHex}"`;
 }
 
 function sendJson(res, status, payload, { cors = false, method = "GET" } = {}) {
@@ -151,37 +158,64 @@ async function serveStatic(req, res, url, rootDir) {
   }
 
   let filePath = safePath;
-  try {
-    const fileStat = await stat(filePath);
-    if (fileStat.isDirectory()) {
-      filePath = path.join(filePath, "index.html");
-    }
-  } catch (error) {
-    if (req.method === "GET" || req.method === "HEAD") {
-      filePath = path.join(rootDir, "index.html");
-    } else {
+  let fileStat;
+  let attemptedFallback = false;
+
+  while (true) {
+    try {
+      fileStat = await stat(filePath);
+      if (fileStat.isDirectory()) {
+        filePath = path.join(filePath, "index.html");
+        continue;
+      }
+      break;
+    } catch (error) {
+      if (!attemptedFallback && (req.method === "GET" || req.method === "HEAD")) {
+        filePath = path.join(rootDir, "index.html");
+        attemptedFallback = true;
+        continue;
+      }
       sendEmpty(res, 404);
       return;
     }
   }
 
-  try {
-    const content = await readFile(filePath);
-    const mime = mapExtension(filePath);
-    const headers = {
-      "Content-Type": mime,
-    };
-    if (req.method === "HEAD") {
-      headers["Content-Length"] = Buffer.byteLength(content);
-      res.writeHead(200, headers);
-      res.end();
-      return;
-    }
+  const mime = mapExtension(filePath);
+  const headers = {
+    "Content-Type": mime,
+    "Content-Length": fileStat.size,
+    "Last-Modified": fileStat.mtime.toUTCString(),
+    ETag: buildEtag(fileStat),
+    "Cache-Control": "public, max-age=300",
+  };
+
+  if (req.method === "HEAD") {
     res.writeHead(200, headers);
-    res.end(content);
-  } catch (error) {
-    sendEmpty(res, 404);
+    res.end();
+    return;
   }
+
+  if (req.method !== "GET") {
+    sendEmpty(res, 405);
+    return;
+  }
+
+  const stream = createReadStream(filePath);
+  stream.once("open", () => {
+    res.writeHead(200, headers);
+  });
+  stream.once("error", (error) => {
+    if (!res.headersSent) {
+      const status = error?.code === "ENOENT" ? 404 : 500;
+      sendEmpty(res, status);
+    } else {
+      res.destroy(error);
+    }
+  });
+  res.once("close", () => {
+    stream.destroy();
+  });
+  stream.pipe(res);
 }
 
 function parseIdFromPath(pathname) {
@@ -376,7 +410,8 @@ async function handleApiRequest(req, res, url, store) {
   handleApiError(res, new HttpError(405, "Methode nicht erlaubt"), method);
 }
 
-export function createRequestHandler({ store = new JsonPlanStore(), publicDir } = {}) {
+export function createRequestHandler({ store, publicDir } = {}) {
+  const planStore = store ?? new JsonPlanStore();
   const defaultDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
   const rootDir = path.resolve(publicDir ?? defaultDir);
 
@@ -384,7 +419,7 @@ export function createRequestHandler({ store = new JsonPlanStore(), publicDir } 
     try {
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
       if (isApiRequest(url.pathname)) {
-        await handleApiRequest(req, res, url, store);
+        await handleApiRequest(req, res, url, planStore);
         return;
       }
       await serveStatic(req, res, url, rootDir);
@@ -399,6 +434,78 @@ export function createRequestHandler({ store = new JsonPlanStore(), publicDir } 
 }
 
 export function createServer(options = {}) {
-  const handler = createRequestHandler(options);
-  return createHttpServer(handler);
+  const {
+    store = new JsonPlanStore(),
+    publicDir,
+    gracefulShutdownSignals = ["SIGINT", "SIGTERM"],
+  } = options;
+  const handler = createRequestHandler({ store, publicDir });
+  const server = createHttpServer(handler);
+
+  const signalHandlers = new Map();
+  let shuttingDown = false;
+  let closePromise;
+
+  const closeStoreSafely = () => {
+    if (closePromise) {
+      return closePromise;
+    }
+    closePromise = (async () => {
+      try {
+        await store.close();
+      } catch (error) {
+        console.error("Fehler beim Schließen des Planstores", error);
+        throw error;
+      }
+    })();
+    return closePromise;
+  };
+
+  const removeSignalHandlers = () => {
+    for (const [signal, listener] of signalHandlers.entries()) {
+      process.off(signal, listener);
+    }
+    signalHandlers.clear();
+  };
+
+  server.on("close", () => {
+    removeSignalHandlers();
+    closeStoreSafely().catch(() => {});
+  });
+
+  const closeServer = () =>
+    new Promise((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      });
+    });
+
+  if (Array.isArray(gracefulShutdownSignals) && gracefulShutdownSignals.length > 0) {
+    for (const signal of gracefulShutdownSignals) {
+      const listener = async () => {
+        if (shuttingDown) {
+          return;
+        }
+        shuttingDown = true;
+        try {
+          await closeServer();
+          await closeStoreSafely();
+          removeSignalHandlers();
+          process.exit(0);
+        } catch (error) {
+          console.error("Fehler beim geordneten Shutdown", error);
+          removeSignalHandlers();
+          process.exit(1);
+        }
+      };
+      process.on(signal, listener);
+      signalHandlers.set(signal, listener);
+    }
+  }
+
+  return server;
 }

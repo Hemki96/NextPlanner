@@ -165,7 +165,29 @@ export class JsonPlanStore {
     const base = basename(this.#file);
     const tempFile = join(dir, `.${base}.${process.pid}.${Date.now()}.tmp`);
     const payload = JSON.stringify(data, null, 2);
-    await fs.writeFile(tempFile, payload, "utf8");
+
+    let handle;
+    try {
+      handle = await fs.open(
+        tempFile,
+        constants.O_CREAT | constants.O_TRUNC | constants.O_WRONLY,
+        0o600
+      );
+      await handle.writeFile(payload, "utf8");
+      await handle.sync();
+    } catch (error) {
+      await handle?.close().catch(() => {});
+      await fs.rm(tempFile, { force: true }).catch(() => {});
+      throw error;
+    }
+
+    try {
+      await handle.close();
+    } catch (error) {
+      await fs.rm(tempFile, { force: true }).catch(() => {});
+      throw error;
+    }
+
     try {
       await fs.rename(tempFile, this.#file);
     } catch (error) {
@@ -177,6 +199,17 @@ export class JsonPlanStore {
         throw error;
       }
     }
+
+    let dirHandle;
+    try {
+      dirHandle = await fs.open(dir, constants.O_DIRECTORY | constants.O_RDONLY);
+      await dirHandle.sync();
+    } catch (error) {
+      await dirHandle?.close().catch(() => {});
+      throw error;
+    }
+
+    await dirHandle.close();
   }
 
   #enqueueWrite(operation) {
