@@ -32,7 +32,11 @@ const dom = {
   exportMarkdownButton: document.getElementById("export-markdown"),
   exportWordButton: document.getElementById("export-word"),
   savePlanButton: document.getElementById("save-plan-button"),
+  layout: document.querySelector(".layout"),
+  quickPanel: document.querySelector(".quick-panel"),
+  quickSnippetToggle: document.getElementById("quick-snippet-toggle"),
   quickSnippetContainer: document.getElementById("quick-snippet-container"),
+  quickPanelExpand: document.getElementById("quick-panel-expand"),
   validationPanel: document.getElementById("validation-panel"),
   templatePanel: document.querySelector(".template-panel"),
 };
@@ -98,6 +102,43 @@ initQuickSnippets({
   container: dom.quickSnippetContainer,
   textarea: dom.planInput,
 });
+
+if (
+  dom.layout &&
+  dom.quickPanel &&
+  dom.quickSnippetContainer &&
+  dom.quickSnippetToggle &&
+  dom.quickPanelExpand
+) {
+  const collapseQuickPanel = () => {
+    if (dom.quickPanel.hasAttribute("hidden")) {
+      return;
+    }
+
+    dom.quickSnippetContainer.hidden = true;
+    dom.quickSnippetToggle.setAttribute("aria-expanded", "false");
+    dom.quickSnippetToggle.textContent = "Leiste ausblenden";
+    dom.layout.classList.add("layout--snippets-hidden");
+    dom.quickPanel.setAttribute("hidden", "");
+    dom.quickPanelExpand.hidden = false;
+    dom.quickPanelExpand.setAttribute("aria-expanded", "false");
+    dom.quickPanelExpand.focus();
+  };
+
+  const expandQuickPanel = () => {
+    dom.quickPanel.removeAttribute("hidden");
+    dom.quickSnippetContainer.hidden = false;
+    dom.quickSnippetToggle.setAttribute("aria-expanded", "true");
+    dom.quickSnippetToggle.textContent = "Leiste ausblenden";
+    dom.layout.classList.remove("layout--snippets-hidden");
+    dom.quickPanelExpand.hidden = true;
+    dom.quickPanelExpand.setAttribute("aria-expanded", "true");
+    dom.quickSnippetToggle.focus();
+  };
+
+  dom.quickSnippetToggle.addEventListener("click", collapseQuickPanel);
+  dom.quickPanelExpand.addEventListener("click", expandQuickPanel);
+}
 
 async function loadPlanFromQuery() {
   if (typeof window === "undefined" || !canUseApi()) {

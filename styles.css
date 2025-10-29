@@ -781,17 +781,29 @@ body {
   }
 }
 
-/* Dreispaltige Hauptanordnung: Schnellbausteine, Editor, Auswertung */
+/* Dreispaltige Hauptanordnung: Schnellbausteine, Editor, Insights */
 .layout {
   display: grid;
-  grid-template-columns: minmax(240px, 1fr) minmax(0, 1.4fr) minmax(220px, 1fr) minmax(300px, 1.1fr);
-  grid-template-areas: "snippets input templates summary";
+  grid-template-columns: minmax(240px, 1fr) minmax(0, 1.4fr) minmax(320px, 1.1fr);
+  grid-template-areas: "snippets input insights";
   gap: 2rem;
   align-items: flex-start;
 }
 
+.layout.layout--snippets-hidden {
+  grid-template-columns: minmax(0, 2.4fr) minmax(320px, 1.1fr);
+  grid-template-areas: "input insights";
+}
+
+.layout.layout--snippets-hidden .quick-panel {
+  display: none;
+}
+
 /* Glasartige Karten für alle drei Spaltenbereiche */
-.quick-panel, .input-panel, .summary-panel {
+.quick-panel,
+.input-panel,
+.summary-panel,
+.template-panel {
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -818,14 +830,14 @@ body {
   gap: 1.75rem;
 }
 
+.insights-panel {
+  grid-area: insights;
+  display: grid;
+  gap: 1.5rem;
+  align-content: start;
+}
+
 .template-panel {
-  grid-area: templates;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 2rem;
-  backdrop-filter: blur(16px);
-  box-shadow: 0 40px 80px -45px rgba(12, 50, 89, 0.45);
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -834,7 +846,66 @@ body {
 }
 
 .summary-panel {
-  grid-area: summary;
+  display: grid;
+  gap: 1.5rem;
+}
+
+.quick-snippet-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.quick-panel-toggle {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.input-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.input-panel-header h2 {
+  margin: 0;
+}
+
+.quick-panel-expand {
+  white-space: nowrap;
+}
+
+.quick-panel-toggle:hover,
+.quick-panel-toggle:focus {
+  background: #005fcc;
+  box-shadow: 0 0 0 3px rgba(0, 119, 255, 0.2);
+  outline: none;
+}
+
+.quick-panel-toggle::after {
+  content: "";
+  width: 0.6rem;
+  height: 0.6rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 0.2s ease;
+}
+
+.quick-panel-toggle[aria-expanded="false"]::after {
+  transform: rotate(-135deg);
 }
 
 /* Freitextfeld für den Plan mit großzügiger Höhe und angepasstem Highlighting */
@@ -913,14 +984,14 @@ body {
   box-shadow: inset 4px 0 0 rgba(215, 57, 64, 0.6);
 }
 
-.plan-highlight .plan-token-distance,
-.plan-highlight .plan-token-round {
-  font-weight: 700;
+.plan-highlight .plan-token {
+  font-weight: inherit;
+  font-style: inherit;
+  letter-spacing: inherit;
 }
 
 .plan-highlight .plan-token-heading {
   display: block;
-  font-weight: 700;
   color: var(--accent);
 }
 
@@ -928,18 +999,18 @@ body {
   color: var(--text-primary);
 }
 
+.plan-highlight .plan-token-distance,
 .plan-highlight .plan-token-round {
   color: var(--accent);
 }
 
 .plan-highlight .plan-token-equipment,
 .plan-highlight .plan-token-interval {
-  font-style: italic;
   color: var(--text-secondary);
 }
 
 .plan-highlight .intensity-token {
-  font-weight: 700;
+  font-weight: inherit;
   background: none;
   border: none;
   border-radius: 0;
@@ -1167,10 +1238,18 @@ body {
 
 @media (max-width: 1280px) {
   .layout {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
-      "snippets input"
-      "templates summary";
+      "input"
+      "insights"
+      "snippets";
+  }
+
+  .layout.layout--snippets-hidden {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "input"
+      "insights";
   }
 
   .template-panel {
@@ -1183,9 +1262,15 @@ body {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
       "input"
-      "templates"
-      "summary"
-      "snippets";
+      "snippets"
+      "insights";
+  }
+
+  .layout.layout--snippets-hidden {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "input"
+      "insights";
   }
 
   .quick-panel,

@@ -24,7 +24,18 @@
     <!-- Linke Spalte mit den Schnellbausteinen zum schnellen Einfügen -->
     <aside class="quick-panel" aria-labelledby="quick-snippet-title">
       <div class="quick-snippet-header">
-        <h2 id="quick-snippet-title">Schnellbausteine</h2>
+        <div class="quick-snippet-title-row">
+          <h2 id="quick-snippet-title">Schnellbausteine</h2>
+          <button
+            type="button"
+            id="quick-snippet-toggle"
+            class="quick-panel-toggle"
+            aria-expanded="true"
+            aria-controls="quick-snippet-container"
+          >
+            Leiste ausblenden
+          </button>
+        </div>
         <p class="quick-snippet-hint">
           Füge häufig genutzte Strukturbausteine für Blöcke, Runden, Material,
           Intensitäten, Abgangszeiten, Pausen und Beschreibungen per Klick in
@@ -35,7 +46,19 @@
     </aside>
     <!-- Mittlere Spalte mit dem Freitext-Editor für den Trainingsplan -->
     <section class="input-panel">
-      <h2>Trainingsplan eingeben</h2>
+      <div class="input-panel-header">
+        <h2>Trainingsplan eingeben</h2>
+        <button
+          type="button"
+          id="quick-panel-expand"
+          class="quick-panel-toggle quick-panel-expand"
+          aria-controls="quick-snippet-container"
+          aria-expanded="false"
+          hidden
+        >
+          Schnellbausteine anzeigen
+        </button>
+      </div>
       <label class="sr-only" for="plan-input">Trainingsplan</label>
       <div class="plan-editor">
         <div id="plan-highlight" class="plan-highlight" aria-hidden="true"></div>
@@ -85,56 +108,58 @@
         <ul class="validation-list" data-validation-list></ul>
       </section>
     </section>
-    <aside class="template-panel" aria-labelledby="template-panel-title">
-      <div class="template-panel-header">
-        <h2 id="template-panel-title">Vorlagen</h2>
-        <p class="template-panel-hint">Suche, klicke oder ziehe Vorlagen direkt in den Plan.</p>
-        <label class="sr-only" for="template-search">Vorlagen durchsuchen</label>
-        <input
-          type="search"
-          id="template-search"
-          class="template-panel-search"
-          placeholder="Vorlagen durchsuchen"
-          data-template-search
-        />
-      </div>
-      <p class="template-panel-empty" data-template-empty hidden>Noch keine Vorlagen vorhanden.</p>
-      <div class="template-panel-scroll">
-        <div class="template-panel-groups" data-template-list></div>
-      </div>
-    </aside>
-    <!-- Rechte Spalte fasst die Kennzahlen und Blockdetails live zusammen -->
-    <aside class="summary-panel" aria-live="polite">
-      <h2>Zusammenfassung</h2>
-      <!-- Kennzahlen-Raster für Zeit, Distanz, Intensitäten und Equipment -->
-      <div class="summary-grid">
-        <div>
-          <h3>Gesamtzeit</h3>
-          <p id="total-time">0:00</p>
+    <section class="insights-panel">
+      <aside class="template-panel" aria-labelledby="template-panel-title">
+        <div class="template-panel-header">
+          <h2 id="template-panel-title">Vorlagen</h2>
+          <p class="template-panel-hint">Suche, klicke oder ziehe Vorlagen direkt in den Plan.</p>
+          <label class="sr-only" for="template-search">Vorlagen durchsuchen</label>
+          <input
+            type="search"
+            id="template-search"
+            class="template-panel-search"
+            placeholder="Vorlagen durchsuchen"
+            data-template-search
+          />
         </div>
-        <div>
-          <h3>Gesamtumfang</h3>
-          <p id="total-distance">0 m</p>
+        <p class="template-panel-empty" data-template-empty hidden>Noch keine Vorlagen vorhanden.</p>
+        <div class="template-panel-scroll">
+          <div class="template-panel-groups" data-template-list></div>
         </div>
-        <div>
-          <h3>Ø Pace (aktive Sets)</h3>
-          <p id="average-pace">–</p>
+      </aside>
+      <!-- Rechte Spalte fasst die Kennzahlen und Blockdetails live zusammen -->
+      <aside class="summary-panel" aria-live="polite">
+        <h2>Zusammenfassung</h2>
+        <!-- Kennzahlen-Raster für Zeit, Distanz, Intensitäten und Equipment -->
+        <div class="summary-grid">
+          <div>
+            <h3>Gesamtzeit</h3>
+            <p id="total-time">0:00</p>
+          </div>
+          <div>
+            <h3>Gesamtumfang</h3>
+            <p id="total-distance">0 m</p>
+          </div>
+          <div>
+            <h3>Ø Pace (aktive Sets)</h3>
+            <p id="average-pace">–</p>
+          </div>
+          <div>
+            <h3>Intensitäten</h3>
+            <ul id="intensity-list" class="tag-list"></ul>
+          </div>
+          <div>
+            <h3>Material</h3>
+            <ul id="equipment-list" class="tag-list"></ul>
+          </div>
         </div>
-        <div>
-          <h3>Intensitäten</h3>
-          <ul id="intensity-list" class="tag-list"></ul>
+        <!-- Übersicht der einzelnen Trainingsblöcke inklusive Fokusinformationen -->
+        <div class="block-summary">
+          <h3>Blöcke</h3>
+          <ul id="block-list"></ul>
         </div>
-        <div>
-          <h3>Material</h3>
-          <ul id="equipment-list" class="tag-list"></ul>
-        </div>
-      </div>
-      <!-- Übersicht der einzelnen Trainingsblöcke inklusive Fokusinformationen -->
-      <div class="block-summary">
-        <h3>Blöcke</h3>
-        <ul id="block-list"></ul>
-      </div>
-    </aside>
+      </aside>
+    </section>
   </main>
   <footer class="page-footer">
     <p><strong>Intensitätslegende:</strong> CLEAR, White2, White3, PINK4, PINK5, RED6, RED7, ORANGE8, ORANGE9, ORANGE10, PURPLE9, PURPLE10, BLUE8, BLUE9, BLUE10, GREEN, GOLD. Zusätzliche Kürzel: <abbr title="Arme">Ar</abbr>, <abbr title="Beine">Be</abbr>, <abbr title="Gesamte Lage">GSA</abbr>.</p>

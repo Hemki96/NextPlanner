@@ -45,15 +45,6 @@ const highlightPatterns = [
   },
 ];
 
-function escapeHtml(value) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 function gatherMatches(text) {
   const matches = [];
   for (const pattern of highlightPatterns) {
@@ -90,55 +81,79 @@ function gatherMatches(text) {
   return chosen.sort((a, b) => a.start - b.start);
 }
 
-function wrapToken(match) {
-  const escaped = escapeHtml(match.text);
+function createTokenNode(match) {
   switch (match.type) {
     case "heading": {
-      const trimmed = escaped.replace(/^(\s*#{1,6}\s*)(.*)$/, (_, hashes, title) => {
-        return `${hashes}<span class="plan-heading-text">${title}</span>`;
-      });
-      return `<strong class="plan-token plan-token-heading">${trimmed}</strong>`;
+      const heading = document.createElement("span");
+      heading.className = "plan-token plan-token-heading";
+      const parts = match.text.match(/^(\s*#{1,6}\s*)(.*)$/);
+      if (parts) {
+        heading.append(document.createTextNode(parts[1] ?? ""));
+        const title = document.createElement("span");
+        title.className = "plan-heading-text";
+        title.textContent = parts[2] ?? "";
+        heading.append(title);
+      } else {
+        heading.textContent = match.text;
+      }
+      return heading;
     }
     case "distance":
-      return `<strong class="plan-token plan-token-distance">${escaped}</strong>`;
+      return createSimpleToken(match.text, "plan-token-distance");
     case "round":
-      return `<strong class="plan-token plan-token-round">${escaped}</strong>`;
+      return createSimpleToken(match.text, "plan-token-round");
     case "interval":
-      return `<em class="plan-token plan-token-interval">${escaped}</em>`;
+      return createSimpleToken(match.text, "plan-token-interval");
     case "equipment":
-      return `<em class="plan-token plan-token-equipment">${escaped}</em>`;
+      return createSimpleToken(match.text, "plan-token-equipment");
     case "intensity":
-      return `<span class="plan-token intensity-token ${getIntensityColorClass(match.text)}">${escaped}</span>`;
+      return createIntensityToken(match.text);
     default:
-      return escaped;
+      return document.createTextNode(match.text);
   }
 }
 
-function highlightPlanText(text) {
+function createSimpleToken(text, className) {
+  const token = document.createElement("span");
+  token.className = `plan-token ${className}`;
+  token.textContent = text;
+  return token;
+}
+
+function createIntensityToken(text) {
+  const token = document.createElement("span");
+  token.className = `plan-token intensity-token ${getIntensityColorClass(text)}`;
+  token.textContent = text;
+  return token;
+}
+
+function buildHighlightNodes(text) {
+  const fragment = document.createDocumentFragment();
   if (!text) {
-    return "";
+    fragment.append(document.createTextNode(""));
+    return fragment;
   }
 
   const matches = gatherMatches(text);
   if (matches.length === 0) {
-    return escapeHtml(text);
+    fragment.append(document.createTextNode(text));
+    return fragment;
   }
 
   let cursor = 0;
-  let result = "";
   for (const match of matches) {
     if (match.start > cursor) {
-      result += escapeHtml(text.slice(cursor, match.start));
+      fragment.append(document.createTextNode(text.slice(cursor, match.start)));
     }
-    result += wrapToken(match);
+    fragment.append(createTokenNode(match));
     cursor = match.end;
   }
 
   if (cursor < text.length) {
-    result += escapeHtml(text.slice(cursor));
+    fragment.append(document.createTextNode(text.slice(cursor)));
   }
 
-  return result || "";
+  return fragment;
 }
 
 export function initPlanHighlighter({ textarea, highlightLayer }) {
@@ -162,22 +177,34 @@ export function initPlanHighlighter({ textarea, highlightLayer }) {
 
   const renderHighlight = () => {
     const text = textarea.value ?? "";
+    const container = document.createElement("div");
+    container.className = "plan-highlight-content";
+    container.setAttribute("role", "presentation");
+
     const lines = text.split(/\n/);
-    const markup = lines
-      .map((line, index) => {
-        const highlighted = highlightPlanText(line);
-        const lineNumber = index + 1;
-        const classes = ["plan-line"];
-        if (issueLines.has(lineNumber)) {
-          classes.push("has-issue");
-        }
-        const content = highlighted || "&nbsp;";
-        return `<span class="${classes.join(" ")}" data-line="${lineNumber}">${content}</span>`;
-      })
-      .join("\n");
-    const finalMarkup = markup || "&nbsp;";
-    highlightLayer.innerHTML = `<pre class="plan-highlight-content">${finalMarkup}</pre>`;
-    contentEl = highlightLayer.firstElementChild;
+    const totalLines = lines.length || 1;
+
+    for (let index = 0; index < totalLines; index += 1) {
+      const lineText = lines[index] ?? "";
+      const lineNumber = index + 1;
+      const lineEl = document.createElement("span");
+      lineEl.className = "plan-line";
+      lineEl.dataset.line = String(lineNumber);
+      if (issueLines.has(lineNumber)) {
+        lineEl.classList.add("has-issue");
+      }
+
+      if (lineText) {
+        lineEl.append(buildHighlightNodes(lineText));
+      } else {
+        lineEl.append(document.createTextNode("\u00A0"));
+      }
+
+      container.append(lineEl);
+    }
+
+    highlightLayer.replaceChildren(container);
+    contentEl = container;
     syncScroll();
   };
 
