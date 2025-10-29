@@ -790,6 +790,15 @@ body {
   align-items: flex-start;
 }
 
+.layout.layout--snippets-hidden {
+  grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1.1fr);
+  grid-template-areas: "input insights";
+}
+
+.layout.layout--snippets-hidden .quick-panel {
+  display: none;
+}
+
 /* Glasartige Karten für alle drei Spaltenbereiche */
 .quick-panel,
 .input-panel,
@@ -841,14 +850,6 @@ body {
   gap: 1.5rem;
 }
 
-.quick-panel.is-collapsed {
-  padding-bottom: 1.5rem;
-}
-
-.quick-panel.is-collapsed .quick-snippet-groups {
-  display: none;
-}
-
 .quick-snippet-title-row {
   display: flex;
   align-items: center;
@@ -869,6 +870,21 @@ body {
   align-items: center;
   gap: 0.35rem;
   transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.input-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.input-panel-header h2 {
+  margin: 0;
+}
+
+.quick-panel-expand {
+  white-space: nowrap;
 }
 
 .quick-panel-toggle:hover,
@@ -1229,6 +1245,13 @@ body {
       "snippets";
   }
 
+  .layout.layout--snippets-hidden {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "input"
+      "insights";
+  }
+
   .template-panel {
     max-height: none;
   }
@@ -1240,6 +1263,13 @@ body {
     grid-template-areas:
       "input"
       "snippets"
+      "insights";
+  }
+
+  .layout.layout--snippets-hidden {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "input"
       "insights";
   }
 

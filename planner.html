@@ -33,7 +33,7 @@
             aria-expanded="true"
             aria-controls="quick-snippet-container"
           >
-            Einklappen
+            Leiste ausblenden
           </button>
         </div>
         <p class="quick-snippet-hint">
@@ -46,7 +46,19 @@
     </aside>
     <!-- Mittlere Spalte mit dem Freitext-Editor für den Trainingsplan -->
     <section class="input-panel">
-      <h2>Trainingsplan eingeben</h2>
+      <div class="input-panel-header">
+        <h2>Trainingsplan eingeben</h2>
+        <button
+          type="button"
+          id="quick-panel-expand"
+          class="quick-panel-toggle quick-panel-expand"
+          aria-controls="quick-snippet-container"
+          aria-expanded="false"
+          hidden
+        >
+          Schnellbausteine anzeigen
+        </button>
+      </div>
       <label class="sr-only" for="plan-input">Trainingsplan</label>
       <div class="plan-editor">
         <div id="plan-highlight" class="plan-highlight" aria-hidden="true"></div>
