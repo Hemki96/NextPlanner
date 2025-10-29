@@ -1,53 +1,79 @@
 import { getIntensityColorClass, getKnownIntensityPattern } from "./intensity-colors.js";
+import {
+  HIGHLIGHT_OPTION_DEFINITIONS,
+  getHighlightSettings,
+  isHighlightEnabled,
+  subscribeToHighlightSettings,
+} from "../utils/highlight-settings.js";
 
 const intensityPattern = getKnownIntensityPattern();
 
-const highlightPatterns = [
+const HIGHLIGHT_PATTERN_DEFINITIONS = [
   {
+    key: "heading",
     type: "heading",
     priority: 6,
     regex: /^(?:\s*#{1,6}[^\S\n]*)[^\n]+$/gm,
   },
   {
+    key: "distance",
     type: "distance",
     priority: 5,
     regex: /\b\d+\s*(?:x|×)\s*\d+(?:[.,]\d+)?\s*(?:m|meter|km|yd|y)?\b/gi,
   },
   {
+    key: "distance",
     type: "distance",
     priority: 4,
     regex: /\b\d+(?:[.,]\d+)?\s*(?:m|meter|km|yd|y)\b/gi,
   },
   {
+    key: "round",
     type: "round",
     priority: 3,
     regex: /\b\d+\s*(?:Runden?|Rd)\b:?/gi,
   },
   {
+    key: "round",
     type: "round",
     priority: 3,
     regex: /\bRunde\s*(?:x|×)\s*\d+\b:?/gi,
   },
   {
+    key: "interval",
     type: "interval",
     priority: 3,
     regex: /@\s*\d+:\d+(?::\d+)?/g,
   },
   {
+    key: "equipment",
     type: "equipment",
     priority: 2,
     regex: /w\/\s*[^@\n]*?(?=\s+(?:@\s*\d|P:|\b(?:CLEAR|WHITE\d*|PINK\d*|RED\d*|ORANGE\d*|PURPLE\d*|BLUE\d*|GREEN|GOLD))|\s*$|\n)/gi,
   },
   {
+    key: "intensity",
     type: "intensity",
     priority: 4,
     regex: intensityPattern,
   },
 ];
 
-function gatherMatches(text) {
+const KNOWN_HIGHLIGHT_KEYS = new Set(HIGHLIGHT_OPTION_DEFINITIONS.map((option) => option.key));
+
+function isPatternEnabled(settings, pattern) {
+  if (!pattern?.key || !KNOWN_HIGHLIGHT_KEYS.has(pattern.key)) {
+    return true;
+  }
+  return isHighlightEnabled(settings, pattern.key);
+}
+
+function gatherMatches(text, settings) {
   const matches = [];
-  for (const pattern of highlightPatterns) {
+  for (const pattern of HIGHLIGHT_PATTERN_DEFINITIONS) {
+    if (!isPatternEnabled(settings, pattern)) {
+      continue;
+    }
     const regex = new RegExp(pattern.regex.source, pattern.regex.flags);
     for (const match of text.matchAll(regex)) {
       matches.push({
@@ -127,14 +153,14 @@ function createIntensityToken(text) {
   return token;
 }
 
-function buildHighlightNodes(text) {
+function buildHighlightNodes(text, settings) {
   const fragment = document.createDocumentFragment();
   if (!text) {
     fragment.append(document.createTextNode(""));
     return fragment;
   }
 
-  const matches = gatherMatches(text);
+  const matches = gatherMatches(text, settings);
   if (matches.length === 0) {
     fragment.append(document.createTextNode(text));
     return fragment;
@@ -167,6 +193,7 @@ export function initPlanHighlighter({ textarea, highlightLayer }) {
 
   let contentEl = null;
   let issueLines = new Set();
+  let highlightSettings = getHighlightSettings();
 
   const syncScroll = () => {
     if (!contentEl) {
@@ -195,7 +222,7 @@ export function initPlanHighlighter({ textarea, highlightLayer }) {
       }
 
       if (lineText) {
-        lineEl.append(buildHighlightNodes(lineText));
+        lineEl.append(buildHighlightNodes(lineText, highlightSettings));
       } else {
         lineEl.append(document.createTextNode("\u00A0"));
       }
@@ -233,11 +260,19 @@ export function initPlanHighlighter({ textarea, highlightLayer }) {
   textarea.addEventListener("input", refresh);
   textarea.addEventListener("scroll", syncScroll);
 
+  const unsubscribeHighlightSettings = subscribeToHighlightSettings((settings) => {
+    highlightSettings = settings;
+    renderHighlight();
+  });
+
   refresh();
 
   return {
     refresh,
     setText,
     setIssues,
+    destroy() {
+      unsubscribeHighlightSettings();
+    },
   };
 }

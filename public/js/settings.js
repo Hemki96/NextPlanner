@@ -12,6 +12,13 @@ import {
   getFeatureSettings,
   subscribeToFeatureSettings,
 } from "./utils/feature-settings.js";
+import {
+  HIGHLIGHT_OPTION_DEFINITIONS,
+  getHighlightSettings,
+  resetHighlightSettings,
+  setHighlightEnabled,
+  subscribeToHighlightSettings,
+} from "./utils/highlight-settings.js";
 
 const groupContainer = document.getElementById("snippet-groups");
 const addGroupButton = document.getElementById("add-group");
@@ -27,6 +34,11 @@ const teamRefreshButton = document.getElementById("team-library-refresh");
 const teamPushButton = document.getElementById("team-library-push");
 const teamStatusElement = document.getElementById("team-library-status");
 const teamUpdatedElement = document.getElementById("team-library-updated");
+const highlightList = document.getElementById("highlight-settings-list");
+const highlightStatusElement = document.getElementById("highlight-settings-status");
+const highlightResetButton = document.getElementById("highlight-settings-reset");
+
+let highlightStatusTimeout = null;
 
 const featureSettings = getFeatureSettings();
 applyFeatureVisibility(document, featureSettings);
@@ -139,6 +151,28 @@ function setTeamStatus(message, type = "info") {
   }
 }
 
+function setHighlightStatus(message, type = "info") {
+  if (!highlightStatusElement) {
+    return;
+  }
+  highlightStatusElement.textContent = message;
+  if (message) {
+    highlightStatusElement.dataset.statusType = type;
+  } else {
+    delete highlightStatusElement.dataset.statusType;
+  }
+  if (highlightStatusTimeout) {
+    window.clearTimeout(highlightStatusTimeout);
+  }
+  if (message) {
+    highlightStatusTimeout = window.setTimeout(() => {
+      if (highlightStatusElement.textContent === message) {
+        setHighlightStatus("", "info");
+      }
+    }, 3500);
+  }
+}
+
 function updateTeamMetadata(updatedAt) {
   if (!teamUpdatedElement) {
     return;
@@ -215,6 +249,105 @@ async function pushTeamLibraryToServer() {
       teamPushButton.disabled = false;
     }
   }
+}
+
+function createHighlightOption(option, enabled) {
+  const item = document.createElement("li");
+  item.className = "feature-toggle";
+  item.dataset.highlightKey = option.key;
+
+  const info = document.createElement("div");
+  info.className = "feature-toggle-info";
+
+  const title = document.createElement("h3");
+  title.className = "feature-toggle-title";
+  const titleId = `highlight-option-${option.key}-title`;
+  title.id = titleId;
+  title.textContent = option.label;
+  info.appendChild(title);
+
+  const description = document.createElement("p");
+  description.className = "feature-toggle-description";
+  const descriptionId = `highlight-option-${option.key}-description`;
+  description.id = descriptionId;
+  description.textContent = option.description;
+  info.appendChild(description);
+
+  const control = document.createElement("div");
+  control.className = "feature-toggle-control";
+
+  const label = document.createElement("label");
+  label.className = "feature-toggle-switch";
+
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.className = "feature-toggle-input";
+  input.checked = enabled;
+  input.dataset.highlightKey = option.key;
+  input.setAttribute("aria-labelledby", titleId);
+  input.setAttribute("aria-describedby", descriptionId);
+
+  const slider = document.createElement("span");
+  slider.className = "feature-toggle-slider";
+  slider.setAttribute("aria-hidden", "true");
+
+  const state = document.createElement("span");
+  state.className = "feature-toggle-state";
+  state.textContent = enabled ? "Aktiv" : "Inaktiv";
+
+  label.append(input, slider, state);
+  control.append(label);
+
+  item.append(info, control);
+  return item;
+}
+
+function renderHighlightOptions(settings = getHighlightSettings()) {
+  if (!highlightList) {
+    return;
+  }
+  highlightList.innerHTML = "";
+  HIGHLIGHT_OPTION_DEFINITIONS.forEach((option) => {
+    const enabled = settings?.[option.key]?.enabled !== false;
+    const element = createHighlightOption(option, enabled);
+    highlightList.appendChild(element);
+  });
+}
+
+function updateHighlightStateLabel(checkbox) {
+  const label = checkbox?.closest("label");
+  if (!label) {
+    return;
+  }
+  const state = label.querySelector(".feature-toggle-state");
+  if (state) {
+    state.textContent = checkbox.checked ? "Aktiv" : "Inaktiv";
+  }
+}
+
+function handleHighlightChange(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") {
+    return;
+  }
+  const key = target.dataset.highlightKey;
+  if (!key) {
+    return;
+  }
+  setHighlightEnabled(key, target.checked);
+  updateHighlightStateLabel(target);
+  setHighlightStatus(
+    target.checked
+      ? `${HIGHLIGHT_OPTION_DEFINITIONS.find((option) => option.key === key)?.label ?? "Markierung"} aktiviert.`
+      : `${HIGHLIGHT_OPTION_DEFINITIONS.find((option) => option.key === key)?.label ?? "Markierung"} deaktiviert.`,
+    "success",
+  );
+}
+
+function handleHighlightReset() {
+  const defaults = resetHighlightSettings();
+  renderHighlightOptions(defaults);
+  setHighlightStatus("Alle Markierungen wurden zurückgesetzt.", "info");
 }
 
 function renderGroups() {
@@ -848,6 +981,16 @@ groupContainer?.addEventListener("click", handleClick);
 exportButton?.addEventListener("click", handleExport);
 importButton?.addEventListener("click", handleImportClick);
 importInput?.addEventListener("change", handleImportFile);
+
+if (highlightList) {
+  renderHighlightOptions();
+  highlightList.addEventListener("change", handleHighlightChange);
+  subscribeToHighlightSettings((settings) => {
+    renderHighlightOptions(settings);
+  });
+}
+
+highlightResetButton?.addEventListener("click", handleHighlightReset);
 
 if (teamLibraryEnabled) {
   teamRefreshButton?.addEventListener("click", () => {
