@@ -163,6 +163,38 @@ describe("Plan API", () => {
     assert.equal(await headResponse.text(), "");
   });
 
+  it("beantwortet konditionelle Anfragen mit 304, wenn Assets unverändert sind", async () => {
+    const initial = await fetch(`${baseUrl}/index.html`);
+    assert.equal(initial.status, 200);
+    const etag = initial.headers.get("etag");
+    const lastModified = initial.headers.get("last-modified");
+
+    if (etag) {
+      const conditional = await fetch(`${baseUrl}/index.html`, {
+        headers: { "If-None-Match": etag },
+      });
+      assert.equal(conditional.status, 304);
+      assert.equal(conditional.headers.get("etag"), etag);
+      assert.equal(await conditional.text(), "");
+
+      const headConditional = await fetch(`${baseUrl}/index.html`, {
+        method: "HEAD",
+        headers: { "If-None-Match": etag },
+      });
+      assert.equal(headConditional.status, 304);
+      assert.equal(headConditional.headers.get("etag"), etag);
+      assert.equal(await headConditional.text(), "");
+    }
+
+    if (lastModified) {
+      const conditionalSince = await fetch(`${baseUrl}/index.html`, {
+        headers: { "If-Modified-Since": lastModified },
+      });
+      assert.equal(conditionalSince.status, 304);
+      assert.equal(await conditionalSince.text(), "");
+    }
+  });
+
   it("schließt den Store beim Server-Shutdown", async () => {
     const temp = createTempStore();
     const localStore = temp.store;

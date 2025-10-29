@@ -48,6 +48,53 @@ function buildEtag(fileStat) {
   return `"${sizeHex}-${mtimeHex}"`;
 }
 
+function parseHttpDate(value) {
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? null : time;
+}
+
+function etagMatches(header, currentEtag) {
+  if (!header || !currentEtag) {
+    return false;
+  }
+  const trimmed = header.trim();
+  if (!trimmed) {
+    return false;
+  }
+  if (trimmed === "*") {
+    return true;
+  }
+  const candidates = trimmed.split(",").map((tag) => tag.trim()).filter(Boolean);
+  return candidates.some((candidate) => {
+    if (candidate === currentEtag) {
+      return true;
+    }
+    if (candidate.startsWith("W/")) {
+      return candidate.slice(2) === currentEtag;
+    }
+    if (currentEtag.startsWith("W/")) {
+      return currentEtag.slice(2) === candidate;
+    }
+    return false;
+  });
+}
+
+function isRequestFresh(headers, etag, mtimeMs) {
+  if (etagMatches(headers["if-none-match"], etag)) {
+    return true;
+  }
+  const ifModifiedSince = headers["if-modified-since"];
+  if (!ifModifiedSince) {
+    return false;
+  }
+  const since = parseHttpDate(ifModifiedSince);
+  if (since === null) {
+    return false;
+  }
+  // HTTP dates are second resolution, allow equality within one second window.
+  return Math.floor(mtimeMs / 1000) <= Math.floor(since / 1000);
+}
+
 function sendJson(res, status, payload, { cors = false, method = "GET" } = {}) {
   const body = JSON.stringify(payload, null, 2);
   const headers = {
@@ -180,22 +227,34 @@ async function serveStatic(req, res, url, rootDir) {
     }
   }
 
+  const method = req.method ?? "GET";
   const mime = mapExtension(filePath);
-  const headers = {
-    "Content-Type": mime,
-    "Content-Length": fileStat.size,
+  const etag = buildEtag(fileStat);
+  const cacheHeaders = {
     "Last-Modified": fileStat.mtime.toUTCString(),
-    ETag: buildEtag(fileStat),
+    ETag: etag,
     "Cache-Control": "public, max-age=300",
   };
 
-  if (req.method === "HEAD") {
+  if (isRequestFresh(req.headers ?? {}, etag, fileStat.mtimeMs)) {
+    res.writeHead(304, cacheHeaders);
+    res.end();
+    return;
+  }
+
+  const headers = {
+    ...cacheHeaders,
+    "Content-Type": mime,
+    "Content-Length": fileStat.size,
+  };
+
+  if (method === "HEAD") {
     res.writeHead(200, headers);
     res.end();
     return;
   }
 
-  if (req.method !== "GET") {
+  if (method !== "GET") {
     sendEmpty(res, 405);
     return;
   }

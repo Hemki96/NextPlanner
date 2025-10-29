@@ -181,4 +181,57 @@ describe("JsonPlanStore", () => {
     assert.ok(syncCounts.file >= 1);
     assert.ok(syncCounts.dir >= 1);
   });
+
+  it("fällt auf Best-Effort-Verhalten zurück, wenn Verzeichnis-fsync nicht unterstützt wird", async () => {
+    const originalOpen = fsPromises.open;
+    const warnMock = mock.method(console, "warn", () => {});
+    const dirPath = dirname(store.storageFile);
+
+    const unsupportedError = new Error("Directory fsync unsupported");
+    unsupportedError.code = "EINVAL";
+
+    const openMock = mock.method(fsPromises, "open", async (...args) => {
+      if (String(args[0]) === dirPath) {
+        throw unsupportedError;
+      }
+      return originalOpen(...args);
+    });
+
+    try {
+      await store.createPlan({
+        title: "Fallback Test 1",
+        content: "Kraft",
+        planDate: "2024-08-01",
+        focus: "AR",
+      });
+    } finally {
+      openMock.mock.restore();
+    }
+
+    assert.equal(warnMock.mock.calls.length, 1);
+
+    const guardMock = mock.method(fsPromises, "open", async (...args) => {
+      if (String(args[0]) === dirPath) {
+        throw new Error("Directory fsync should have been skipped");
+      }
+      return originalOpen(...args);
+    });
+
+    try {
+      await store.createPlan({
+        title: "Fallback Test 2",
+        content: "Sprint",
+        planDate: "2024-08-02",
+        focus: "SP",
+      });
+    } finally {
+      guardMock.mock.restore();
+    }
+
+    assert.equal(warnMock.mock.calls.length, 1);
+    warnMock.mock.restore();
+
+    const plans = await store.listPlans();
+    assert.equal(plans.length, 2);
+  });
 });

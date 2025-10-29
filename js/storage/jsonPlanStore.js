@@ -96,6 +96,8 @@ export class JsonPlanStore {
   #closing = false;
   #integrityIssue = null;
   #integrityReported = false;
+  #dirFsyncSupported = true;
+  #dirFsyncWarned = false;
 
   constructor(options = {}) {
     const { storageFile = resolveDefaultFile() } = options;
@@ -200,16 +202,61 @@ export class JsonPlanStore {
       }
     }
 
-    let dirHandle;
+    await this.#fsyncDirectory(dir);
+  }
+
+  #isDirFsyncUnsupported(error) {
+    if (!error || typeof error !== "object") {
+      return false;
+    }
+    return ["EINVAL", "ENOTSUP", "EISDIR", "EPERM", "EBADF"].includes(error.code);
+  }
+
+  async #fsyncDirectory(dir) {
+    if (!this.#dirFsyncSupported) {
+      return;
+    }
+
+    const flags = (constants.O_DIRECTORY ?? 0) | constants.O_RDONLY;
+    let handle;
     try {
-      dirHandle = await fs.open(dir, constants.O_DIRECTORY | constants.O_RDONLY);
-      await dirHandle.sync();
+      handle = await fs.open(dir, flags);
     } catch (error) {
-      await dirHandle?.close().catch(() => {});
+      if (this.#isDirFsyncUnsupported(error)) {
+        this.#dirFsyncSupported = false;
+        this.#logDirFsyncWarning(dir);
+        return;
+      }
       throw error;
     }
 
-    await dirHandle.close();
+    try {
+      if (typeof handle.sync === "function") {
+        await handle.sync();
+      } else {
+        this.#dirFsyncSupported = false;
+        this.#logDirFsyncWarning(dir);
+      }
+    } catch (error) {
+      if (this.#isDirFsyncUnsupported(error)) {
+        this.#dirFsyncSupported = false;
+        this.#logDirFsyncWarning(dir);
+      } else {
+        throw error;
+      }
+    } finally {
+      await handle?.close().catch(() => {});
+    }
+  }
+
+  #logDirFsyncWarning(dir) {
+    if (this.#dirFsyncWarned) {
+      return;
+    }
+    this.#dirFsyncWarned = true;
+    console.warn(
+      `Directory fsync is not supported on this platform. Continuing without fsync for '${dir}'.`
+    );
   }
 
   #enqueueWrite(operation) {
