@@ -4,7 +4,7 @@ import {
   resetQuickSnippets,
   saveQuickSnippets,
   sanitizeQuickSnippetGroups,
-} from "./utils/snippetStorage.js";
+} from "./utils/snippet-storage.js";
 import { describeApiError } from "./utils/api-client.js";
 import { fetchTeamLibrary, pushTeamLibrary, teamLibrarySupported } from "./utils/snippet-library-client.js";
 import {

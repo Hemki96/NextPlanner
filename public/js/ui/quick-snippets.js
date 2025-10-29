@@ -1,4 +1,4 @@
-import { getQuickSnippets } from "../utils/snippetStorage.js";
+import { getQuickSnippets } from "../utils/snippet-storage.js";
 
 function ensureTrailingNewlines(text, minCount) {
   const match = text.match(/\n+$/);
