@@ -1,4 +1,4 @@
-import { getIntensityColorClass, getKnownIntensityPattern } from "./intensityColors.js";
+import { getIntensityColorClass, getKnownIntensityPattern } from "./intensity-colors.js";
 
 const intensityPattern = getKnownIntensityPattern();
 

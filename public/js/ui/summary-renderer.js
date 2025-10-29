@@ -1,6 +1,6 @@
 import { formatDuration, formatPace } from "../utils/time.js";
 import { formatDistance } from "../utils/distance.js";
-import { getIntensityColorClass } from "./intensityColors.js";
+import { getIntensityColorClass } from "./intensity-colors.js";
 
 function formatSetDistance(set) {
   const lengthValue = Number.isFinite(set.displayLength)
