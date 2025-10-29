@@ -36,3 +36,14 @@ export function formatDuration(seconds) {
   }
   return `${mins}:${pad(secs)}`;
 }
+
+export function formatPace(secondsPer100, { unit = "100m" } = {}) {
+  if (!Number.isFinite(secondsPer100) || secondsPer100 <= 0) {
+    return "–";
+  }
+  const rounded = Math.round(secondsPer100);
+  const minutes = Math.floor(rounded / 60);
+  const seconds = rounded % 60;
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${minutes}:${pad(seconds)}/${unit}`;
+}

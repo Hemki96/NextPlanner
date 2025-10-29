@@ -23,6 +23,7 @@ const selectedDateLabel = document.getElementById("calendar-selected-date");
 const statusElement = document.getElementById("calendar-status");
 const createPlanButton = document.getElementById("calendar-create-plan");
 const createPlanHint = document.getElementById("calendar-create-hint");
+const copyLastButton = document.getElementById("calendar-copy-last");
 const prevButton = document.getElementById("calendar-prev");
 const nextButton = document.getElementById("calendar-next");
 const todayButton = document.getElementById("calendar-today");
@@ -31,6 +32,7 @@ let currentMonth = startOfMonth(new Date());
 let selectedDateKey = dateToKey(new Date());
 let plans = [];
 let plansByDate = new Map();
+let mostRecentPlan = null;
 
 function startOfMonth(date) {
   return new Date(date.getFullYear(), date.getMonth(), 1);
@@ -201,6 +203,44 @@ function formatTime(isoString) {
   return timeFormatter.format(parsed);
 }
 
+function buildDuplicateUrl(plan, targetDateKey) {
+  if (!plan || !plan.id) {
+    return "planner.html";
+  }
+  const params = new URLSearchParams();
+  params.set("duplicatePlanId", String(plan.id));
+  if (targetDateKey) {
+    params.set("planDate", targetDateKey);
+  }
+  if (plan.focus) {
+    params.set("planFocus", plan.focus);
+  }
+  const plannedAt = new Date(plan.planDate);
+  if (!Number.isNaN(plannedAt.getTime())) {
+    params.set(
+      "planTime",
+      `${String(plannedAt.getHours()).padStart(2, "0")}:${String(plannedAt.getMinutes()).padStart(2, "0")}`,
+    );
+  }
+  return `planner.html?${params.toString()}`;
+}
+
+function updateCopyLastButton(targetDateKey) {
+  if (!copyLastButton) {
+    return;
+  }
+  if (!mostRecentPlan) {
+    copyLastButton.disabled = true;
+    copyLastButton.removeAttribute("data-url");
+    copyLastButton.title = "Keine gespeicherten Pläne vorhanden";
+    return;
+  }
+  const url = buildDuplicateUrl(mostRecentPlan, targetDateKey ?? selectedDateKey);
+  copyLastButton.disabled = false;
+  copyLastButton.dataset.url = url;
+  copyLastButton.title = `Übernehme "${mostRecentPlan.title ?? "Ohne Titel"}"`;
+}
+
 function renderPlanList(dateKey) {
   if (!planList || !selectedDateLabel) {
     return;
@@ -257,6 +297,12 @@ function renderPlanList(dateKey) {
     openButton.textContent = "Im Planner öffnen";
     actions.append(openButton);
 
+    const duplicateLink = document.createElement("a");
+    duplicateLink.className = "ghost-button plan-entry-link";
+    duplicateLink.href = buildDuplicateUrl(plan, dateKey);
+    duplicateLink.textContent = "Plan duplizieren";
+    actions.append(duplicateLink);
+
     entry.append(actions);
     planList.append(entry);
   }
@@ -287,6 +333,8 @@ function updateCreateButton(dateKey) {
       createPlanHint.textContent = "Wähle einen Tag, um einen neuen Plan zu hinterlegen.";
     }
   }
+
+  updateCopyLastButton(dateKey);
 }
 
 function selectDate(dateKey) {
@@ -312,6 +360,9 @@ async function loadPlans() {
     const { data } = await apiRequest("/api/plans");
     plans = Array.isArray(data) ? data : [];
     buildIndex();
+    mostRecentPlan = plans
+      .slice()
+      .sort((a, b) => new Date(b.planDate).getTime() - new Date(a.planDate).getTime())[0] ?? null;
     if (!plansByDate.has(selectedDateKey) && plansByDate.size > 0) {
       const firstKey = Array.from(plansByDate.keys()).sort()[0];
       selectedDateKey = firstKey;
@@ -319,6 +370,7 @@ async function loadPlans() {
     clearStatus();
     renderCalendar();
     renderPlanList(selectedDateKey);
+    updateCopyLastButton(selectedDateKey);
   } catch (error) {
     console.error("Konnte Pläne für den Kalender nicht laden", error);
     const message = describeApiError(error);
@@ -326,6 +378,7 @@ async function loadPlans() {
     setStatus(`Pläne konnten nicht geladen werden: ${message}`, statusType);
     renderCalendar();
     renderPlanList(selectedDateKey);
+    updateCopyLastButton(selectedDateKey);
   }
 }
 
@@ -359,6 +412,13 @@ todayButton?.addEventListener("click", () => {
   currentMonth = startOfMonth(today);
   renderCalendar();
   renderPlanList(selectedDateKey);
+});
+
+copyLastButton?.addEventListener("click", () => {
+  const url = copyLastButton.dataset.url;
+  if (url) {
+    window.location.href = url;
+  }
 });
 
 renderCalendar();
