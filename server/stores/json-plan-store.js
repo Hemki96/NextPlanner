@@ -229,6 +229,7 @@ export class JsonPlanStore {
   #dirFsyncSupported = true;
   #dirFsyncWarned = false;
   #plansById = new Map();
+  #sortedPlans = null;
 
   constructor(options = {}) {
     const { storageFile = resolveDefaultFile() } = options;
@@ -252,6 +253,7 @@ export class JsonPlanStore {
       plan.metadata = coerceMetadataObject(plan.metadata);
       this.#plansById.set(plan.id, plan);
     }
+    this.#sortedPlans = null;
   }
 
   async #readFromDisk() {
@@ -419,6 +421,23 @@ export class JsonPlanStore {
     return this.#writeQueue;
   }
 
+  #invalidatePlanOrder() {
+    this.#sortedPlans = null;
+  }
+
+  #getSortedPlans() {
+    if (!this.#sortedPlans) {
+      this.#sortedPlans = [...this.#data.plans];
+      this.#sortedPlans.sort((a, b) => {
+        if (a.planDate === b.planDate) {
+          return a.id - b.id;
+        }
+        return a.planDate.localeCompare(b.planDate);
+      });
+    }
+    return this.#sortedPlans;
+  }
+
   async #writeToDisk() {
     await this.#enqueueWrite(async () => {
       await this.#writeFileAtomically(this.#data);
@@ -453,6 +472,7 @@ export class JsonPlanStore {
     plan.metadata = coerceMetadataObject(plan.metadata);
     this.#data.plans.push(plan);
     this.#plansById.set(plan.id, plan);
+    this.#invalidatePlanOrder();
     await this.#writeToDisk();
     return clonePlan(plan);
   }
@@ -473,8 +493,12 @@ export class JsonPlanStore {
     }
     const normalized = normalizePlanInput(updates, { requireAll: false });
     if (Object.keys(normalized).length > 0) {
+      const previousDate = plan.planDate;
       const changed = applyPlanChanges(plan, normalized);
       if (changed) {
+        if (plan.planDate !== previousDate) {
+          this.#invalidatePlanOrder();
+        }
         await this.#writeToDisk();
       }
     }
@@ -496,7 +520,11 @@ export class JsonPlanStore {
       });
     }
     const normalized = normalizePlanInput(replacement, { requireAll: true });
+    const previousDate = plan.planDate;
     if (applyPlanChanges(plan, normalized)) {
+      if (plan.planDate !== previousDate) {
+        this.#invalidatePlanOrder();
+      }
       await this.#writeToDisk();
     }
     return clonePlan(plan);
@@ -521,6 +549,7 @@ export class JsonPlanStore {
       this.#data.plans.splice(index, 1);
     }
     this.#plansById.delete(planId);
+    this.#invalidatePlanOrder();
     await this.#writeToDisk();
     return true;
   }
@@ -537,31 +566,20 @@ export class JsonPlanStore {
     const fromIso = from ? toIsoDate(from) : null;
     const toIsoValue = to ? toIsoDate(to) : null;
 
-    const filtered = [];
-    for (const plan of this.#data.plans) {
-      if (focusFilter && plan.focus !== focusFilter) {
-        continue;
-      }
+    const results = [];
+    for (const plan of this.#getSortedPlans()) {
       if (fromIso && plan.planDate < fromIso) {
         continue;
       }
       if (toIsoValue && plan.planDate > toIsoValue) {
+        break;
+      }
+      if (focusFilter && plan.focus !== focusFilter) {
         continue;
       }
-      filtered.push(plan);
+      results.push(clonePlan(plan));
     }
-
-    filtered.sort((a, b) => {
-      if (a.planDate === b.planDate) {
-        return a.id - b.id;
-      }
-      return a.planDate.localeCompare(b.planDate);
-    });
-
-    for (let index = 0; index < filtered.length; index += 1) {
-      filtered[index] = clonePlan(filtered[index]);
-    }
-    return filtered;
+    return results;
   }
 
   async exportBackup() {

@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   defaultQuickSnippetGroups,
@@ -89,6 +90,9 @@ export class JsonSnippetStore {
     }
     await this.#ready;
     const sanitized = sanitizeQuickSnippetGroups(groups);
+    if (isDeepStrictEqual(sanitized, this.#data.groups)) {
+      return snapshot(this.#data);
+    }
     this.#data = { groups: sanitized, updatedAt: new Date().toISOString() };
     await this.#enqueueWrite();
     return snapshot(this.#data);
