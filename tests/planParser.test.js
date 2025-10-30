@@ -111,3 +111,75 @@ Ende Runde
   assert.equal(round.lineNumber, 6);
   assert.match(round.message, /Runden/);
 });
+
+test('parsePlan erlaubt zusätzliche Hinweistexte nach Sets', () => {
+  const plan = stripCarriageReturn(`
+4x50m Ar @1:00
+1. in Kraul
+2. in Delfin
+- Beinkick locker
+Hinweis: letzte Wiederholung mit Paddles
+`);
+
+  const result = parsePlan(plan);
+
+  assert.equal(result.totalDistance, 200);
+  assert.equal(result.issues.length, 0);
+  assert.equal(result.blocks.length, 1);
+
+  const [block] = result.blocks;
+  assert.equal(block.sets.length, 1);
+
+  const [set] = block.sets;
+  assert.deepEqual(set.notes, [
+    '1. in Kraul',
+    '2. in Delfin',
+    '- Beinkick locker',
+    'Hinweis: letzte Wiederholung mit Paddles',
+  ]);
+});
+
+test('parsePlan erlaubt Hinweise nach leerer Zeile weiterzuführen', () => {
+  const plan = stripCarriageReturn(`
+4x100m @1:30
+
+- 1. Kraul
+- 2. Delfin
+Hinweis zusätzliche Technik
+`);
+
+  const result = parsePlan(plan);
+
+  assert.equal(result.issues.length, 0);
+  assert.equal(result.blocks.length, 1);
+
+  const [block] = result.blocks;
+  assert.equal(block.sets.length, 1);
+
+  const [set] = block.sets;
+  assert.deepEqual(set.notes, [
+    '- 1. Kraul',
+    '- 2. Delfin',
+    'Hinweis zusätzliche Technik',
+  ]);
+});
+
+test('parsePlan ignoriert Aufzählungen ohne Set-Zuordnung', () => {
+  const plan = stripCarriageReturn(`
+- Allgemeine Hinweise
+# Hauptteil
+4x50m Ar @1:00
+- Variation Technik
+`);
+
+  const result = parsePlan(plan);
+
+  assert.equal(result.issues.length, 0);
+  assert.ok(result.blocks.length > 0);
+
+  const mainBlock = result.blocks.find((block) => block.name === 'Hauptteil') ?? result.blocks[0];
+  assert.equal(mainBlock.sets.length, 1);
+
+  const [set] = mainBlock.sets;
+  assert.deepEqual(set.notes, ['- Variation Technik']);
+});

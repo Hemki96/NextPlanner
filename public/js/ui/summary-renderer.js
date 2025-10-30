@@ -200,7 +200,11 @@ export function renderSummary(plan, dom) {
 
       block.sets.forEach((set, setIndex) => {
         const setItem = document.createElement("li");
-        setItem.className = "set-item";
+        const setItemClasses = ["set-item"];
+        if (set.roundId) {
+          setItemClasses.push("set-item--round-member");
+        }
+        setItem.className = setItemClasses.join(" ");
 
         const setLine = document.createElement("div");
         setLine.className = "set-line";
@@ -285,6 +289,33 @@ export function renderSummary(plan, dom) {
 
         if (details.childElementCount > 0) {
           setItem.appendChild(details);
+        }
+
+        if (Array.isArray(set.notes) && set.notes.length > 0) {
+          const notesContainer = document.createElement("div");
+          notesContainer.className = "set-notes";
+
+          const notesHeading = document.createElement("span");
+          notesHeading.className = "set-notes-heading";
+          notesHeading.textContent = "Hinweise:";
+          notesContainer.appendChild(notesHeading);
+
+          const notesList = document.createElement("ul");
+          notesList.className = "set-notes-list";
+
+          for (const note of set.notes) {
+            if (typeof note !== "string" || note.trim().length === 0) {
+              continue;
+            }
+            const noteItem = document.createElement("li");
+            noteItem.textContent = note;
+            notesList.appendChild(noteItem);
+          }
+
+          if (notesList.childElementCount > 0) {
+            notesContainer.appendChild(notesList);
+            setItem.appendChild(notesContainer);
+          }
         }
 
         const setActions = document.createElement("div");
