@@ -342,11 +342,21 @@ export function parsePlan(text) {
       roundContext.sourceLines.push(raw);
     }
 
-    if (isSetHintLine(raw) && lastSetTarget) {
-      if (!Array.isArray(lastSetTarget.notes)) {
-        lastSetTarget.notes = [];
+    let hintTarget = lastSetTarget;
+    if (!hintTarget) {
+      if (roundContext && roundContext.sets.length > 0) {
+        hintTarget = roundContext.sets[roundContext.sets.length - 1];
+      } else if (!roundContext && currentBlock?.sets?.length > 0) {
+        hintTarget = currentBlock.sets[currentBlock.sets.length - 1];
       }
-      lastSetTarget.notes.push(raw);
+    }
+
+    if (isSetHintLine(raw) && hintTarget) {
+      if (!Array.isArray(hintTarget.notes)) {
+        hintTarget.notes = [];
+      }
+      hintTarget.notes.push(raw);
+      lastSetTarget = hintTarget;
       continue;
     }
 
