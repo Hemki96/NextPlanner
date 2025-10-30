@@ -351,12 +351,14 @@ export function parsePlan(text) {
       }
     }
 
-    if (isSetHintLine(raw) && hintTarget) {
-      if (!Array.isArray(hintTarget.notes)) {
-        hintTarget.notes = [];
+    if (isSetHintLine(raw)) {
+      if (hintTarget) {
+        if (!Array.isArray(hintTarget.notes)) {
+          hintTarget.notes = [];
+        }
+        hintTarget.notes.push(raw);
+        lastSetTarget = hintTarget;
       }
-      hintTarget.notes.push(raw);
-      lastSetTarget = hintTarget;
       continue;
     }
 

@@ -163,3 +163,23 @@ Hinweis zusätzliche Technik
     'Hinweis zusätzliche Technik',
   ]);
 });
+
+test('parsePlan ignoriert Aufzählungen ohne Set-Zuordnung', () => {
+  const plan = stripCarriageReturn(`
+- Allgemeine Hinweise
+# Hauptteil
+4x50m Ar @1:00
+- Variation Technik
+`);
+
+  const result = parsePlan(plan);
+
+  assert.equal(result.issues.length, 0);
+  assert.ok(result.blocks.length > 0);
+
+  const mainBlock = result.blocks.find((block) => block.name === 'Hauptteil') ?? result.blocks[0];
+  assert.equal(mainBlock.sets.length, 1);
+
+  const [set] = mainBlock.sets;
+  assert.deepEqual(set.notes, ['- Variation Technik']);
+});
