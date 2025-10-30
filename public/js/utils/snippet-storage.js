@@ -1,4 +1,4 @@
-const STORAGE_KEY = "swimPlanner.quickSnippets.v1";
+export const QUICK_SNIPPET_STORAGE_KEY = "swimPlanner.quickSnippets.v1";
 
 export const defaultQuickSnippetGroups = [
   {
@@ -237,6 +237,15 @@ function cloneData(data) {
   return JSON.parse(JSON.stringify(data));
 }
 
+function dispatchQuickSnippetUpdate(groups) {
+  if (typeof window === "undefined" || typeof window.dispatchEvent !== "function") {
+    return;
+  }
+
+  const detail = { groups: cloneData(groups) };
+  window.dispatchEvent(new CustomEvent("quickSnippetsUpdated", { detail }));
+}
+
 function hasLocalStorage() {
   try {
     return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
@@ -306,7 +315,7 @@ export function getQuickSnippets() {
     return cloneData(defaultQuickSnippetGroups);
   }
 
-  const stored = window.localStorage.getItem(STORAGE_KEY);
+  const stored = window.localStorage.getItem(QUICK_SNIPPET_STORAGE_KEY);
   if (!stored) {
     return cloneData(defaultQuickSnippetGroups);
   }
@@ -325,7 +334,8 @@ export function saveQuickSnippets(groups) {
   }
 
   const sanitized = sanitizeQuickSnippetGroups(groups);
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+  window.localStorage.setItem(QUICK_SNIPPET_STORAGE_KEY, JSON.stringify(sanitized));
+  dispatchQuickSnippetUpdate(sanitized);
 }
 
 export function resetQuickSnippets() {
@@ -333,5 +343,6 @@ export function resetQuickSnippets() {
     return;
   }
 
-  window.localStorage.removeItem(STORAGE_KEY);
+  window.localStorage.removeItem(QUICK_SNIPPET_STORAGE_KEY);
+  dispatchQuickSnippetUpdate(defaultQuickSnippetGroups);
 }
