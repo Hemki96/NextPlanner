@@ -376,6 +376,14 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
 
     persistPreferences({ focus, date: isoDate, time: rawTime });
     setStatus(statusElement, "Plan erfolgreich in der lokalen Datenbank gespeichert.", "success");
+    if (typeof document !== "undefined") {
+      const savedPlan = result.plan ?? null;
+      document.dispatchEvent(
+        new CustomEvent("nextplanner:plan-saved", {
+          detail: savedPlan ? { plan: savedPlan } : {},
+        }),
+      );
+    }
     window.setTimeout(() => {
       closeOverlay();
     }, 500);

@@ -10,6 +10,7 @@ import { initTemplateLibraryPanel } from "./ui/template-library-panel.js";
 import { initValidationPanel } from "./ui/validation-panel.js";
 import { ApiError, apiRequest, canUseApi, describeApiError } from "./utils/api-client.js";
 import { ensurePlanSkeleton } from "./utils/plan-defaults.js";
+import { initTrendReports } from "./ui/trend-reports.js";
 import {
   applyFeatureVisibility,
   getFeatureSettings,
@@ -31,6 +32,12 @@ const dom = {
   intensityListEl: document.getElementById("intensity-list"),
   equipmentListEl: document.getElementById("equipment-list"),
   blockListEl: document.getElementById("block-list"),
+  trendPanel: document.getElementById("trend-panel"),
+  trendStatusEl: document.getElementById("trend-status"),
+  trendVolumeList: document.getElementById("trend-volume-list"),
+  trendIntensityList: document.getElementById("trend-intensity-list"),
+  trendPaceList: document.getElementById("trend-pace-list"),
+  trendExportButton: document.getElementById("trend-export"),
   helpButton: document.getElementById("help-button"),
   helpOverlay: document.getElementById("help-overlay"),
   helpCloseButton: document.getElementById("help-close"),
@@ -95,6 +102,15 @@ const planSaveDialog = plannerToolsEnabled
       saveButton: dom.savePlanButton,
     })
   : { update() {} };
+
+initTrendReports({
+  container: dom.trendPanel,
+  statusElement: dom.trendStatusEl,
+  weeklyList: dom.trendVolumeList,
+  intensityList: dom.trendIntensityList,
+  paceList: dom.trendPaceList,
+  exportButton: dom.trendExportButton,
+});
 
 /**
  * Liest den aktuellen Text aus dem Eingabefeld, parst ihn und aktualisiert die Anzeige.

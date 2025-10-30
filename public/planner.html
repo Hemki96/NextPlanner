@@ -164,6 +164,31 @@
           <h3>Blöcke</h3>
           <ul id="block-list" class="block-list"></ul>
         </div>
+        <section id="trend-panel" class="trend-panel">
+          <div class="trend-header">
+            <h3>Trendberichte</h3>
+            <button type="button" id="trend-export" class="ghost-button is-quiet" disabled>
+              Trendbericht exportieren
+            </button>
+          </div>
+          <p id="trend-status" class="trend-status" role="status" aria-live="polite">
+            Trendberichte werden geladen …
+          </p>
+          <div class="trend-cards">
+            <article class="trend-card">
+              <h4>Wochenumfang</h4>
+              <ul id="trend-volume-list" class="trend-list"></ul>
+            </article>
+            <article class="trend-card">
+              <h4>Intensitätsverteilung</h4>
+              <ul id="trend-intensity-list" class="trend-list"></ul>
+            </article>
+            <article class="trend-card">
+              <h4>Pace-Entwicklung</h4>
+              <ul id="trend-pace-list" class="trend-list"></ul>
+            </article>
+          </div>
+        </section>
       </aside>
     </section>
   </main>
