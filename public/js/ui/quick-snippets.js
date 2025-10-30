@@ -2,6 +2,7 @@ import {
   getQuickSnippets,
   saveQuickSnippets,
   sanitizeQuickSnippetGroups,
+  QUICK_SNIPPET_STORAGE_KEY,
 } from "../utils/snippet-storage.js";
 import {
   fetchTeamLibrary,
@@ -53,6 +54,7 @@ export function initQuickSnippets({ container, textarea }) {
   }
 
   let snippetGroups = getQuickSnippets();
+  let serializedGroups = JSON.stringify(snippetGroups);
 
   function render(groups) {
     container.innerHTML = "";
@@ -89,6 +91,19 @@ export function initQuickSnippets({ container, textarea }) {
       groupEl.appendChild(buttonRow);
       container.appendChild(groupEl);
     });
+
+    serializedGroups = JSON.stringify(groups);
+  }
+
+  function updateGroups(groups) {
+    const sanitized = sanitizeQuickSnippetGroups(groups);
+    const serializedNext = JSON.stringify(sanitized);
+    if (serializedNext === serializedGroups) {
+      return;
+    }
+
+    snippetGroups = sanitized;
+    render(snippetGroups);
   }
 
   async function syncTeamLibrary() {
@@ -114,6 +129,26 @@ export function initQuickSnippets({ container, textarea }) {
 
   render(snippetGroups);
   syncTeamLibrary();
+
+  if (typeof window !== "undefined") {
+    window.addEventListener("quickSnippetsUpdated", (event) => {
+      const groups = event?.detail?.groups;
+      if (!groups) {
+        updateGroups(getQuickSnippets());
+        return;
+      }
+
+      updateGroups(groups);
+    });
+
+    window.addEventListener("storage", (event) => {
+      if (event.key !== QUICK_SNIPPET_STORAGE_KEY) {
+        return;
+      }
+
+      updateGroups(getQuickSnippets());
+    });
+  }
 
   container.addEventListener("click", (event) => {
     const target = event.target;

@@ -6,7 +6,6 @@ import { initQuickSnippets } from "./ui/quick-snippets.js";
 import { initPlanHighlighter } from "./ui/plan-highlighter.js";
 import { initTemplateCapture } from "./ui/template-capture.js";
 import { initPlanSaveDialog } from "./ui/plan-save-dialog.js";
-import { initTemplateLibraryPanel } from "./ui/template-library-panel.js";
 import { initValidationPanel } from "./ui/validation-panel.js";
 import { ApiError, apiRequest, canUseApi, describeApiError } from "./utils/api-client.js";
 import { ensurePlanSkeleton } from "./utils/plan-defaults.js";
@@ -52,7 +51,6 @@ const dom = {
   quickSnippetContainer: document.getElementById("quick-snippet-container"),
   quickPanelExpand: document.getElementById("quick-panel-expand"),
   validationPanel: document.getElementById("validation-panel"),
-  templatePanel: document.querySelector(".template-panel"),
 };
 
 ensurePlanSkeleton(dom.planInput);
@@ -64,7 +62,6 @@ subscribeToFeatureSettings(() => {
 });
 
 const quickSnippetsEnabled = featureSettings.quickSnippets !== false;
-const templateLibraryEnabled = featureSettings.templateLibrary !== false;
 const plannerToolsEnabled = featureSettings.plannerTools !== false;
 const syntaxValidationEnabled = featureSettings.syntaxValidation !== false;
 
@@ -82,13 +79,6 @@ const validationPanel = syntaxValidationEnabled
       highlighter: planHighlighter,
     })
   : { update() {} };
-
-if (templateLibraryEnabled) {
-  initTemplateLibraryPanel({
-    container: dom.templatePanel,
-    textarea: dom.planInput,
-  });
-}
 
 const templateCapture = plannerToolsEnabled
   ? initTemplateCapture({
