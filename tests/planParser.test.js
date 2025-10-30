@@ -111,3 +111,30 @@ Ende Runde
   assert.equal(round.lineNumber, 6);
   assert.match(round.message, /Runden/);
 });
+
+test('parsePlan erlaubt zusätzliche Hinweistexte nach Sets', () => {
+  const plan = stripCarriageReturn(`
+4x50m Ar @1:00
+1. in Kraul
+2. in Delfin
+- Beinkick locker
+Hinweis: letzte Wiederholung mit Paddles
+`);
+
+  const result = parsePlan(plan);
+
+  assert.equal(result.totalDistance, 200);
+  assert.equal(result.issues.length, 0);
+  assert.equal(result.blocks.length, 1);
+
+  const [block] = result.blocks;
+  assert.equal(block.sets.length, 1);
+
+  const [set] = block.sets;
+  assert.deepEqual(set.notes, [
+    '1. in Kraul',
+    '2. in Delfin',
+    '- Beinkick locker',
+    'Hinweis: letzte Wiederholung mit Paddles',
+  ]);
+});

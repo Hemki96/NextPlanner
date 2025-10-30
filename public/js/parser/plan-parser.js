@@ -29,6 +29,26 @@ function createBlock(name, headingLine = null) {
   };
 }
 
+function isSetHintLine(line) {
+  if (!line) {
+    return false;
+  }
+
+  if (/^(?:hinweis|notiz|note)[:\s]/i.test(line)) {
+    return true;
+  }
+
+  if (/^[*•\-–—]\s+\S/.test(line)) {
+    return true;
+  }
+
+  if (/^\(?\d+\)?\s*(?:[.)\-:]|->)\s*\S/.test(line)) {
+    return true;
+  }
+
+  return false;
+}
+
 /**
  * Versucht, eine Zeile als Trainings-Set zu interpretieren und die wichtigsten Attribute auszulesen.
  */
@@ -107,6 +127,7 @@ export function parsePlan(text) {
 
   let currentBlock = createBlock("Gesamt");
   let roundContext = null;
+  let lastSetTarget = null;
 
   const accumulatePause = (pauseSeconds, multiplier = 1) => {
     if (!pauseSeconds || pauseSeconds <= 0 || !multiplier || multiplier <= 0) {
@@ -119,7 +140,7 @@ export function parsePlan(text) {
 
   const accumulateSet = (set, multiplier = 1, roundLabel = null, roundId = null) => {
     if (!set || !multiplier || multiplier <= 0) {
-      return;
+      return null;
     }
 
     const repeatedDistance = set.distance * multiplier;
@@ -129,8 +150,9 @@ export function parsePlan(text) {
     const paceSecondsPer100 =
       repeatedDistance > 0 && repeatedTime > 0 ? (repeatedTime / repeatedDistance) * 100 : null;
 
-    currentBlock.sets.push({
+    const aggregatedSet = {
       ...set,
+      notes: Array.isArray(set.notes) ? [...set.notes] : [],
       distance: repeatedDistance,
       time: repeatedTime,
       pause: repeatedPause,
@@ -138,7 +160,9 @@ export function parsePlan(text) {
       roundLabel,
       roundId,
       paceSecondsPer100,
-    });
+    };
+
+    currentBlock.sets.push(aggregatedSet);
 
     currentBlock.distance += repeatedDistance;
     result.totalDistance += repeatedDistance;
@@ -174,12 +198,15 @@ export function parsePlan(text) {
       stats.activeTime += repeatedTime;
       result.intensities.set(key, stats);
     }
+    return aggregatedSet;
   };
 
   const finalizeRound = () => {
     if (!roundContext) {
       return;
     }
+
+    lastSetTarget = null;
 
     const { count, label, sets, pauses, sourceLines, id, startLine } = roundContext;
     if (sets.length === 0 && pauses.length === 0) {
@@ -240,6 +267,7 @@ export function parsePlan(text) {
         currentBlock.sourceLines.push("");
       }
       finalizeRound();
+      lastSetTarget = null;
       continue;
     }
 
@@ -248,6 +276,7 @@ export function parsePlan(text) {
       finalizeRound();
       pushBlock();
       currentBlock = createBlock(headingMatch[1].trim(), raw);
+      lastSetTarget = null;
       continue;
     }
 
@@ -279,6 +308,7 @@ export function parsePlan(text) {
           line: raw,
         });
       }
+      lastSetTarget = null;
       continue;
     }
 
@@ -289,6 +319,7 @@ export function parsePlan(text) {
         message: "Rundenstruktur erkannt, aber ohne gültige Anzahl.",
         line: raw,
       });
+      lastSetTarget = null;
       continue;
     }
 
@@ -300,6 +331,7 @@ export function parsePlan(text) {
         roundContext.sourceLines.push(raw);
       }
       finalizeRound();
+      lastSetTarget = null;
       continue;
     }
 
@@ -308,6 +340,14 @@ export function parsePlan(text) {
     }
     if (roundContext) {
       roundContext.sourceLines.push(raw);
+    }
+
+    if (isSetHintLine(raw) && lastSetTarget) {
+      if (!Array.isArray(lastSetTarget.notes)) {
+        lastSetTarget.notes = [];
+      }
+      lastSetTarget.notes.push(raw);
+      continue;
     }
 
     const pauseMatch = raw.match(/^P\s*:\s*(.+)$/i);
@@ -327,6 +367,7 @@ export function parsePlan(text) {
           line: raw,
         });
       }
+      lastSetTarget = null;
       continue;
     }
 
@@ -338,17 +379,19 @@ export function parsePlan(text) {
         message: "Zeile konnte nicht als Set, Pause oder Struktur erkannt werden.",
         line: raw,
       });
+      lastSetTarget = null;
       continue;
     }
 
-    const setWithSource = { ...set, source: raw };
+    const setWithSource = { ...set, source: raw, notes: [] };
 
     if (roundContext) {
       roundContext.sets.push(setWithSource);
+      lastSetTarget = setWithSource;
       continue;
     }
 
-    accumulateSet(setWithSource);
+    lastSetTarget = accumulateSet(setWithSource);
   }
 
   finalizeRound();

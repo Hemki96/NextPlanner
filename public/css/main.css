@@ -1860,6 +1860,33 @@ body {
   font-size: 0.8rem;
 }
 
+.set-notes {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: calc(var(--radius) - 10px);
+  background: rgba(38, 137, 255, 0.08);
+  border: 1px solid rgba(38, 137, 255, 0.2);
+  color: var(--text-secondary);
+}
+
+.set-notes-heading {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.25rem;
+  color: var(--text-primary);
+}
+
+.set-notes-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.15rem;
+  font-size: 0.9rem;
+}
+
 .set-actions {
   display: flex;
   justify-content: flex-end;
