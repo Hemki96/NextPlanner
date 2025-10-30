@@ -200,7 +200,11 @@ export function renderSummary(plan, dom) {
 
       block.sets.forEach((set, setIndex) => {
         const setItem = document.createElement("li");
-        setItem.className = "set-item";
+        const setItemClasses = ["set-item"];
+        if (set.roundId) {
+          setItemClasses.push("set-item--round-member");
+        }
+        setItem.className = setItemClasses.join(" ");
 
         const setLine = document.createElement("div");
         setLine.className = "set-line";
