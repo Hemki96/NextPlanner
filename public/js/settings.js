@@ -9,6 +9,7 @@ import { describeApiError } from "./utils/api-client.js";
 import { fetchTeamLibrary, pushTeamLibrary, teamLibrarySupported } from "./utils/snippet-library-client.js";
 import { initFeatureToggleSection } from "./ui/feature-toggle-section.js";
 import { getFeatureSettings } from "./utils/feature-settings.js";
+import { getCurrentTheme, setThemePreference, subscribeToTheme } from "./theme.js";
 import {
   HIGHLIGHT_OPTION_DEFINITIONS,
   getHighlightSettings,
@@ -37,10 +38,30 @@ const highlightResetButton = document.getElementById("highlight-settings-reset")
 const featureList = document.getElementById("feature-settings-list");
 const featureStatusElement = document.getElementById("feature-settings-status");
 const featureResetButton = document.getElementById("feature-settings-reset");
+const themeToggle = document.getElementById("theme-toggle");
+const themeStatusElement = document.getElementById("theme-settings-status");
 
 let highlightStatusTimeout = null;
 
 let teamLibraryEnabled = getFeatureSettings().teamLibrary !== false;
+
+function setThemeStatusMessage(message) {
+  if (!themeStatusElement) {
+    return;
+  }
+  themeStatusElement.textContent = message;
+  if (message) {
+    themeStatusElement.dataset.statusType = "info";
+    window.setTimeout(() => {
+      if (themeStatusElement.textContent === message) {
+        themeStatusElement.textContent = "";
+        delete themeStatusElement.dataset.statusType;
+      }
+    }, 3500);
+  } else {
+    delete themeStatusElement.dataset.statusType;
+  }
+}
 
 initFeatureToggleSection({
   listElement: featureList,
@@ -51,6 +72,29 @@ initFeatureToggleSection({
     teamLibraryEnabled = settings.teamLibrary !== false;
   },
 });
+
+if (themeToggle) {
+  const syncToggle = (theme) => {
+    const shouldBeChecked = theme === "dark";
+    if (themeToggle.checked !== shouldBeChecked) {
+      themeToggle.checked = shouldBeChecked;
+    }
+  };
+
+  syncToggle(getCurrentTheme());
+
+  themeToggle.addEventListener("change", () => {
+    const newTheme = themeToggle.checked ? "dark" : "light";
+    setThemePreference(newTheme);
+    setThemeStatusMessage(
+      themeToggle.checked ? "Dunkler Modus aktiviert." : "Dunkler Modus deaktiviert."
+    );
+  });
+
+  subscribeToTheme((theme) => {
+    syncToggle(theme);
+  });
+}
 
 function createGroupId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {

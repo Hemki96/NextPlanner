@@ -10,8 +10,38 @@
   --accent: #0077ff;
   --text-primary: #0b1f33;
   --text-secondary: #405162;
+  --body-bg: radial-gradient(circle at top left, #c6e6ff, #f6f9fc 45%, #f0f4f9);
+  --shadow-color: rgba(12, 50, 89, 0.45);
+  --input-bg: rgba(255, 255, 255, 0.85);
+  --input-bg-focus: #ffffff;
+  --switch-track: rgba(0, 0, 0, 0.2);
+  --switch-border: rgba(12, 50, 89, 0.25);
+  --switch-thumb: #ffffff;
+  --switch-thumb-shadow: 0 4px 10px rgba(12, 37, 64, 0.25);
+  --overlay-backdrop: rgba(12, 32, 56, 0.55);
+  --dialog-shadow: rgba(6, 28, 57, 0.6);
   --radius: 18px;
   font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1724;
+  --bg-panel: rgba(19, 28, 42, 0.85);
+  --border: rgba(93, 129, 171, 0.28);
+  --accent: #4da3ff;
+  --text-primary: #e6efff;
+  --text-secondary: #a9b9d4;
+  --body-bg: radial-gradient(circle at top left, #142034, #0f1724 45%, #0b111d);
+  --shadow-color: rgba(8, 19, 36, 0.7);
+  --input-bg: rgba(24, 33, 47, 0.85);
+  --input-bg-focus: rgba(28, 41, 60, 0.95);
+  --switch-track: rgba(255, 255, 255, 0.25);
+  --switch-border: rgba(165, 196, 235, 0.35);
+  --switch-thumb: #dbe9ff;
+  --switch-thumb-shadow: 0 4px 10px rgba(0, 0, 0, 0.55);
+  --overlay-backdrop: rgba(5, 12, 23, 0.7);
+  --dialog-shadow: rgba(0, 0, 0, 0.8);
 }
 
 * {
@@ -22,16 +52,20 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: radial-gradient(circle at top left, #c6e6ff, #f6f9fc 45%, #f0f4f9);
+  background: var(--body-bg);
+  background-color: var(--bg);
   color: var(--text-primary);
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 2rem;
-  padding: 2.5rem min(6vw, 6rem) 3rem;
+  padding: clamp(1.5rem, 3vw, 2.75rem) min(6vw, 6rem) clamp(2rem, 5vw, 3.25rem);
+  transition: background 0.3s ease, color 0.3s ease;
 }
 
 .page-header {
-  max-width: 900px;
+  width: min(100%, 960px);
+  margin: 0 auto;
 }
 
 .page-header h1 {
@@ -85,6 +119,7 @@ body {
 .page-content {
   max-width: 960px;
   width: 100%;
+  margin: 0 auto;
   display: grid;
   gap: 1.75rem;
 }
@@ -95,7 +130,8 @@ body {
   border-radius: var(--radius);
   padding: 2rem;
   backdrop-filter: blur(16px);
-  box-shadow: 0 40px 80px -45px rgba(12, 50, 89, 0.45);
+  box-shadow: 0 40px 80px -45px var(--shadow-color);
+  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .section-header {
@@ -188,7 +224,7 @@ body {
   border: 1px solid var(--border);
   padding: 0.65rem 0.85rem;
   font: inherit;
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--input-bg);
   color: var(--text-primary);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
@@ -203,12 +239,92 @@ body {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(0, 119, 255, 0.2);
-  background: #fff;
+  background: var(--input-bg-focus);
+}
+
+.theme-settings {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.toggle-control {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.toggle-control h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1.1rem;
+}
+
+.toggle-control p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 52px;
+  height: 28px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch-slider {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--switch-track);
+  transition: background 0.2s ease;
+}
+
+.switch-slider::after {
+  content: "";
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  left: 3px;
+  top: 3px;
+  background: var(--switch-thumb);
+  box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.45);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.switch input:checked + .switch-slider {
+  background: linear-gradient(135deg, var(--accent), #00c0ff);
+}
+
+.switch input:checked + .switch-slider::after {
+  transform: translateX(24px);
+  background: #f8fcff;
+}
+
+.switch input:focus-visible + .switch-slider {
+  outline: 3px solid rgba(0, 119, 255, 0.45);
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .toggle-control {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
 }
 
 .calendar-layout {
   max-width: 1080px;
   width: 100%;
+  margin: 0 auto;
   display: grid;
   gap: 1.75rem;
 }
@@ -504,8 +620,8 @@ body {
   width: 52px;
   height: 30px;
   border-radius: 999px;
-  background: rgba(12, 50, 89, 0.2);
-  border: 1px solid rgba(12, 50, 89, 0.25);
+  background: var(--switch-track);
+  border: 1px solid var(--switch-border);
   position: relative;
   transition: background 0.2s ease, border-color 0.2s ease;
 }
@@ -518,8 +634,8 @@ body {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 4px 10px rgba(12, 37, 64, 0.25);
+  background: var(--switch-thumb);
+  box-shadow: var(--switch-thumb-shadow);
   transition: transform 0.2s ease;
 }
 
@@ -599,13 +715,14 @@ body {
 }
 
 .template-card {
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--bg-panel);
   border-radius: 16px;
   border: 1px solid var(--border);
   padding: 1.2rem 1.4rem;
   display: grid;
   gap: 0.75rem;
-  box-shadow: 0 20px 45px -30px rgba(12, 50, 89, 0.45);
+  box-shadow: 0 20px 45px -30px var(--shadow-color);
+  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .template-card-header {
@@ -754,7 +871,7 @@ body {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(0, 119, 255, 0.2);
-  background: #fff;
+  background: var(--input-bg-focus);
 }
 
 .snippet-settings-header-actions {
@@ -775,7 +892,7 @@ body {
   border: 1px solid var(--border);
   padding: 0.65rem 0.85rem;
   font: inherit;
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--input-bg);
   resize: vertical;
 }
 
@@ -783,7 +900,7 @@ body {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(0, 119, 255, 0.2);
-  background: #fff;
+  background: var(--input-bg-focus);
 }
 
 .snippet-settings-body {
@@ -816,7 +933,7 @@ body {
   border: 1px solid var(--border);
   padding: 0.55rem 0.75rem;
   font: inherit;
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--input-bg);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -830,7 +947,7 @@ body {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(0, 119, 255, 0.18);
-  background: #fff;
+  background: var(--input-bg-focus);
 }
 
 .snippet-settings-checkboxes {
@@ -867,14 +984,14 @@ body {
   border: 1px solid var(--border);
   padding: 0.45rem 0.6rem;
   font: inherit;
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--input-bg);
 }
 
 .snippet-settings-number:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(0, 119, 255, 0.18);
-  background: #fff;
+  background: var(--input-bg-focus);
 }
 
 .snippet-settings-actions {
@@ -923,6 +1040,8 @@ body {
   grid-template-areas: "snippets input insights";
   gap: 2rem;
   align-items: flex-start;
+  width: min(100%, 1320px);
+  margin: 0 auto;
 }
 
 .layout.layout--snippets-hidden {
@@ -944,7 +1063,8 @@ body {
   border-radius: var(--radius);
   padding: 2rem;
   backdrop-filter: blur(16px);
-  box-shadow: 0 40px 80px -45px rgba(12, 50, 89, 0.45);
+  box-shadow: 0 40px 80px -45px var(--shadow-color);
+  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .quick-panel {
@@ -1048,7 +1168,7 @@ body {
   position: relative;
   border-radius: calc(var(--radius) - 6px);
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--input-bg);
   transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
   overflow: hidden;
 }
@@ -1056,7 +1176,7 @@ body {
 .plan-editor:focus-within {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(0, 119, 255, 0.2);
-  background: #fff;
+  background: var(--input-bg-focus);
 }
 
 .plan-editor textarea {
@@ -1343,8 +1463,8 @@ body {
 }
 
 .template-panel-card {
-  background: rgba(255, 255, 255, 0.85);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 1rem;
   display: grid;
@@ -1454,7 +1574,7 @@ body {
 .validation-panel {
   border: 1px solid var(--border);
   border-radius: calc(var(--radius) - 4px);
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--bg-panel);
   padding: 1.25rem 1.5rem;
   display: grid;
   gap: 0.75rem;
@@ -2040,7 +2160,7 @@ body.no-scroll {
   justify-content: center;
   align-items: flex-start;
   padding: clamp(2rem, 5vw, 4rem) 1.5rem;
-  background: rgba(12, 32, 56, 0.55);
+  background: var(--overlay-backdrop);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.25s ease;
@@ -2054,11 +2174,11 @@ body.no-scroll {
 
 .template-dialog {
   width: min(640px, 100%);
-  background: #fff;
+  background: var(--bg-panel);
   color: var(--text-primary);
   border-radius: calc(var(--radius) - 6px);
-  border: 1px solid rgba(255, 255, 255, 0.45);
-  box-shadow: 0 40px 90px -35px rgba(6, 28, 57, 0.6);
+  border: 1px solid var(--border);
+  box-shadow: 0 40px 90px -35px var(--dialog-shadow);
   overflow: hidden;
   animation: slide-up 0.3s ease;
 }
@@ -2095,7 +2215,7 @@ body.no-scroll {
 .help-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(12, 32, 56, 0.55);
+  background: var(--overlay-backdrop);
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -2113,11 +2233,11 @@ body.no-scroll {
 
 .help-dialog {
   max-width: min(680px, 100%);
-  background: #fff;
+  background: var(--bg-panel);
   color: var(--text-primary);
   border-radius: calc(var(--radius) - 6px);
-  border: 1px solid rgba(255, 255, 255, 0.45);
-  box-shadow: 0 40px 90px -35px rgba(6, 28, 57, 0.6);
+  border: 1px solid var(--border);
+  box-shadow: 0 40px 90px -35px var(--dialog-shadow);
   overflow: hidden;
   animation: slide-up 0.3s ease;
 }

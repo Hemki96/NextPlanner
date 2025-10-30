@@ -4,8 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Swim Planner – Editor-Einstellungen</title>
+    <script>
+      (function () {
+        try {
+          var storedTheme = localStorage.getItem("nextplanner-theme");
+          if (storedTheme === "dark") {
+            document.documentElement.dataset.theme = "dark";
+          } else if (storedTheme === "light") {
+            delete document.documentElement.dataset.theme;
+          }
+        } catch (error) {
+          /* ignore errors (private mode, etc.) */
+        }
+      })();
+    </script>
     <link rel="stylesheet" href="/css/main.css" />
-  </head>
+    <script type="module" src="/js/theme.js"></script>
+</head>
 <body>
   <header class="page-header">
     <h1>Editor &amp; Schnellbausteine konfigurieren</h1>
@@ -19,6 +34,29 @@
     </nav>
   </header>
   <main class="page-content">
+    <section class="page-card">
+      <header class="section-header">
+        <h2>Darstellung</h2>
+      </header>
+      <div class="theme-settings">
+        <div class="toggle-control">
+          <label class="switch" for="theme-toggle">
+            <input
+              type="checkbox"
+              id="theme-toggle"
+              aria-describedby="theme-toggle-description"
+              aria-labelledby="theme-toggle-heading"
+            />
+            <span class="switch-slider" aria-hidden="true"></span>
+          </label>
+          <div>
+            <h3 id="theme-toggle-heading">Dunkler Modus</h3>
+            <p id="theme-toggle-description">Nutze dunkle Oberflächenfarben, um deine Augen bei wenig Licht zu entlasten.</p>
+          </div>
+        </div>
+      </div>
+      <p id="theme-settings-status" class="form-status" role="status" aria-live="polite"></p>
+    </section>
     <section class="page-card">
       <header class="section-header">
         <h2>Funktionen ein- und ausblenden</h2>
