@@ -7,11 +7,8 @@ import {
 } from "./utils/snippet-storage.js";
 import { describeApiError } from "./utils/api-client.js";
 import { fetchTeamLibrary, pushTeamLibrary, teamLibrarySupported } from "./utils/snippet-library-client.js";
-import {
-  applyFeatureVisibility,
-  getFeatureSettings,
-  subscribeToFeatureSettings,
-} from "./utils/feature-settings.js";
+import { initFeatureToggleSection } from "./ui/feature-toggle-section.js";
+import { getFeatureSettings } from "./utils/feature-settings.js";
 import {
   HIGHLIGHT_OPTION_DEFINITIONS,
   getHighlightSettings,
@@ -37,16 +34,23 @@ const teamUpdatedElement = document.getElementById("team-library-updated");
 const highlightList = document.getElementById("highlight-settings-list");
 const highlightStatusElement = document.getElementById("highlight-settings-status");
 const highlightResetButton = document.getElementById("highlight-settings-reset");
+const featureList = document.getElementById("feature-settings-list");
+const featureStatusElement = document.getElementById("feature-settings-status");
+const featureResetButton = document.getElementById("feature-settings-reset");
 
 let highlightStatusTimeout = null;
 
-const featureSettings = getFeatureSettings();
-applyFeatureVisibility(document, featureSettings);
-subscribeToFeatureSettings(() => {
-  window.location.reload();
-});
+let teamLibraryEnabled = getFeatureSettings().teamLibrary !== false;
 
-const teamLibraryEnabled = featureSettings.teamLibrary !== false;
+initFeatureToggleSection({
+  listElement: featureList,
+  statusElement: featureStatusElement,
+  resetButton: featureResetButton,
+  root: document,
+  onSettingsChange(settings) {
+    teamLibraryEnabled = settings.teamLibrary !== false;
+  },
+});
 
 function createGroupId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {

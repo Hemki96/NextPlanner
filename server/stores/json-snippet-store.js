@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   defaultQuickSnippetGroups,
@@ -20,13 +21,21 @@ async function ensureDirectory(filePath) {
   await fs.mkdir(directory, { recursive: true });
 }
 
-function cloneGroups(groups) {
-  return JSON.parse(JSON.stringify(groups));
+const cloneValue =
+  typeof structuredClone === "function"
+    ? (value) => structuredClone(value)
+    : (value) => JSON.parse(JSON.stringify(value));
+
+function snapshot({ updatedAt, groups }) {
+  return { updatedAt, groups: cloneValue(groups) };
 }
 
 export class JsonSnippetStore {
   #file;
-  #data = { updatedAt: new Date(0).toISOString(), groups: cloneGroups(defaultQuickSnippetGroups) };
+  #data = {
+    updatedAt: new Date(0).toISOString(),
+    groups: cloneValue(defaultQuickSnippetGroups),
+  };
   #writeQueue = Promise.resolve();
   #ready;
   #closed = false;
@@ -72,7 +81,7 @@ export class JsonSnippetStore {
 
   async getLibrary() {
     await this.#ready;
-    return { updatedAt: this.#data.updatedAt, groups: cloneGroups(this.#data.groups) };
+    return snapshot(this.#data);
   }
 
   async replaceLibrary(groups) {
@@ -81,9 +90,12 @@ export class JsonSnippetStore {
     }
     await this.#ready;
     const sanitized = sanitizeQuickSnippetGroups(groups);
+    if (isDeepStrictEqual(sanitized, this.#data.groups)) {
+      return snapshot(this.#data);
+    }
     this.#data = { groups: sanitized, updatedAt: new Date().toISOString() };
     await this.#enqueueWrite();
-    return this.getLibrary();
+    return snapshot(this.#data);
   }
 
   async close() {

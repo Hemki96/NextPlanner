@@ -1,6 +1,7 @@
 import { constants, promises as fs } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 
 const DATA_DIR = "data";
 const DEFAULT_FILE_NAME = "plans.json";
@@ -98,17 +99,49 @@ function normalizeTimestamp(value, fieldName) {
   throw new PlanValidationError(`Backup: ${fieldName} muss ein gültiger ISO-Zeitstempel sein.`);
 }
 
+function coerceMetadataObject(metadata) {
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? metadata
+    : {};
+}
+
 function clonePlan(plan) {
-  return {
-    id: plan.id,
-    title: plan.title,
-    content: plan.content,
-    planDate: plan.planDate,
-    focus: plan.focus,
-    metadata: normalizeMetadata(plan.metadata),
-    createdAt: plan.createdAt,
-    updatedAt: plan.updatedAt,
-  };
+  return { ...plan, metadata: { ...coerceMetadataObject(plan.metadata) } };
+}
+
+const PLAN_FIELD_NORMALIZERS = Object.freeze({
+  title: normalizeTitle,
+  content: normalizeContent,
+  planDate: toIsoDate,
+  focus: normalizeFocus,
+  metadata: normalizeMetadata,
+});
+
+function normalizePlanInput(source, { requireAll }) {
+  const normalized = {};
+  for (const [field, normalize] of Object.entries(PLAN_FIELD_NORMALIZERS)) {
+    if (
+      requireAll ||
+      (Object.hasOwn(source, field) && source[field] !== undefined)
+    ) {
+      normalized[field] = normalize(source[field]);
+    }
+  }
+  return normalized;
+}
+
+function applyPlanChanges(plan, normalized) {
+  let changed = false;
+  for (const [field, value] of Object.entries(normalized)) {
+    if (!isDeepStrictEqual(plan[field], value)) {
+      plan[field] = value;
+      changed = true;
+    }
+  }
+  if (changed) {
+    plan.updatedAt = new Date().toISOString();
+  }
+  return changed;
 }
 
 function ensurePositiveInteger(value, label) {
@@ -135,7 +168,7 @@ function normalizeBackupPlan(rawPlan) {
   const metadata = normalizeMetadata(plan.metadata);
   const createdAt = normalizeTimestamp(plan.createdAt, "createdAt");
   const updatedAt = normalizeTimestamp(plan.updatedAt, "updatedAt");
-  return clonePlan({
+  return {
     id,
     title,
     content,
@@ -144,7 +177,7 @@ function normalizeBackupPlan(rawPlan) {
     metadata,
     createdAt,
     updatedAt,
-  });
+  };
 }
 
 function normalizeBackupPayload(payload) {
@@ -195,6 +228,8 @@ export class JsonPlanStore {
   #integrityReported = false;
   #dirFsyncSupported = true;
   #dirFsyncWarned = false;
+  #plansById = new Map();
+  #sortedPlans = null;
 
   constructor(options = {}) {
     const { storageFile = resolveDefaultFile() } = options;
@@ -208,7 +243,17 @@ export class JsonPlanStore {
 
   async #initialize() {
     await ensureDirectory(this.#file);
-    this.#data = await this.#readFromDisk();
+    this.#setData(await this.#readFromDisk());
+  }
+
+  #setData(data) {
+    this.#data = data;
+    this.#plansById.clear();
+    for (const plan of this.#data.plans) {
+      plan.metadata = coerceMetadataObject(plan.metadata);
+      this.#plansById.set(plan.id, plan);
+    }
+    this.#sortedPlans = null;
   }
 
   async #readFromDisk() {
@@ -376,14 +421,27 @@ export class JsonPlanStore {
     return this.#writeQueue;
   }
 
+  #invalidatePlanOrder() {
+    this.#sortedPlans = null;
+  }
+
+  #getSortedPlans() {
+    if (!this.#sortedPlans) {
+      this.#sortedPlans = [...this.#data.plans];
+      this.#sortedPlans.sort((a, b) => {
+        if (a.planDate === b.planDate) {
+          return a.id - b.id;
+        }
+        return a.planDate.localeCompare(b.planDate);
+      });
+    }
+    return this.#sortedPlans;
+  }
+
   async #writeToDisk() {
     await this.#enqueueWrite(async () => {
       await this.#writeFileAtomically(this.#data);
     });
-  }
-
-  #findPlanIndex(id) {
-    return this.#data.plans.findIndex((plan) => plan.id === Number(id));
   }
 
   async #ensureReady() {
@@ -400,29 +458,32 @@ export class JsonPlanStore {
 
   async createPlan({ title, content, planDate, focus, metadata }) {
     await this.#ensureReady();
-    const now = new Date().toISOString();
+    const normalized = normalizePlanInput(
+      { title, content, planDate, focus, metadata },
+      { requireAll: true }
+    );
+    const timestamp = new Date().toISOString();
     const plan = {
       id: this.#data.nextId++,
-      title: normalizeTitle(title),
-      content: normalizeContent(content),
-      planDate: toIsoDate(planDate),
-      focus: normalizeFocus(focus),
-      metadata: normalizeMetadata(metadata),
-      createdAt: now,
-      updatedAt: now,
+      ...normalized,
+      createdAt: timestamp,
+      updatedAt: timestamp,
     };
+    plan.metadata = coerceMetadataObject(plan.metadata);
     this.#data.plans.push(plan);
+    this.#plansById.set(plan.id, plan);
+    this.#invalidatePlanOrder();
     await this.#writeToDisk();
     return clonePlan(plan);
   }
 
   async updatePlan(id, updates = {}, options = {}) {
     await this.#ensureReady();
-    const index = this.#findPlanIndex(id);
-    if (index === -1) {
+    const planId = Number(id);
+    const plan = this.#plansById.get(planId);
+    if (!plan) {
       return null;
     }
-    const plan = this.#data.plans[index];
     const { expectedUpdatedAt } = options ?? {};
     if (expectedUpdatedAt && plan.updatedAt !== expectedUpdatedAt) {
       throw new PlanConflictError("Plan wurde bereits geändert.", {
@@ -430,56 +491,27 @@ export class JsonPlanStore {
         expectedUpdatedAt,
       });
     }
-    let changed = false;
-    if (updates.title !== undefined) {
-      const normalized = normalizeTitle(updates.title);
-      if (plan.title !== normalized) {
-        plan.title = normalized;
-        changed = true;
+    const normalized = normalizePlanInput(updates, { requireAll: false });
+    if (Object.keys(normalized).length > 0) {
+      const previousDate = plan.planDate;
+      const changed = applyPlanChanges(plan, normalized);
+      if (changed) {
+        if (plan.planDate !== previousDate) {
+          this.#invalidatePlanOrder();
+        }
+        await this.#writeToDisk();
       }
-    }
-    if (updates.content !== undefined) {
-      const normalized = normalizeContent(updates.content);
-      if (plan.content !== normalized) {
-        plan.content = normalized;
-        changed = true;
-      }
-    }
-    if (updates.planDate !== undefined) {
-      const normalized = toIsoDate(updates.planDate);
-      if (plan.planDate !== normalized) {
-        plan.planDate = normalized;
-        changed = true;
-      }
-    }
-    if (updates.focus !== undefined) {
-      const normalized = normalizeFocus(updates.focus);
-      if (plan.focus !== normalized) {
-        plan.focus = normalized;
-        changed = true;
-      }
-    }
-    if (updates.metadata !== undefined) {
-      const normalized = normalizeMetadata(updates.metadata);
-      if (JSON.stringify(plan.metadata) !== JSON.stringify(normalized)) {
-        plan.metadata = normalized;
-        changed = true;
-      }
-    }
-    if (changed) {
-      plan.updatedAt = new Date().toISOString();
-      await this.#writeToDisk();
     }
     return clonePlan(plan);
   }
 
   async replacePlan(id, replacement, options = {}) {
     await this.#ensureReady();
-    const index = this.#findPlanIndex(id);
-    if (index === -1) {
+    const planId = Number(id);
+    const plan = this.#plansById.get(planId);
+    if (!plan) {
       return null;
     }
-    const plan = this.#data.plans[index];
     const { expectedUpdatedAt } = options ?? {};
     if (expectedUpdatedAt && plan.updatedAt !== expectedUpdatedAt) {
       throw new PlanConflictError("Plan wurde bereits geändert.", {
@@ -487,49 +519,24 @@ export class JsonPlanStore {
         expectedUpdatedAt,
       });
     }
-    const normalizedTitle = normalizeTitle(replacement.title);
-    const normalizedContent = normalizeContent(replacement.content);
-    const normalizedPlanDate = toIsoDate(replacement.planDate);
-    const normalizedFocus = normalizeFocus(replacement.focus);
-    const normalizedMetadata = normalizeMetadata(replacement.metadata);
-
-    let changed = false;
-    if (plan.title !== normalizedTitle) {
-      plan.title = normalizedTitle;
-      changed = true;
-    }
-    if (plan.content !== normalizedContent) {
-      plan.content = normalizedContent;
-      changed = true;
-    }
-    if (plan.planDate !== normalizedPlanDate) {
-      plan.planDate = normalizedPlanDate;
-      changed = true;
-    }
-    if (plan.focus !== normalizedFocus) {
-      plan.focus = normalizedFocus;
-      changed = true;
-    }
-    if (JSON.stringify(plan.metadata) !== JSON.stringify(normalizedMetadata)) {
-      plan.metadata = normalizedMetadata;
-      changed = true;
-    }
-
-    if (changed) {
-      plan.updatedAt = new Date().toISOString();
+    const normalized = normalizePlanInput(replacement, { requireAll: true });
+    const previousDate = plan.planDate;
+    if (applyPlanChanges(plan, normalized)) {
+      if (plan.planDate !== previousDate) {
+        this.#invalidatePlanOrder();
+      }
       await this.#writeToDisk();
     }
-
     return clonePlan(plan);
   }
 
   async deletePlan(id, options = {}) {
     await this.#ensureReady();
-    const index = this.#findPlanIndex(id);
-    if (index === -1) {
+    const planId = Number(id);
+    const plan = this.#plansById.get(planId);
+    if (!plan) {
       return false;
     }
-    const plan = this.#data.plans[index];
     const { expectedUpdatedAt } = options ?? {};
     if (expectedUpdatedAt && plan.updatedAt !== expectedUpdatedAt) {
       throw new PlanConflictError("Plan wurde bereits geändert.", {
@@ -537,14 +544,19 @@ export class JsonPlanStore {
         expectedUpdatedAt,
       });
     }
-    this.#data.plans.splice(index, 1);
+    const index = this.#data.plans.indexOf(plan);
+    if (index !== -1) {
+      this.#data.plans.splice(index, 1);
+    }
+    this.#plansById.delete(planId);
+    this.#invalidatePlanOrder();
     await this.#writeToDisk();
     return true;
   }
 
   async getPlan(id) {
     await this.#ensureReady();
-    const plan = this.#data.plans.find((item) => item.id === Number(id));
+    const plan = this.#plansById.get(Number(id));
     return plan ? clonePlan(plan) : null;
   }
 
@@ -554,26 +566,20 @@ export class JsonPlanStore {
     const fromIso = from ? toIsoDate(from) : null;
     const toIsoValue = to ? toIsoDate(to) : null;
 
-    return this.#data.plans
-      .filter((plan) => {
-        if (focusFilter && plan.focus !== focusFilter) {
-          return false;
-        }
-        if (fromIso && plan.planDate < fromIso) {
-          return false;
-        }
-        if (toIsoValue && plan.planDate > toIsoValue) {
-          return false;
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        if (a.planDate === b.planDate) {
-          return a.id - b.id;
-        }
-        return a.planDate.localeCompare(b.planDate);
-      })
-      .map((plan) => clonePlan(plan));
+    const results = [];
+    for (const plan of this.#getSortedPlans()) {
+      if (fromIso && plan.planDate < fromIso) {
+        continue;
+      }
+      if (toIsoValue && plan.planDate > toIsoValue) {
+        break;
+      }
+      if (focusFilter && plan.focus !== focusFilter) {
+        continue;
+      }
+      results.push(clonePlan(plan));
+    }
+    return results;
   }
 
   async exportBackup() {
@@ -585,7 +591,7 @@ export class JsonPlanStore {
       planCount: this.#data.plans.length,
       data: {
         nextId: this.#data.nextId,
-        plans: this.#data.plans.map((plan) => clonePlan(plan)),
+        plans: this.#data.plans.map(clonePlan),
       },
     };
   }
@@ -593,10 +599,10 @@ export class JsonPlanStore {
   async importBackup(payload) {
     await this.#ensureReady();
     const normalized = normalizeBackupPayload(payload);
-    this.#data = {
+    this.#setData({
       nextId: normalized.nextId,
       plans: normalized.plans,
-    };
+    });
     await this.#writeToDisk();
     return { planCount: this.#data.plans.length };
   }
