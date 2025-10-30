@@ -7,7 +7,9 @@ import { describe, it, before, after, mock } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { JsonPlanStore } from "../server/stores/json-plan-store.js";
+import { JsonSnippetStore } from "../server/stores/json-snippet-store.js";
 import { createServer } from "../server/app.js";
+import { sanitizeQuickSnippetGroups } from "../public/js/utils/snippet-storage.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(__dirname, "..");
@@ -15,13 +17,16 @@ const repoRoot = path.join(__dirname, "..");
 function createTempStore() {
   const dir = mkdtempSync(path.join(tmpdir(), "nextplanner-api-"));
   const storageFile = path.join(dir, "plans.json");
+  const snippetFile = path.join(dir, "snippets.json");
   const store = new JsonPlanStore({ storageFile });
-  return { dir, store };
+  const snippetStore = new JsonSnippetStore({ storageFile: snippetFile });
+  return { dir, store, snippetStore };
 }
 
 describe("Plan API", () => {
   let tempDir;
   let store;
+  let snippetStore;
   let server;
   let baseUrl;
 
@@ -29,7 +34,8 @@ describe("Plan API", () => {
     const temp = createTempStore();
     tempDir = temp.dir;
     store = temp.store;
-    server = createServer({ store, publicDir: path.join(repoRoot, "public") });
+    snippetStore = temp.snippetStore;
+    server = createServer({ store, snippetStore, publicDir: path.join(repoRoot, "public") });
     server.listen(0);
     await once(server, "listening");
     const address = server.address();
@@ -40,6 +46,7 @@ describe("Plan API", () => {
   after(async () => {
     await new Promise((resolve) => server.close(resolve));
     await store?.close();
+    await snippetStore?.close();
     rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -407,5 +414,50 @@ describe("Plan API", () => {
     closeMock.mock.restore();
     await localStore.close();
     rmSync(temp.dir, { recursive: true, force: true });
+  });
+
+  it("liefert und ersetzt Team-Snippets", async () => {
+    const initial = await fetch(`${baseUrl}/api/snippets`);
+    assert.equal(initial.status, 200);
+    const initialBody = await initial.json();
+    assert.ok(Array.isArray(initialBody.groups));
+    assert.ok(initialBody.updatedAt);
+
+    const newGroups = [
+      {
+        title: "Warm-up",
+        description: "",
+        items: [
+          { label: "Lockeres Einschwimmen", snippet: "## Warm-up", ensureLineBreakBefore: true },
+        ],
+      },
+    ];
+
+    const putResponse = await fetch(`${baseUrl}/api/snippets`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ groups: newGroups }),
+    });
+
+    assert.equal(putResponse.status, 200);
+    const payload = await putResponse.json();
+    assert.ok(payload.updatedAt);
+    assert.notEqual(payload.updatedAt, initialBody.updatedAt);
+    assert.deepEqual(payload.groups, sanitizeQuickSnippetGroups(newGroups));
+
+    const stored = await snippetStore.getLibrary();
+    assert.deepEqual(stored.groups, sanitizeQuickSnippetGroups(newGroups));
+  });
+
+  it("validiert Snippet-Payloads", async () => {
+    const invalid = await fetch(`${baseUrl}/api/snippets`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ groups: { broken: true } }),
+    });
+
+    assert.equal(invalid.status, 400);
+    const body = await invalid.json();
+    assert.equal(body.error.code, "invalid-snippet-payload");
   });
 });

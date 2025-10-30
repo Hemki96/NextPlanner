@@ -26,6 +26,20 @@ const cloneValue =
     ? (value) => structuredClone(value)
     : (value) => JSON.parse(JSON.stringify(value));
 
+function buildDefaultGroups() {
+  return sanitizeQuickSnippetGroups(defaultQuickSnippetGroups);
+}
+
+function normalizeUpdatedAt(value) {
+  if (typeof value === "string" && value.trim()) {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  }
+  return null;
+}
+
 function snapshot({ updatedAt, groups }) {
   return { updatedAt, groups: cloneValue(groups) };
 }
@@ -33,8 +47,8 @@ function snapshot({ updatedAt, groups }) {
 export class JsonSnippetStore {
   #file;
   #data = {
-    updatedAt: new Date(0).toISOString(),
-    groups: cloneValue(defaultQuickSnippetGroups),
+    updatedAt: new Date().toISOString(),
+    groups: buildDefaultGroups(),
   };
   #writeQueue = Promise.resolve();
   #ready;
@@ -46,37 +60,57 @@ export class JsonSnippetStore {
     this.#ready = this.#load();
   }
 
+  get storageFile() {
+    return this.#file;
+  }
+
   async #load() {
     try {
       const content = await fs.readFile(this.#file, "utf8");
       if (!content.trim()) {
+        this.#data = {
+          updatedAt: new Date().toISOString(),
+          groups: buildDefaultGroups(),
+        };
+        await this.#persist();
         return;
       }
       const parsed = JSON.parse(content);
-      if (parsed && typeof parsed === "object" && Array.isArray(parsed.groups)) {
-        const groups = sanitizeQuickSnippetGroups(parsed.groups);
-        const updatedAt = typeof parsed.updatedAt === "string" && parsed.updatedAt.trim()
-          ? parsed.updatedAt
-          : new Date().toISOString();
-        this.#data = { groups, updatedAt };
+      if (!parsed || typeof parsed !== "object") {
+        throw new Error("Snippet storage muss ein Objekt sein");
+      }
+      const groups = sanitizeQuickSnippetGroups(parsed.groups);
+      const updatedAt = normalizeUpdatedAt(parsed.updatedAt) ?? new Date().toISOString();
+      const shouldPersistGroups =
+        !Array.isArray(parsed.groups) || !isDeepStrictEqual(groups, parsed.groups);
+      const shouldPersistTimestamp = updatedAt !== parsed.updatedAt;
+      this.#data = { groups, updatedAt };
+      if (shouldPersistGroups || shouldPersistTimestamp) {
+        await this.#persist();
       }
     } catch (error) {
       if (error?.code !== "ENOENT") {
         console.warn("Konnte Team-Snippet-Datei nicht lesen", error);
       }
+      this.#data = {
+        updatedAt: new Date().toISOString(),
+        groups: buildDefaultGroups(),
+      };
       await this.#persist();
     }
   }
 
-  async #persist() {
+  async #persist(data = this.#data) {
     await ensureDirectory(this.#file);
-    const payload = JSON.stringify(this.#data, null, 2);
+    const payload = JSON.stringify(data, null, 2);
     await fs.writeFile(this.#file, payload, "utf8");
   }
 
-  async #enqueueWrite() {
-    this.#writeQueue = this.#writeQueue.then(() => this.#persist());
-    return this.#writeQueue;
+  async #enqueueWrite(data) {
+    const payload = data ?? snapshot(this.#data);
+    const writeTask = this.#writeQueue.then(() => this.#persist(payload));
+    this.#writeQueue = writeTask.catch(() => {});
+    return writeTask;
   }
 
   async getLibrary() {
@@ -94,7 +128,7 @@ export class JsonSnippetStore {
       return snapshot(this.#data);
     }
     this.#data = { groups: sanitized, updatedAt: new Date().toISOString() };
-    await this.#enqueueWrite();
+    await this.#enqueueWrite(snapshot(this.#data));
     return snapshot(this.#data);
   }
 

@@ -13,6 +13,15 @@ NextPlanner ist ein webbasiertes Tool, mit dem Schwimmtrainer:innen komplette Tr
 - **Planner** (`planner.html`): Kernansicht mit Texteingabe, Syntax-Hilfen, Import-/Export-Funktionen, Validierung und Live-Auswertung.【F:public/planner.html†L1-L165】
 - **Plan-Kalender**, **Vorlagen**, **Einstellungen** und **Backups**: Zusätzliche Ansichten für Terminübersichten, Template-Verwaltung, Editor-Optionen inklusive Highlight-Konfiguration sowie Datensicherung.
 
+## Kalenderübersicht und Planverwaltung
+Der Einstiegspunkt `index.html` bündelt den Plan-Kalender. Er lädt alle gespeicherten Einheiten über die REST-API, ordnet sie nach Datum und visualisiert die Tagesbelegung direkt im Grid.【F:public/js/calendar.js†L214-L335】【F:public/js/calendar.js†L383-L459】 Für ausgewählte Tage zeigt die rechte Spalte jede Einheit inklusive Fokus, optionalen Notizen und drei Aktionen an:
+
+- **Im Planner öffnen** öffnet den gespeicherten Plan mit vollständiger ID im Editor, um Inhalte weiter zu bearbeiten.【F:public/js/calendar.js†L433-L437】
+- **Plan duplizieren** erzeugt einen Planner-Link mit vorbefülltem Datum, Fokus und Startzeit, sodass vorhandene Workouts schnell an neue Termine angepasst werden können.【F:public/js/calendar.js†L345-L365】【F:public/js/calendar.js†L439-L443】
+- **Plan löschen** blendet eine Sicherheitsabfrage ein und sendet anschließend einen HEAD- und DELETE-Request an `/api/plans/{id}`. Der HEAD-Aufruf speichert den aktuellen ETag, der DELETE-Request nutzt ihn automatisch im `If-Match`-Header. Nach erfolgreicher Antwort wird der lokale Zustand aktualisiert, die Kalenderansicht neu gerendert und der Statusbereich informiert über den entfernten Plan.【F:public/js/calendar.js†L50-L127】【F:public/js/calendar.js†L445-L455】
+
+Fehlgeschlagene Löschversuche (z. B. wegen Offline-Betrieb oder ETag-Konflikten) werden im Statusbereich prominent als Warnung bzw. Fehler ausgegeben, während 404-Antworten die Übersicht ohne Abbruch synchronisieren. Der farblich hervorgehobene Button nutzt die neue `danger-button`-Klasse für eine deutliche Abgrenzung gegenüber den sekundären Aktionen.【F:public/js/calendar.js†L112-L124】【F:public/css/main.css†L203-L230】
+
 ## Der Plan Builder im Detail
 Der Plan Builder setzt sich aus mehreren Modulen zusammen, die den eingegebenen Freitext analysieren, aggregieren und visualisieren:
 
@@ -41,6 +50,7 @@ Der Syntax-Highlighter markiert Trainingsbestandteile inline, ohne den Eingabete
 Das Schnellbaustein-Panel stellt konfigurierbare Textfragmente bereit:
 - Beim Einfügen sorgt `applySnippet` dafür, dass erforderliche Leerzeilen, Cursorpositionen und eventuelle Platzhalter korrekt gesetzt werden.【F:public/js/ui/quick-snippets.js†L11-L48】
 - Die Initialisierung lädt lokale Snippet-Gruppen, synchronisiert optional eine Team-Bibliothek und rendert klickbare Buttons für jede Vorlage.【F:public/js/ui/quick-snippets.js†L50-L137】 Durch einen Klick wird der Snippet-Text eingefügt und der Parser erneut ausgelöst.
+- Über die Einstellungen kannst du die Team-Bibliothek laden bzw. freigeben. Der Server bereinigt jeden Stand (`sanitizeQuickSnippetGroups`), schreibt ihn in `data/team-snippets.json` und versieht ihn mit einem ISO-Zeitstempel (`updatedAt`).【F:public/js/settings.js†L224-L288】【F:server/stores/json-snippet-store.js†L9-L123】
 
 ## Import, Export und Speichern
 - **Dateioperationen:** Die IO-Steuerung erlaubt Importe von Text-, Markdown- oder HTML-Dateien und exportiert den aktuellen Plan als Markdown oder Word (HTML) via Blob-Download.【F:public/js/ui/io-controls.js†L1-L100】
@@ -53,7 +63,7 @@ Das Schnellbaustein-Panel stellt konfigurierbare Textfragmente bereit:
 - In `templates.html` können Vorlagen gruppiert angezeigt, durchsucht, editiert, gelöscht oder exportiert werden.【F:public/js/templates.js†L1-L120】
 
 ## Speicherorte und Automatisierung
-Gespeicherte Pläne landen in `data/plans.json`, Schnellbausteine in `data/team-snippets.json`. Beide Dateien werden bei Bedarf erzeugt und vom Repository ausgeschlossen.【F:README.md†L85-L148】 Über die Plan-CLI lassen sich Pläne hinzufügen, filtern, anzeigen oder löschen – sie nutzt dieselben JSON-Daten wie die Weboberfläche.【F:README.md†L128-L148】
+Gespeicherte Pläne landen in `data/plans.json`, Schnellbausteine in `data/team-snippets.json`. Beide Dateien werden bei Bedarf erzeugt und vom Repository ausgeschlossen.【F:README.md†L85-L161】 Die Snippet-Datei besteht immer aus einem Snapshot `{ updatedAt, groups }`, der serverseitig normalisiert wird; so bleiben kollaborative Änderungen konsistent und versionsfähig.【F:server/stores/json-snippet-store.js†L9-L153】 Über die Plan-CLI lassen sich Pläne hinzufügen, filtern, anzeigen oder löschen – sie nutzt dieselben JSON-Daten wie die Weboberfläche.【F:README.md†L128-L148】
 
 ## Troubleshooting
 - Stellt der Speicherdialog eine Offline-Verbindung fest, prüfe, ob der lokale Server läuft (`npm start`).【F:public/js/ui/plan-save-dialog.js†L109-L132】

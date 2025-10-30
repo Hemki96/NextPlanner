@@ -47,6 +47,86 @@ let plans = [];
 let plansByDate = new Map();
 let mostRecentPlan = null;
 
+function describePlanForMessages(plan, dateKey) {
+  const parts = [];
+  const title = plan?.title?.trim();
+  if (title) {
+    parts.push(`„${title}“`);
+  }
+  const label = dateKey ? formatDateLabel(dateKey) : null;
+  if (label) {
+    parts.push(`(${label})`);
+  }
+  return parts.join(" ");
+}
+
+function confirmPlanDeletion(plan, dateKey) {
+  if (typeof window === "undefined" || typeof window.confirm !== "function") {
+    return true;
+  }
+  const label = describePlanForMessages(plan, dateKey);
+  const message = label
+    ? `Möchtest du den Plan ${label} dauerhaft löschen? Dieser Schritt kann nicht rückgängig gemacht werden.`
+    : "Möchtest du diesen Plan dauerhaft löschen? Dieser Schritt kann nicht rückgängig gemacht werden.";
+  return window.confirm(message);
+}
+
+function removePlanFromState(planId) {
+  plans = plans.filter((entry) => entry.id !== planId);
+  buildIndex();
+  mostRecentPlan =
+    plans
+      .slice()
+      .sort((a, b) => new Date(b.planDate).getTime() - new Date(a.planDate).getTime())[0] ?? null;
+}
+
+async function requestPlanDeletion(plan, dateKey, button) {
+  if (!plan?.id) {
+    return;
+  }
+  if (!canUseApi()) {
+    setStatus(
+      "Zum Löschen wird der lokale NextPlanner-Server benötigt. Bitte 'npm start' ausführen und die Seite über http://localhost:3000 öffnen.",
+      "warning",
+    );
+    return;
+  }
+  if (!confirmPlanDeletion(plan, dateKey)) {
+    return;
+  }
+
+  setStatus("Plan wird gelöscht…", "info");
+  button.disabled = true;
+  const endpoint = `/api/plans/${encodeURIComponent(plan.id)}`;
+
+  try {
+    await apiRequest(endpoint, { method: "HEAD" });
+    await apiRequest(endpoint, { method: "DELETE" });
+    removePlanFromState(plan.id);
+    renderCalendar();
+    renderPlanList(selectedDateKey);
+    updateCopyLastButton(selectedDateKey);
+    const label = describePlanForMessages(plan, isoToDateKey(plan.planDate) ?? dateKey);
+    const message = label ? `Plan ${label} wurde gelöscht.` : "Plan wurde gelöscht.";
+    setStatus(message, "success");
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      removePlanFromState(plan.id);
+      renderCalendar();
+      renderPlanList(selectedDateKey);
+      updateCopyLastButton(selectedDateKey);
+      setStatus("Plan war bereits entfernt – Ansicht aktualisiert.", "info");
+    } else {
+      console.error("Plan konnte nicht gelöscht werden", error);
+      const message = describeApiError(error);
+      const statusType = error instanceof ApiError && error.offline ? "warning" : "error";
+      setStatus(`Plan konnte nicht gelöscht werden: ${message}`, statusType);
+    }
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function startOfMonth(date) {
   return new Date(date.getFullYear(), date.getMonth(), 1);
 }
@@ -361,6 +441,18 @@ function renderPlanList(dateKey) {
     duplicateLink.href = buildDuplicateUrl(plan, dateKey);
     duplicateLink.textContent = "Plan duplizieren";
     actions.append(duplicateLink);
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "danger-button plan-entry-link";
+    deleteButton.textContent = "Plan löschen";
+    deleteButton.addEventListener("click", () => {
+      requestPlanDeletion(plan, dateKey, deleteButton).catch((error) => {
+        console.error("Unerwarteter Fehler beim Löschen eines Plans", error);
+        setStatus("Unerwarteter Fehler beim Löschen des Plans.", "error");
+      });
+    });
+    actions.append(deleteButton);
 
     entry.append(actions);
     planList.append(entry);

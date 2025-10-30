@@ -23,10 +23,12 @@ Implementiert in `server/stores/json-plan-store.js`.
 
 Implementiert in `server/stores/json-snippet-store.js`.
 
-- **Initialdaten**: Startet mit den Standard-Gruppen aus `public/js/utils/snippet-storage.js`.
-- **Validierung**: Eingaben werden über `sanitizeQuickSnippetGroups` normalisiert (Trimmen, Entfernen leerer Einträge).
-- **Persistenz**: Schreibt synchronisierte Bibliotheken in `team-snippets.json` (inkl. `updatedAt`).
-- **Write-Queue**: Auch hier verhindert eine Promise-Kette konkurrierende Schreiboperationen.
+- **Initialdaten & Bootstrap**: Legt `data/team-snippets.json` mit einer bereinigten Kopie der Standardgruppen sowie aktuellem `updatedAt`-Zeitstempel an, falls die Datei fehlt oder leer ist.
+- **Sanitizing beim Laden**: Bereits vorhandene Dateien werden eingelesen, per `sanitizeQuickSnippetGroups` normalisiert und bei Abweichungen sofort wieder persistiert (z. B. wenn Felder fehlen oder der Zeitstempel kein gültiges ISO-Format hat).
+- **API-konformes Format**: Jeder Snapshot besteht aus `{ updatedAt, groups }`. `updatedAt` ist stets ein ISO-String (`toISOString()`), Gruppen enthalten nur gültige Felder (`title`, `description`, `items[*].label/snippet/...`).
+- **Schreibreihenfolge**: `replaceLibrary()` erstellt vor dem Persistieren einen Snapshot und reiht ihn über eine Promise-Queue ein. So bleiben parallele Aufrufe deterministisch und jede Datei entspricht exakt dem angefragten Stand.
+- **No-Op-Erkennung**: Identische Nutzlasten werden per `isDeepStrictEqual` verworfen – der Store liefert lediglich den aktuellen Snapshot zurück, ohne erneut zu schreiben oder `updatedAt` zu verändern.
+- **Störfallverhalten**: Ungültige JSON-Dateien (Syntaxfehler, falscher Root-Typ) werden protokolliert und durch eine frische Standardbibliothek ersetzt, damit der Server immer eine konsistente Bibliothek ausliefern kann.
 
 ## Backups
 

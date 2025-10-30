@@ -15,6 +15,7 @@ direkt beim Tippen berechnet.
 - **Syntax-Hinweise** – ein Hinweis-Button öffnet eine kompakte Dokumentation aller Kürzel,
   Formatierungen und Intensitätsstufen.
 - **Speichern & Export** – sichere Pläne über die lokale JSON-Datenbank inklusive Metadaten und exportiere Workouts zusätzlich als Markdown- oder Word-Datei.
+- **Plan-Kalender** – verwalte gespeicherte Trainingseinheiten übersichtlich, öffne sie im Planner, dupliziere Termine oder lösche veraltete Pläne direkt in der Übersicht.
 - **Responsive Layout** – zweigeteilte Ansicht für große Bildschirme, einspaltige Darstellung
   auf Tablets und Smartphones.
 
@@ -82,7 +83,7 @@ Du hast zwei gleichwertige Möglichkeiten, die Anwendung während der Entwicklun
 
 ### 8. Häufige Fragen
 
-- **Wo liegen die lokalen Datendateien?** – Die Anwendung legt `data/plans.json` (Pläne) und `data/team-snippets.json` (Schnellbausteine) bei Bedarf automatisch an; beide Pfade sind in `.gitignore` ausgeschlossen.
+- **Wo liegen die lokalen Datendateien?** – Die Anwendung legt `data/plans.json` (Pläne) und `data/team-snippets.json` (Schnellbausteine) bei Bedarf automatisch an; beide Pfade sind in `.gitignore` ausgeschlossen. Die Snippet-Datei enthält immer ein gültiges `{ updatedAt, groups }`-Objekt und wird beim Laden automatisch saniert.
 - **Warum schlägt „Plan speichern“ fehl?** – Stelle sicher, dass `npm start` läuft. Ohne Server kann die App nicht auf das Dateisystem zugreifen.
 - **Wie ändere ich die Port-Konfiguration?** – Passe den Port in `server/server.js` an oder setze die Umgebungsvariable `PORT` (z. B. `PORT=4000 npm start`).
 - **Kann ich Tests debuggen?** – Ja. Verwende in der Run-&-Debug-Ansicht die Konfiguration „Node.js: Launch via NPM“, wähle `test` als Script und setze Breakpoints in deinen Testdateien unter `tests/`.
@@ -112,6 +113,7 @@ Du hast zwei gleichwertige Möglichkeiten, die Anwendung während der Entwicklun
 3. Speichere fertige Pläne inklusive Datum und Fokus über „Plan speichern“ – dafür muss der integrierte Server laufen.
 4. Öffne über den Button „Hinweise & Syntax“ die kompakte Dokumentation.
 5. Beobachte auf der rechten Seite die automatisch aktualisierten Kennzahlen und Blockübersichten und exportiere Ergebnisse als JSON, Markdown oder Word-Datei.
+6. Verwalte gespeicherte Pläne im Kalender (`index.html`): Öffne Trainingseinheiten erneut im Planner, dupliziere sie für neue Termine oder lösche Einträge direkt über den Button „Plan löschen“ (setzt einen aktuellen ETag voraus).
 
 ## Pläne mit Metadaten lokal speichern
 
@@ -146,6 +148,13 @@ ist vom Repository ausgeschlossen). Zusätzlich erzeugt die Team-Snippet-Bibliot
 4. Weitere Befehle stehen über `npm run plan:cli -- --help` zur Verfügung (u. a. `show`, `update`, `delete`).
 
 Die CLI und der integrierte Server greifen auf dieselbe JSON-Datei zu wie die Weboberfläche. So kannst du Pläne samt Fokus und Metadaten konsistent erfassen, versionieren und später wiederverwenden. Für Automatisierungen oder Versionskontrolle eignet sich die CLI, während der Speicher-Button schnelle lokale Backups ermöglicht.
+
+### Team-Snippet-Bibliothek synchronisieren
+
+1. Aktiviere in den Einstellungen die Option **Team-Bibliothek** und stelle sicher, dass der Server (`npm start`) läuft.
+2. Über **Team-Bibliothek laden** liest NextPlanner die persistente Datei `data/team-snippets.json`, saniert sie serverseitig und zeigt `updatedAt` zur Versionskontrolle an.
+3. Passe deine lokalen Schnellbausteine an und wähle anschließend **Team-Bibliothek freigeben**. Der Server ersetzt die komplette Bibliothek, erzeugt einen neuen ISO-Zeitstempel und schreibt den Snapshot serialisiert auf die Festplatte.
+4. Gleichzeitige Schreibvorgänge werden sequenziell abgearbeitet; identische Nutzlasten führen zu keinem erneuten Write und behalten den bestehenden Zeitstempel bei.
 
 ## Import & Export
 
