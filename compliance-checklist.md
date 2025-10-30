@@ -52,13 +52,13 @@ Diese Liste spiegelt den Umsetzungsstand der Spezifikation wider. Für jede Vorg
 
 ## 11. Datenmodelle & Validierung
 - [x] Plan-Schema: Pflichtfelder + Metadaten geprüft im `JsonPlanStore`.
-- [x] Snippet-Bibliothek wird in `JsonSnippetStore` bereinigt (`sanitizeQuickSnippetGroups`).
+- [x] Snippet-Bibliothek wird in `JsonSnippetStore` bereinigt (`sanitizeQuickSnippetGroups`) und als `{ updatedAt, groups }` bereitgestellt.
 - [x] Geteilte Regeln (Parser & Stores) nutzen gemeinsame Hilfsfunktionen (`public/js/utils/snippet-storage.js`).
 
 ## 12. Persistenz (JsonPlanStore & JsonSnippetStore)
 - [x] Atomare Writes über temporäre Dateien, `fsync` und Rename (`JsonPlanStore.#writeFileAtomically`).
-- [x] Write-Queue verhindert parallele Schreibzugriffe (`#writeQueue`).
-- [x] Backups/Korruptionsschutz: defekte Dateien werden isoliert, `data/backups/` existiert inkl. `.gitkeep`.
+- [x] Write-Queue verhindert parallele Schreibzugriffe (`#writeQueue`), Snippet-Store schreibt Snapshots deterministisch.
+- [x] Backups/Korruptionsschutz: defekte Dateien werden isoliert, `data/backups/` existiert inkl. `.gitkeep`; Snippet-Dateien werden bei Fehlern neu aufgebaut.
 
 ## 13. ETag/If-Match
 - [x] Starke ETags (SHA-256 über kanonische JSON-Repräsentation).

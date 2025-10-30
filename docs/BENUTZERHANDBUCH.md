@@ -41,6 +41,7 @@ Der Syntax-Highlighter markiert Trainingsbestandteile inline, ohne den Eingabete
 Das Schnellbaustein-Panel stellt konfigurierbare Textfragmente bereit:
 - Beim Einfügen sorgt `applySnippet` dafür, dass erforderliche Leerzeilen, Cursorpositionen und eventuelle Platzhalter korrekt gesetzt werden.【F:public/js/ui/quick-snippets.js†L11-L48】
 - Die Initialisierung lädt lokale Snippet-Gruppen, synchronisiert optional eine Team-Bibliothek und rendert klickbare Buttons für jede Vorlage.【F:public/js/ui/quick-snippets.js†L50-L137】 Durch einen Klick wird der Snippet-Text eingefügt und der Parser erneut ausgelöst.
+- Über die Einstellungen kannst du die Team-Bibliothek laden bzw. freigeben. Der Server bereinigt jeden Stand (`sanitizeQuickSnippetGroups`), schreibt ihn in `data/team-snippets.json` und versieht ihn mit einem ISO-Zeitstempel (`updatedAt`).【F:public/js/settings.js†L224-L288】【F:server/stores/json-snippet-store.js†L9-L123】
 
 ## Import, Export und Speichern
 - **Dateioperationen:** Die IO-Steuerung erlaubt Importe von Text-, Markdown- oder HTML-Dateien und exportiert den aktuellen Plan als Markdown oder Word (HTML) via Blob-Download.【F:public/js/ui/io-controls.js†L1-L100】
@@ -53,7 +54,7 @@ Das Schnellbaustein-Panel stellt konfigurierbare Textfragmente bereit:
 - In `templates.html` können Vorlagen gruppiert angezeigt, durchsucht, editiert, gelöscht oder exportiert werden.【F:public/js/templates.js†L1-L120】
 
 ## Speicherorte und Automatisierung
-Gespeicherte Pläne landen in `data/plans.json`, Schnellbausteine in `data/team-snippets.json`. Beide Dateien werden bei Bedarf erzeugt und vom Repository ausgeschlossen.【F:README.md†L85-L148】 Über die Plan-CLI lassen sich Pläne hinzufügen, filtern, anzeigen oder löschen – sie nutzt dieselben JSON-Daten wie die Weboberfläche.【F:README.md†L128-L148】
+Gespeicherte Pläne landen in `data/plans.json`, Schnellbausteine in `data/team-snippets.json`. Beide Dateien werden bei Bedarf erzeugt und vom Repository ausgeschlossen.【F:README.md†L85-L161】 Die Snippet-Datei besteht immer aus einem Snapshot `{ updatedAt, groups }`, der serverseitig normalisiert wird; so bleiben kollaborative Änderungen konsistent und versionsfähig.【F:server/stores/json-snippet-store.js†L9-L153】 Über die Plan-CLI lassen sich Pläne hinzufügen, filtern, anzeigen oder löschen – sie nutzt dieselben JSON-Daten wie die Weboberfläche.【F:README.md†L128-L148】
 
 ## Troubleshooting
 - Stellt der Speicherdialog eine Offline-Verbindung fest, prüfe, ob der lokale Server läuft (`npm start`).【F:public/js/ui/plan-save-dialog.js†L109-L132】

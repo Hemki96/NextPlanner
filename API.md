@@ -97,15 +97,16 @@ Löscht einen Plan. Ebenfalls `If-Match`-pflichtig.
 
 Liefert die Team-Snippet-Bibliothek.
 
-- `200 OK` mit `{ "updatedAt", "groups" }`.
-- `503`, wenn der Snippet-Store nicht verfügbar ist.
+- `200 OK` mit `{ "updatedAt", "groups" }`. `updatedAt` ist immer ein ISO-String (`toISOString()`); `groups` wurde serverseitig über `sanitizeQuickSnippetGroups` normalisiert.
+- `503`, wenn der Snippet-Store nicht verfügbar ist oder deaktiviert wurde.
 
 ## `PUT /api/snippets`
 
 Ersetzt die Team-Snippets vollständig.
 
-- Erwartet `{ groups: [...] }` oder direkt ein Array von Gruppen.
-- `200 OK` mit bereinigter Bibliothek.
+- Erwartet `{ groups: [...] }` oder direkt ein Array von Gruppen. Jede Anfrage wird sanitisiert; fehlende Felder erhalten Default-Werte, leere Gruppen werden entfernt.
+- `200 OK` mit bereinigter Bibliothek. `updatedAt` erhöht sich nur bei tatsächlichen Änderungen – No-Ops liefern den bisherigen Snapshot.
+- `400`, wenn keine Array-Struktur erkannt wird (`error.code = "invalid-snippet-payload"`).
 
 ## `GET /api/backups`
 
