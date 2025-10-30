@@ -15,6 +15,7 @@ direkt beim Tippen berechnet.
 - **Syntax-Hinweise** – ein Hinweis-Button öffnet eine kompakte Dokumentation aller Kürzel,
   Formatierungen und Intensitätsstufen.
 - **Speichern & Export** – sichere Pläne über die lokale JSON-Datenbank inklusive Metadaten und exportiere Workouts zusätzlich als Markdown- oder Word-Datei.
+- **Plan-Kalender** – verwalte gespeicherte Trainingseinheiten übersichtlich, öffne sie im Planner, dupliziere Termine oder lösche veraltete Pläne direkt in der Übersicht.
 - **Responsive Layout** – zweigeteilte Ansicht für große Bildschirme, einspaltige Darstellung
   auf Tablets und Smartphones.
 
@@ -112,6 +113,7 @@ Du hast zwei gleichwertige Möglichkeiten, die Anwendung während der Entwicklun
 3. Speichere fertige Pläne inklusive Datum und Fokus über „Plan speichern“ – dafür muss der integrierte Server laufen.
 4. Öffne über den Button „Hinweise & Syntax“ die kompakte Dokumentation.
 5. Beobachte auf der rechten Seite die automatisch aktualisierten Kennzahlen und Blockübersichten und exportiere Ergebnisse als JSON, Markdown oder Word-Datei.
+6. Verwalte gespeicherte Pläne im Kalender (`index.html`): Öffne Trainingseinheiten erneut im Planner, dupliziere sie für neue Termine oder lösche Einträge direkt über den Button „Plan löschen“ (setzt einen aktuellen ETag voraus).
 
 ## Pläne mit Metadaten lokal speichern
 
