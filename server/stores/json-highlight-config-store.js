@@ -1,19 +1,18 @@
 import { promises as fs } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 
 import {
   defaultEquipmentItems,
   defaultIntensityCodes,
 } from "../../public/js/config/constants.js";
+import { DATA_DIR } from "../config.js";
+import { logger } from "../logger.js";
 
-const DATA_DIR = "data";
 const DEFAULT_FILE_NAME = "highlight-config.json";
 
 function resolveDefaultFile() {
-  const currentDir = dirname(fileURLToPath(import.meta.url));
-  return join(currentDir, "..", "..", DATA_DIR, DEFAULT_FILE_NAME);
+  return join(DATA_DIR, DEFAULT_FILE_NAME);
 }
 
 async function ensureDirectory(filePath) {
@@ -152,7 +151,7 @@ export class JsonHighlightConfigStore {
       }
     } catch (error) {
       if (error?.code !== "ENOENT") {
-        console.warn("Konnte Highlight-Konfiguration nicht lesen", error);
+        logger.warn("Konnte Highlight-Konfiguration nicht lesen: %s", error);
       }
       this.#data = {
         ...sanitizeConfig(DEFAULT_CONFIG),
@@ -164,15 +163,11 @@ export class JsonHighlightConfigStore {
 
   async #persist(data = this.#data) {
     await ensureDirectory(this.#file);
-    const payload = JSON.stringify(
-      {
-        intensities: data.intensities,
-        equipment: data.equipment,
-        updatedAt: data.updatedAt,
-      },
-      null,
-      2,
-    );
+    const payload = JSON.stringify({
+      intensities: data.intensities,
+      equipment: data.equipment,
+      updatedAt: data.updatedAt,
+    });
     await fs.writeFile(this.#file, payload, "utf8");
   }
 
@@ -214,6 +209,23 @@ export class JsonHighlightConfigStore {
     };
     await this.#enqueueWrite(this.#data);
     return snapshot(this.#data);
+  }
+
+  async checkHealth() {
+    if (this.#closed) {
+      throw new Error("Highlight config store is closed");
+    }
+    await this.#ready;
+    return {
+      storageFile: this.#file,
+      intensityCount: Array.isArray(this.#data?.intensities)
+        ? this.#data.intensities.length
+        : 0,
+      equipmentCount: Array.isArray(this.#data?.equipment)
+        ? this.#data.equipment.length
+        : 0,
+      updatedAt: this.#data?.updatedAt ?? null,
+    };
   }
 
   async close() {
