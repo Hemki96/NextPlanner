@@ -52,14 +52,20 @@ function applySnippet(textarea, item) {
   textarea.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
-export function initQuickSnippets({ container, textarea }) {
+export function initQuickSnippets({
+  container,
+  textarea,
+  teamLibraryEnabled = true,
+} = {}) {
   if (!container || !textarea) {
     return;
   }
 
   let snippetGroups = getQuickSnippets();
   let serializedGroups = JSON.stringify(snippetGroups);
-  const quickSnippetServerEnabled = quickSnippetPersistenceSupported();
+  let quickSnippetServerEnabled = quickSnippetPersistenceSupported();
+  const teamLibraryAvailable = teamLibraryEnabled && teamLibrarySupported();
+  let allowTeamLibrarySync = teamLibraryAvailable && !quickSnippetServerEnabled;
 
   function render(groups) {
     container.innerHTML = "";
@@ -127,11 +133,18 @@ export function initQuickSnippets({ container, textarea }) {
       saveQuickSnippets(sanitized);
     } catch (error) {
       console.warn("Schnellbausteine konnten nicht vom Server geladen werden.", error);
+      if (error?.status === 404 || error?.status === 405 || error?.status === 501) {
+        quickSnippetServerEnabled = false;
+        allowTeamLibrarySync = teamLibraryAvailable;
+        if (allowTeamLibrarySync) {
+          syncTeamLibrary();
+        }
+      }
     }
   }
 
   async function syncTeamLibrary() {
-    if (!teamLibrarySupported()) {
+    if (!allowTeamLibrarySync) {
       return;
     }
 
