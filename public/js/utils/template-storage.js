@@ -1,4 +1,4 @@
-const STORAGE_KEY = "swimPlanner.templates.v1";
+const API_ENDPOINT = "/api/templates";
 
 export const TEMPLATE_TYPES = [
   { value: "Set", label: "Set" },
@@ -6,20 +6,7 @@ export const TEMPLATE_TYPES = [
   { value: "Block", label: "Block" },
 ];
 
-function hasLocalStorage() {
-  try {
-    return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
-  } catch (error) {
-    return false;
-  }
-}
-
-function generateId() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
-}
+let cachedTemplates = [];
 
 function normalizeTags(value) {
   if (Array.isArray(value)) {
@@ -33,100 +20,155 @@ function normalizeTags(value) {
     );
   }
   if (typeof value === "string") {
-    return Array.from(
-      new Set(
-        value
-          .split(/[;,]/)
-          .map((item) => item.trim())
-          .filter(Boolean),
-      ),
-    );
+    return normalizeTags(value.split(/[;,]/));
   }
   return [];
+}
+
+function coerceTemplateType(value) {
+  if (typeof value !== "string") {
+    return "Set";
+  }
+  const trimmed = value.trim();
+  return TEMPLATE_TYPES.some((entry) => entry.value === trimmed) ? trimmed : "Set";
 }
 
 function sanitizeTemplate(raw) {
   if (!raw || typeof raw !== "object") {
     return null;
   }
-
-  const id = typeof raw.id === "string" && raw.id.trim() ? raw.id : generateId();
-  const type = TEMPLATE_TYPES.some((item) => item.value === raw.type) ? raw.type : "Set";
-  const titleValue = typeof raw.title === "string" ? raw.title.trim() : "";
-  const title = titleValue || "Unbenannte Vorlage";
+  const id = typeof raw.id === "string" && raw.id.trim() ? raw.id : null;
+  if (!id) {
+    return null;
+  }
+  const type = coerceTemplateType(raw.type);
+  const title = typeof raw.title === "string" && raw.title.trim() ? raw.title.trim() : "Unbenannte Vorlage";
   const notes = typeof raw.notes === "string" ? raw.notes : "";
   const content = typeof raw.content === "string" ? raw.content : "";
-  const tags = normalizeTags(raw.tags);
-
   if (!content.trim()) {
     return null;
   }
-
-  return { id, type, title, notes, content, tags };
+  const tags = normalizeTags(raw.tags);
+  const createdAt = typeof raw.createdAt === "string" ? raw.createdAt : null;
+  const updatedAt = typeof raw.updatedAt === "string" ? raw.updatedAt : null;
+  return {
+    id,
+    type,
+    title,
+    notes,
+    content,
+    tags,
+    createdAt,
+    updatedAt,
+  };
 }
 
-export function loadTemplates() {
-  if (!hasLocalStorage()) {
-    return [];
+function buildPayload(data) {
+  const type = coerceTemplateType(data?.type);
+  const title = typeof data?.title === "string" && data.title.trim() ? data.title.trim() : "Unbenannte Vorlage";
+  const notes = typeof data?.notes === "string" ? data.notes : "";
+  const content = typeof data?.content === "string" ? data.content.trim() : "";
+  if (!content) {
+    throw new Error("Der Vorlagentext darf nicht leer sein.");
   }
+  const tags = normalizeTags(data?.tags ?? []);
+  return { type, title, notes, content, tags };
+}
 
-  const stored = window.localStorage.getItem(STORAGE_KEY);
-  if (!stored) {
-    return [];
+async function request(method, path = "", payload) {
+  const options = {
+    method,
+    headers: {
+      Accept: "application/json",
+    },
+  };
+  if (payload !== undefined) {
+    options.headers["Content-Type"] = "application/json";
+    options.body = JSON.stringify(payload);
   }
-
-  try {
-    const parsed = JSON.parse(stored);
-    if (!Array.isArray(parsed)) {
-      return [];
+  const response = await fetch(`${API_ENDPOINT}${path}`, options);
+  let data = null;
+  let text = null;
+  if (response.status !== 204) {
+    try {
+      text = await response.text();
+      data = text ? JSON.parse(text) : null;
+    } catch (error) {
+      console.warn("Konnte Antwort nicht als JSON lesen", error);
     }
-    return parsed
-      .map((item) => sanitizeTemplate(item))
-      .filter((item) => item !== null);
+  }
+  if (!response.ok) {
+    const message =
+      (data && data.error && data.error.message) ||
+      text ||
+      `Anfrage fehlgeschlagen (${response.status})`;
+    const error = new Error(message);
+    error.status = response.status;
+    error.payload = data;
+    throw error;
+  }
+  return { data, headers: response.headers };
+}
+
+function dispatchTemplatesUpdated(detail = {}) {
+  try {
+    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+      window.dispatchEvent(new CustomEvent("nextplanner:templates-updated", { detail }));
+    }
   } catch (error) {
-    return [];
+    console.warn("Konnte Template-Update-Ereignis nicht auslösen", error);
   }
 }
 
-export function persistTemplates(templates) {
-  const sanitized = Array.isArray(templates)
-    ? templates
+export async function loadTemplates() {
+  const { data } = await request("GET");
+  const sanitized = Array.isArray(data)
+    ? data
         .map((item) => sanitizeTemplate(item))
         .filter((item) => item !== null)
     : [];
-
-  if (hasLocalStorage()) {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
-    try {
-      if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
-        const detail = { count: sanitized.length };
-        window.dispatchEvent(new CustomEvent("nextplanner:templates-updated", { detail }));
-      }
-    } catch (error) {
-      console.warn("Konnte Template-Update-Ereignis nicht auslösen", error);
-    }
-  }
-
-  return sanitized;
+  cachedTemplates = sanitized;
+  return [...cachedTemplates];
 }
 
-export function createTemplateRecord(data) {
-  return sanitizeTemplate({ ...data, id: data?.id ?? generateId() });
-}
-
-export function appendTemplate(template) {
-  const current = loadTemplates();
-  const record = createTemplateRecord(template);
+export async function createTemplate(data) {
+  const payload = buildPayload(data);
+  const { data: created, headers } = await request("POST", "", payload);
+  const record = sanitizeTemplate(created);
   if (!record) {
-    return current;
+    throw new Error("Vorlage konnte nicht gespeichert werden.");
   }
-  const next = [...current, record];
-  persistTemplates(next);
-  return next;
+  cachedTemplates = [...cachedTemplates, record];
+  dispatchTemplatesUpdated({ action: "created", template: record, count: cachedTemplates.length, etag: headers.get("etag") });
+  return record;
+}
+
+export async function updateTemplate(id, data) {
+  const payload = buildPayload(data);
+  const { data: updated, headers } = await request("PUT", `/${encodeURIComponent(id)}`, payload);
+  const record = sanitizeTemplate(updated);
+  if (!record) {
+    throw new Error("Vorlage konnte nicht aktualisiert werden.");
+  }
+  cachedTemplates = cachedTemplates.map((entry) => (entry.id === id ? record : entry));
+  dispatchTemplatesUpdated({ action: "updated", template: record, count: cachedTemplates.length, etag: headers.get("etag") });
+  return record;
+}
+
+export async function deleteTemplate(id) {
+  await request("DELETE", `/${encodeURIComponent(id)}`);
+  const previousLength = cachedTemplates.length;
+  cachedTemplates = cachedTemplates.filter((entry) => entry.id !== id);
+  dispatchTemplatesUpdated({ action: "deleted", id, count: cachedTemplates.length });
+  return previousLength !== cachedTemplates.length;
+}
+
+export async function appendTemplate(data) {
+  return createTemplate(data);
 }
 
 export function parseTagsInput(value) {
-  return normalizeTags(value);
+  return normalizeTags(value ?? "");
 }
 
 export function getTemplateTypeLabel(type) {

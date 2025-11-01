@@ -6,6 +6,7 @@ NextPlanner nutzt JSON-Dateien als langlebige Speicher. Alle Dateien liegen im V
 
 - `data/plans.json` – Hauptspeicher für Trainingspläne.
 - `data/team-snippets.json` – Teamweite Schnellbausteine.
+- `data/templates.json` – Zentraler Speicher für Vorlagen.
 - `data/backups/` – rotierender Ablageort für Sicherungen und isolierte, fehlerhafte Dateien.
 
 ## JsonPlanStore
@@ -70,3 +71,27 @@ Implementiert in `server/stores/json-snippet-store.js`.
 ```
 
 Alle Strings werden beim Import getrimmt; unzulässige Einträge werden verworfen.
+
+## JsonTemplateStore
+
+Implementiert in `server/stores/json-template-store.js`.
+
+- **Speicherformat**: Persistiert ein Array `templates`, jeder Eintrag enthält `id`, `type`, `title`, `notes`, `content`, `tags`, `createdAt` und `updatedAt`. IDs werden als UUID erzeugt.
+- **Normalisierung**: `type` wird auf `Set`, `Runde` oder `Block` begrenzt, Titel/Notizen getrimmt und Tags dedupliziert. Leere Inhalte führen zu einem Validierungsfehler.
+- **Lazy Loading & Write-Queue**: Die Datei wird einmalig geladen (`#loadPromise`) und Schreibvorgänge seriell über eine Promise-Kette (`#writePromise`) abgearbeitet, sodass gleichzeitige Mutationen konsistent bleiben.
+- **Fallbacks**: Fehlende oder ungültige Dateien erzeugen einen leeren Speicher; Syntaxfehler werfen `TemplateValidationError`, der als 400-Fehler an den Client weitergereicht wird.
+
+### Template
+
+```json
+{
+  "id": "f1c8f9c4-5d8f-4e0a-a912-3d1d4c8f9a21",
+  "type": "Block",
+  "title": "Sprintblock",
+  "notes": "Aufwärmen inklusive",
+  "content": "## Sprint\n4×50m All-Out",
+  "tags": ["Sprint", "Kurz"],
+  "createdAt": "2024-06-01T09:00:00.000Z",
+  "updatedAt": "2024-06-01T09:00:00.000Z"
+}
+```
