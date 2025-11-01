@@ -42,10 +42,15 @@ const dom = {
   helpButton: document.getElementById("help-button"),
   helpOverlay: document.getElementById("help-overlay"),
   helpCloseButton: document.getElementById("help-close"),
-  importButton: document.getElementById("import-button"),
-  importInput: document.getElementById("import-input"),
+  ioMenuButton: document.getElementById("plan-io-toggle"),
+  ioMenuPanel: document.getElementById("plan-io-menu"),
+  importMarkdownButton: document.getElementById("import-markdown-button"),
+  importMarkdownInput: document.getElementById("import-markdown-input"),
+  importJsonButton: document.getElementById("import-json-button"),
+  importJsonInput: document.getElementById("import-json-input"),
   exportMarkdownButton: document.getElementById("export-markdown"),
   exportWordButton: document.getElementById("export-word"),
+  exportJsonButton: document.getElementById("export-json"),
   savePlanButton: document.getElementById("save-plan-button"),
   layout: document.querySelector(".layout"),
   quickPanel: document.querySelector(".quick-panel"),
@@ -146,10 +151,15 @@ initHelpOverlay({
 if (plannerToolsEnabled) {
   initIOControls({
     planInput: dom.planInput,
-    importInput: dom.importInput,
-    importButton: dom.importButton,
+    menuButton: dom.ioMenuButton,
+    menuPanel: dom.ioMenuPanel,
+    importMarkdownButton: dom.importMarkdownButton,
+    importMarkdownInput: dom.importMarkdownInput,
+    importJsonButton: dom.importJsonButton,
+    importJsonInput: dom.importJsonInput,
     exportMarkdownButton: dom.exportMarkdownButton,
     exportWordButton: dom.exportWordButton,
+    exportJsonButton: dom.exportJsonButton,
   });
 }
 

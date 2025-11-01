@@ -1400,6 +1400,85 @@ body {
   gap: 0.75rem;
 }
 
+.plan-io-controls {
+  position: relative;
+}
+
+.plan-io-menu {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  min-width: 18rem;
+  background: var(--surface-elevated, #fff);
+  color: var(--text-primary);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 0.75rem;
+  box-shadow: 0 18px 40px -20px rgba(0, 0, 0, 0.4);
+  padding: 1rem;
+  display: grid;
+  gap: 1rem;
+  z-index: 30;
+}
+
+.plan-io-menu[hidden] {
+  display: none;
+}
+
+.plan-io-section {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.plan-io-heading {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.plan-io-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.plan-io-action {
+  border: 1px solid rgba(0, 119, 255, 0.28);
+  background: rgba(0, 119, 255, 0.06);
+  color: var(--text-primary);
+  border-radius: 0.65rem;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease;
+}
+
+.plan-io-action:hover,
+.plan-io-action:focus-visible {
+  background: rgba(0, 119, 255, 0.16);
+  box-shadow: 0 0 0 3px rgba(0, 119, 255, 0.18);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.plan-io-action:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+.plan-io-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
 .quick-snippet-header {
   display: grid;
   gap: 0.35rem;
