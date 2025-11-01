@@ -9,6 +9,7 @@ import { initPlanSaveDialog } from "./ui/plan-save-dialog.js";
 import { initValidationPanel } from "./ui/validation-panel.js";
 import { ApiError, apiRequest, canUseApi, describeApiError } from "./utils/api-client.js";
 import { ensurePlanSkeleton } from "./utils/plan-defaults.js";
+import { loadPlanDraft, savePlanDraft } from "./utils/plan-draft-storage.js";
 import { initTrendReports } from "./ui/trend-reports.js";
 import {
   applyFeatureVisibility,
@@ -53,6 +54,11 @@ const dom = {
   quickPanelExpand: document.getElementById("quick-panel-expand"),
   validationPanel: document.getElementById("validation-panel"),
 };
+
+const initialPlanDraft = loadPlanDraft();
+if (typeof initialPlanDraft === "string" && dom.planInput) {
+  dom.planInput.value = initialPlanDraft;
+}
 
 ensurePlanSkeleton(dom.planInput);
 
@@ -107,7 +113,11 @@ initTrendReports({
  * Liest den aktuellen Text aus dem Eingabefeld, parst ihn und aktualisiert die Anzeige.
  */
 function updateSummary() {
-  const plan = parsePlan(dom.planInput?.value ?? "");
+  const planText = dom.planInput?.value ?? "";
+  if (dom.planInput) {
+    savePlanDraft(planText);
+  }
+  const plan = parsePlan(planText);
   renderSummary(plan, dom);
   validationPanel.update(plan.issues ?? []);
   templateCapture.update(plan);
