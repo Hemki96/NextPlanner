@@ -1,9 +1,10 @@
 import { constants, promises as fs } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 
-const DATA_DIR = "data";
+import { DATA_DIR } from "../config.js";
+import { logger } from "../logger.js";
+
 const DEFAULT_FILE_NAME = "plans.json";
 const BACKUP_FORMAT_ID = "nextplanner/plan-backup";
 const BACKUP_VERSION = 1;
@@ -38,8 +39,7 @@ async function ensureDirectory(filePath) {
 }
 
 function resolveDefaultFile() {
-  const currentDir = dirname(fileURLToPath(import.meta.url));
-  return join(currentDir, "..", "..", DATA_DIR, DEFAULT_FILE_NAME);
+  return join(DATA_DIR, DEFAULT_FILE_NAME);
 }
 
 function toIsoDate(input) {
@@ -308,7 +308,7 @@ export class JsonPlanStore {
     const dir = dirname(this.#file);
     const base = basename(this.#file);
     const tempFile = join(dir, `.${base}.${process.pid}.${Date.now()}.tmp`);
-    const payload = JSON.stringify(data, null, 2);
+    const payload = JSON.stringify(data);
 
     let handle;
     try {
@@ -396,8 +396,9 @@ export class JsonPlanStore {
       return;
     }
     this.#dirFsyncWarned = true;
-    console.warn(
-      `Directory fsync is not supported on this platform. Continuing without fsync for '${dir}'.`
+    logger.warn(
+      "Directory fsync is not supported on this platform. Continuing without fsync for '%s'.",
+      dir
     );
   }
 
@@ -605,6 +606,21 @@ export class JsonPlanStore {
     });
     await this.#writeToDisk();
     return { planCount: this.#data.plans.length };
+  }
+
+  async checkHealth() {
+    await this.#ready;
+    if (this.#closing || this.#closed) {
+      throw new Error("Plan store is shutting down");
+    }
+    if (this.#integrityIssue) {
+      throw this.#integrityIssue;
+    }
+    return {
+      storageFile: this.#file,
+      planCount: Array.isArray(this.#data?.plans) ? this.#data.plans.length : 0,
+      nextId: this.#data?.nextId ?? null,
+    };
   }
 
   async close() {

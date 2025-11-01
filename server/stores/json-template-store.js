@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 
-const DATA_DIR = "data";
+import { DATA_DIR } from "../config.js";
+
 const DEFAULT_FILE_NAME = "templates.json";
 
 export class TemplateValidationError extends Error {
@@ -14,8 +14,7 @@ export class TemplateValidationError extends Error {
 }
 
 function resolveDefaultFile() {
-  const currentDir = dirname(fileURLToPath(import.meta.url));
-  return join(currentDir, "..", "..", DATA_DIR, DEFAULT_FILE_NAME);
+  return join(DATA_DIR, DEFAULT_FILE_NAME);
 }
 
 async function ensureDirectory(filePath) {
@@ -177,16 +176,12 @@ export class JsonTemplateStore {
     const data = await this.#load();
     const write = async () => {
       await ensureDirectory(this.#storageFile);
-      const payload = JSON.stringify(
-        {
-          templates: data.templates.map((template) => ({
-            ...template,
-            tags: Array.isArray(template.tags) ? template.tags : [],
-          })),
-        },
-        null,
-        2,
-      );
+      const payload = JSON.stringify({
+        templates: data.templates.map((template) => ({
+          ...template,
+          tags: Array.isArray(template.tags) ? template.tags : [],
+        })),
+      });
       await fs.writeFile(this.#storageFile, `${payload}\n`, "utf8");
     };
     this.#writePromise = this.#writePromise.then(write, write);
@@ -242,6 +237,14 @@ export class JsonTemplateStore {
     data.templates.splice(index, 1);
     await this.#save();
     return true;
+  }
+
+  async checkHealth() {
+    const data = await this.#load();
+    return {
+      storageFile: this.#storageFile,
+      templateCount: Array.isArray(data?.templates) ? data.templates.length : 0,
+    };
   }
 
   async close() {

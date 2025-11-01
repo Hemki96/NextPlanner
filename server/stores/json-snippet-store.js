@@ -1,19 +1,18 @@
 import { promises as fs } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 
 import {
   defaultQuickSnippetGroups,
   sanitizeQuickSnippetGroups,
 } from "../../public/js/utils/snippet-storage.js";
+import { DATA_DIR } from "../config.js";
+import { logger } from "../logger.js";
 
-const DATA_DIR = "data";
 const DEFAULT_FILE_NAME = "team-snippets.json";
 
 function resolveDefaultFile() {
-  const currentDir = dirname(fileURLToPath(import.meta.url));
-  return join(currentDir, "..", "..", DATA_DIR, DEFAULT_FILE_NAME);
+  return join(DATA_DIR, DEFAULT_FILE_NAME);
 }
 
 async function ensureDirectory(filePath) {
@@ -90,7 +89,7 @@ export class JsonSnippetStore {
       }
     } catch (error) {
       if (error?.code !== "ENOENT") {
-        console.warn("Konnte Team-Snippet-Datei nicht lesen", error);
+        logger.warn("Konnte Team-Snippet-Datei nicht lesen: %s", error);
       }
       this.#data = {
         updatedAt: new Date().toISOString(),
@@ -102,7 +101,7 @@ export class JsonSnippetStore {
 
   async #persist(data = this.#data) {
     await ensureDirectory(this.#file);
-    const payload = JSON.stringify(data, null, 2);
+    const payload = JSON.stringify(data);
     await fs.writeFile(this.#file, payload, "utf8");
   }
 
@@ -130,6 +129,18 @@ export class JsonSnippetStore {
     this.#data = { groups: sanitized, updatedAt: new Date().toISOString() };
     await this.#enqueueWrite(snapshot(this.#data));
     return snapshot(this.#data);
+  }
+
+  async checkHealth() {
+    if (this.#closed) {
+      throw new Error("Snippet store is closed");
+    }
+    await this.#ready;
+    return {
+      storageFile: this.#file,
+      groupCount: Array.isArray(this.#data?.groups) ? this.#data.groups.length : 0,
+      updatedAt: this.#data?.updatedAt ?? null,
+    };
   }
 
   async close() {

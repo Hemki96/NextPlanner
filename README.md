@@ -88,6 +88,16 @@ Du hast zwei gleichwertige Möglichkeiten, die Anwendung während der Entwicklun
 - **Wie ändere ich die Port-Konfiguration?** – Passe den Port in `server/server.js` an oder setze die Umgebungsvariable `PORT` (z. B. `PORT=4000 npm start`).
 - **Kann ich Tests debuggen?** – Ja. Verwende in der Run-&-Debug-Ansicht die Konfiguration „Node.js: Launch via NPM“, wähle `test` als Script und setze Breakpoints in deinen Testdateien unter `tests/`.
 
+### 9. Produktiver Betrieb & Hosting (z. B. Render)
+
+- **Persistente Datenablage:** Setze `NEXTPLANNER_DATA_DIR` (oder `DATA_DIR`) auf das gemountete Volume deines Hosts. Relativ angegebene Pfade werden automatisch relativ zum Projektwurzelverzeichnis aufgelöst.
+- **Port & Umgebung:** Lasse `PORT` von der Plattform setzen und behalte `NODE_ENV=production` bei (wird automatisch erzwungen, falls die Variable fehlt). Über `LOG_LEVEL` kannst du die Protokolltiefe steuern (`error`, `warn`, `info`, `debug`).
+- **Health-Checks:** Der Server stellt unter `/healthz`, `/readyz` und `/livez` standardisierte Endpunkte bereit, die JSON-Antworten für Monitoring-Integrationen zurückliefern. Fehlerhafte Stores melden detaillierte Hinweise (inkl. Backup-Datei bei Integritätsproblemen).
+- **CORS & Sicherheit:** Für Cross-Origin-Zugriffe hinterlege optionale Ursprungslisten in `ALLOWED_ORIGINS` (Komma-getrennt). API-Antworten setzen restriktive Sicherheits-Header (CSP, `X-Content-Type-Options`) und deaktivieren Browser-Caching.
+- **Logging & Metriken:** Jeder Request wird mit Dauer und Status in strukturierter Form geloggt (`[INFO] req=5 GET /api/plans -> 200 (1.3 ms)`). Die Logs helfen beim Analysieren von Kaltstarts (Render Free Tier) und unterstützen externe Log-Aggregatoren.
+- **Deployment auf Render:** Wähle beim Anlegen einen *Web Service*, definiere das Startkommando `npm start` und füge eine Persistent Disk (≥1 GB) hinzu, die auf `/data` gemountet wird. Hinterlege `NEXTPLANNER_DATA_DIR=/data` in den Environment-Variablen, damit die JSON-Stores direkt auf das Volume schreiben können.
+- **Checkliste:** Eine ausführliche Produktions-Checkliste findest du in [`docs/PRODUCTION.md`](docs/PRODUCTION.md).
+
 ### Variante A – Integrierter NextPlanner-Server (empfohlen)
 
 1. Stelle sicher, dass [Node.js](https://nodejs.org) installiert ist.

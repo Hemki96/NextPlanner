@@ -450,7 +450,7 @@ describe("Plan API", () => {
   it("liefert statische Dateien gestreamt mit Cache-Headern", async () => {
     const response = await fetch(`${baseUrl}/index.html`);
     assert.equal(response.status, 200);
-    assert.equal(response.headers.get("cache-control"), "public, max-age=300");
+    assert.equal(response.headers.get("cache-control"), "public, max-age=60");
     assert.ok(response.headers.get("etag"));
     const text = await response.text();
     assert.ok(text.includes("<!DOCTYPE html>"));
@@ -458,7 +458,7 @@ describe("Plan API", () => {
     const headResponse = await fetch(`${baseUrl}/css/main.css`, { method: "HEAD" });
     assert.equal(headResponse.status, 200);
     assert.ok(Number.parseInt(headResponse.headers.get("content-length") ?? "0", 10) > 0);
-    assert.equal(headResponse.headers.get("cache-control"), "public, max-age=300");
+    assert.equal(headResponse.headers.get("cache-control"), "public, max-age=3600");
     assert.equal(await headResponse.text(), "");
   });
 
@@ -558,5 +558,19 @@ describe("Plan API", () => {
     assert.equal(invalid.status, 400);
     const body = await invalid.json();
     assert.equal(body.error.code, "invalid-snippet-payload");
+  });
+
+  it("liefert Health-Checks", async () => {
+    const response = await fetch(`${baseUrl}/healthz`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    const payload = await response.json();
+    assert.equal(payload.status, "ok");
+    assert.ok(payload.checks.planStore);
+    assert.equal(payload.checks.planStore.status, "ok");
+
+    const headResponse = await fetch(`${baseUrl}/readyz`, { method: "HEAD" });
+    assert.equal(headResponse.status, 200);
+    assert.equal(headResponse.headers.get("cache-control"), "no-store");
   });
 });

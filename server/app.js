@@ -17,9 +17,10 @@ import {
   TemplateValidationError,
 } from "./stores/json-template-store.js";
 import { JsonHighlightConfigStore } from "./stores/json-highlight-config-store.js";
+import { DATA_DIR } from "./config.js";
+import { logger, createRequestLogger } from "./logger.js";
 
 const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(CURRENT_DIR, "..", "data");
 const DEFAULT_QUICK_SNIPPET_FILE = path.join(DATA_DIR, "quick-snippets.json");
 const DEFAULT_HIGHLIGHT_CONFIG_FILE = path.join(DATA_DIR, "highlight-config.json");
 
@@ -47,6 +48,21 @@ const MIME_TYPES = {
 };
 
 const DEFAULT_ALLOWED_ORIGINS = Object.freeze(["http://localhost:3000"]);
+const JSON_SPACING = process.env.NODE_ENV === "development" ? 2 : 0;
+
+/**
+ * Serialises JSON responses using pretty-printing only in development mode.
+ * This keeps production payloads compact while retaining readability locally.
+ *
+ * @param {unknown} payload
+ * @returns {string}
+ */
+function stringifyJson(payload) {
+  if (JSON_SPACING > 0) {
+    return JSON.stringify(payload, null, JSON_SPACING);
+  }
+  return JSON.stringify(payload);
+}
 
 function parseAllowedOrigins(value) {
   if (!value) {
@@ -59,6 +75,15 @@ function parseAllowedOrigins(value) {
 }
 
 const ALLOWED_ORIGINS = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
+
+const HEALTH_ENDPOINTS = Object.freeze({
+  readiness: "/readyz",
+  liveness: "/livez",
+  health: "/healthz",
+});
+
+const HEALTH_PATHS = new Set(Object.values(HEALTH_ENDPOINTS));
+const HEALTH_ALLOWED_METHODS = "GET,HEAD,OPTIONS";
 
 const API_CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Content-Type,If-Match,If-None-Match",
@@ -79,6 +104,41 @@ const STATIC_SECURITY_HEADERS = Object.freeze({
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "no-referrer",
 });
+
+const IMMUTABLE_CACHE_EXTENSIONS = new Set([
+  ".css",
+  ".js",
+  ".mjs",
+  ".cjs",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".svg",
+  ".webp",
+  ".ico",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".otf",
+  ".json",
+]);
+
+const FINGERPRINT_PATTERN = /(?:^|[.-])[0-9a-f]{8,}(?:\.|$)/i;
+
+function resolveCacheControl(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".html") {
+    return "public, max-age=60";
+  }
+
+  const fileName = path.basename(filePath);
+  if (IMMUTABLE_CACHE_EXTENSIONS.has(ext) && FINGERPRINT_PATTERN.test(fileName)) {
+    return "public, max-age=31536000, immutable";
+  }
+
+  return "public, max-age=3600";
+}
 
 function appendVary(value, field) {
   const vary = new Set(
@@ -244,7 +304,7 @@ function sendJson(
   payload,
   { cors = false, method = "GET", headers = {}, origin } = {},
 ) {
-  const body = JSON.stringify(payload, null, 2);
+  const body = stringifyJson(payload);
   const baseHeaders = {
     "Content-Type": "application/json; charset=utf-8",
     "Content-Length": Buffer.byteLength(body),
@@ -284,6 +344,114 @@ function sendApiEmpty(res, status, { headers, origin } = {}) {
     cors: true,
     origin,
     headers: buildApiHeaders(headers),
+  });
+}
+
+async function evaluateStoreHealth(name, store, log = logger) {
+  if (!store || typeof store.checkHealth !== "function") {
+    return { name, status: "unknown" };
+  }
+  try {
+    const details = await store.checkHealth();
+    return { name, status: "ok", details };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const failure = { name, status: "error", error: message };
+    if (error instanceof StorageIntegrityError && error.backupFile) {
+      failure.details = { backupFile: error.backupFile };
+    }
+    const level = error instanceof StorageIntegrityError ? "error" : "warn";
+    if (log && typeof log[level] === "function") {
+      log[level]("Health check '%s' failed: %s", name, error instanceof Error ? error.stack ?? error.message : message);
+    } else if (typeof logger[level] === "function") {
+      logger[level]("Health check '%s' failed: %s", name, message);
+    }
+    return failure;
+  }
+}
+
+function buildHealthPayload(checks) {
+  const hasError = checks.some((entry) => entry.status === "error");
+  const hasOk = checks.some((entry) => entry.status === "ok");
+  const status = hasError ? "degraded" : hasOk ? "ok" : "unknown";
+  const components = checks.reduce((acc, entry) => {
+    const info = { status: entry.status };
+    if (entry.details) {
+      info.details = entry.details;
+    }
+    if (entry.error) {
+      info.error = entry.error;
+    }
+    acc[entry.name] = info;
+    return acc;
+  }, {});
+  return {
+    status,
+    timestamp: new Date().toISOString(),
+    checks: components,
+    degraded: hasError,
+  };
+}
+
+async function handleHealthRequest(
+  req,
+  res,
+  url,
+  {
+    planStore,
+    templateStore,
+    teamSnippetStore,
+    quickSnippetStore,
+    highlightConfigStore,
+  },
+  { method, logger: requestLogger } = {},
+) {
+  const methodName = (method ?? req.method ?? "GET").toUpperCase();
+  const activeLogger = requestLogger ?? logger;
+
+  if (methodName === "OPTIONS") {
+    sendEmpty(res, 204, {
+      headers: buildApiHeaders({ Allow: HEALTH_ALLOWED_METHODS }),
+    });
+    return;
+  }
+
+  if (methodName !== "GET" && methodName !== "HEAD") {
+    sendEmpty(res, 405, {
+      headers: buildApiHeaders({ Allow: HEALTH_ALLOWED_METHODS }),
+    });
+    return;
+  }
+
+  if (url.pathname === HEALTH_ENDPOINTS.liveness) {
+    const payload = {
+      status: "ok",
+      timestamp: new Date().toISOString(),
+    };
+    sendJson(res, 200, payload, {
+      method: methodName,
+      headers: buildApiHeaders(),
+    });
+    return;
+  }
+
+  const checks = [];
+  for (const [name, store] of [
+    ["planStore", planStore],
+    ["templateStore", templateStore],
+    ["teamSnippetStore", teamSnippetStore],
+    ["quickSnippetStore", quickSnippetStore],
+    ["highlightConfigStore", highlightConfigStore],
+  ]) {
+    // eslint-disable-next-line no-await-in-loop
+    checks.push(await evaluateStoreHealth(name, store, activeLogger));
+  }
+
+  const payload = buildHealthPayload(checks);
+  const statusCode = payload.degraded ? 503 : 200;
+  sendJson(res, statusCode, payload, {
+    method: methodName,
+    headers: buildApiHeaders(),
   });
 }
 
@@ -340,6 +508,10 @@ async function readJsonBody(req, { limit = 1_000_000 } = {}) {
 
 function isApiRequest(pathname) {
   return pathname.startsWith("/api/");
+}
+
+function isHealthCheckRequest(pathname) {
+  return HEALTH_PATHS.has(pathname);
 }
 
 function mapExtension(filePath) {
@@ -409,7 +581,7 @@ async function serveStatic(req, res, url, rootDir) {
   const cacheHeaders = {
     "Last-Modified": fileStat.mtime.toUTCString(),
     ETag: etag,
-    "Cache-Control": "public, max-age=300",
+    "Cache-Control": resolveCacheControl(filePath),
   };
 
   const notModifiedHeaders = { ...cacheHeaders, ...STATIC_SECURITY_HEADERS };
@@ -538,7 +710,18 @@ function buildErrorPayload(code, message, details, hint) {
   return payload;
 }
 
-function handleApiError(res, error, method = "GET", origin) {
+function handleApiError(res, error, method = "GET", origin, options = {}) {
+  const log = options?.logger ?? logger;
+  const path = options?.path ?? "";
+  const location = path ? `${method} ${path}` : method;
+  const logWith = (level, message, ...args) => {
+    if (log && typeof log[level] === "function") {
+      log[level](message, ...args);
+    } else if (typeof logger[level] === "function") {
+      logger[level](message, ...args);
+    }
+  };
+
   const sendError = (status, code, message, details, headers, hint) => {
     sendApiJson(res, status, buildErrorPayload(code, message, details, hint), {
       method,
@@ -549,6 +732,8 @@ function handleApiError(res, error, method = "GET", origin) {
 
   if (error instanceof HttpError) {
     const message = error.expose ? error.message : "Unbekannter Fehler";
+    const level = error.status >= 500 ? "error" : "debug";
+    logWith(level, "API %s -> %d: %s", location, error.status, message);
     sendError(
       error.status,
       error.code ?? `http-${error.status}`,
@@ -560,6 +745,7 @@ function handleApiError(res, error, method = "GET", origin) {
     return;
   }
   if (error instanceof PlanValidationError) {
+    logWith("warn", "Plan validation failed for %s: %s", location, error.message);
     sendError(
       400,
       "plan-validation",
@@ -572,6 +758,14 @@ function handleApiError(res, error, method = "GET", origin) {
   }
   if (error instanceof StorageIntegrityError) {
     const details = error.backupFile ? { backupFile: error.backupFile } : undefined;
+    const backupInfo = error.backupFile ? ` (Backup: ${error.backupFile})` : "";
+    logWith(
+      "error",
+      "Storage integrity issue detected for %s: %s%s",
+      location,
+      error.message,
+      backupInfo,
+    );
     sendError(
       503,
       "storage-integrity",
@@ -583,6 +777,7 @@ function handleApiError(res, error, method = "GET", origin) {
     return;
   }
   if (error instanceof TemplateValidationError) {
+    logWith("warn", "Template validation failed for %s: %s", location, error.message);
     sendError(
       400,
       "template-validation",
@@ -596,6 +791,7 @@ function handleApiError(res, error, method = "GET", origin) {
   if (error instanceof PlanConflictError) {
     const details = error.currentPlan ? { currentPlan: error.currentPlan } : undefined;
     const headers = error.currentPlan ? { ETag: buildPlanEtag(error.currentPlan) } : undefined;
+    logWith("warn", "Plan conflict detected for %s: %s", location, error.message);
     sendError(
       412,
       "plan-conflict",
@@ -606,7 +802,9 @@ function handleApiError(res, error, method = "GET", origin) {
     );
     return;
   }
-  console.error("Unexpected API error", error);
+  const rawMessage =
+    error instanceof Error ? error.stack ?? error.message : String(error ?? "Unbekannter Fehler");
+  logWith("error", "Unexpected API error for %s: %s", location, rawMessage);
   const message =
     process.env.NODE_ENV === "development"
       ? error instanceof Error
@@ -633,9 +831,11 @@ async function handleApiRequest(
   quickSnippetStore,
   highlightConfigStore,
   origin,
+  { method: providedMethod, logger: requestLogger } = {},
 ) {
   const requestOrigin = origin ?? req.headers?.origin ?? "";
-  const method = (req.method ?? "GET").toUpperCase();
+  const method = (providedMethod ?? req.method ?? "GET").toUpperCase();
+  const logOptions = { logger: requestLogger ?? logger, path: url.pathname };
 
   if (method === "OPTIONS") {
     sendApiEmpty(res, 204, {
@@ -659,7 +859,7 @@ async function handleApiRequest(
         const backup = await planStore.exportBackup();
         sendApiJson(res, 200, backup, { method, origin: requestOrigin });
       } catch (error) {
-        handleApiError(res, error, method, requestOrigin);
+        handleApiError(res, error, method, requestOrigin, logOptions);
       }
       return;
     }
@@ -675,7 +875,7 @@ async function handleApiRequest(
         };
         sendApiJson(res, 200, responseBody, { method, origin: requestOrigin });
       } catch (error) {
-        handleApiError(res, error, method, requestOrigin);
+        handleApiError(res, error, method, requestOrigin, logOptions);
       }
       return;
     }
@@ -686,6 +886,7 @@ async function handleApiRequest(
       }),
       method,
       requestOrigin,
+      logOptions,
     );
     return;
   }
@@ -699,6 +900,7 @@ async function handleApiRequest(
         }),
         method,
         requestOrigin,
+        logOptions,
       );
       return;
     }
@@ -708,7 +910,7 @@ async function handleApiRequest(
         const library = await quickSnippetStore.getLibrary();
         sendApiJson(res, 200, library, { method, origin: requestOrigin });
       } catch (error) {
-        handleApiError(res, error, method, requestOrigin);
+        handleApiError(res, error, method, requestOrigin, logOptions);
       }
       return;
     }
@@ -726,7 +928,7 @@ async function handleApiRequest(
         const library = await quickSnippetStore.replaceLibrary(payload);
         sendApiJson(res, 200, library, { method, origin: requestOrigin });
       } catch (error) {
-        handleApiError(res, error, method, requestOrigin);
+        handleApiError(res, error, method, requestOrigin, logOptions);
       }
       return;
     }
@@ -738,6 +940,7 @@ async function handleApiRequest(
       }),
       method,
       requestOrigin,
+      logOptions,
     );
     return;
   }
@@ -751,6 +954,7 @@ async function handleApiRequest(
         }),
         method,
         requestOrigin,
+        logOptions,
       );
       return;
     }
@@ -760,7 +964,7 @@ async function handleApiRequest(
         const config = await highlightConfigStore.getConfig();
         sendApiJson(res, 200, config, { method, origin: requestOrigin });
       } catch (error) {
-        handleApiError(res, error, method, requestOrigin);
+        handleApiError(res, error, method, requestOrigin, logOptions);
       }
       return;
     }
@@ -772,7 +976,7 @@ async function handleApiRequest(
         const updated = await highlightConfigStore.updateConfig(payload);
         sendApiJson(res, 200, updated, { method, origin: requestOrigin });
       } catch (error) {
-        handleApiError(res, error, method, requestOrigin);
+        handleApiError(res, error, method, requestOrigin, logOptions);
       }
       return;
     }
@@ -784,6 +988,7 @@ async function handleApiRequest(
       }),
       method,
       requestOrigin,
+      logOptions,
     );
     return;
   }
@@ -797,6 +1002,7 @@ async function handleApiRequest(
         }),
         method,
         requestOrigin,
+        logOptions,
       );
       return;
     }
@@ -806,7 +1012,7 @@ async function handleApiRequest(
         const templates = await templateStore.listTemplates();
         sendApiJson(res, 200, templates, { method, origin: requestOrigin });
       } catch (error) {
-        handleApiError(res, error, method, requestOrigin);
+        handleApiError(res, error, method, requestOrigin, logOptions);
       }
       return;
     }
@@ -824,7 +1030,7 @@ async function handleApiRequest(
           },
         });
       } catch (error) {
-        handleApiError(res, error, method, requestOrigin);
+        handleApiError(res, error, method, requestOrigin, logOptions);
       }
       return;
     }
@@ -836,6 +1042,7 @@ async function handleApiRequest(
       }),
       method,
       requestOrigin,
+      logOptions,
     );
     return;
   }
@@ -850,6 +1057,7 @@ async function handleApiRequest(
         }),
         method,
         requestOrigin,
+        logOptions,
       );
       return;
     }
@@ -876,7 +1084,7 @@ async function handleApiRequest(
           headers: { ETag: etag },
         });
       } catch (error) {
-        handleApiError(res, error, method, requestOrigin);
+        handleApiError(res, error, method, requestOrigin, logOptions);
       }
       return;
     }
@@ -911,7 +1119,7 @@ async function handleApiRequest(
           headers: { ETag: buildTemplateEtag(template) },
         });
       } catch (error) {
-        handleApiError(res, error, method, requestOrigin);
+        handleApiError(res, error, method, requestOrigin, logOptions);
       }
       return;
     }
@@ -941,7 +1149,7 @@ async function handleApiRequest(
         }
         sendApiEmpty(res, 204, { origin: requestOrigin });
       } catch (error) {
-        handleApiError(res, error, method, requestOrigin);
+        handleApiError(res, error, method, requestOrigin, logOptions);
       }
       return;
     }
@@ -975,7 +1183,7 @@ async function handleApiRequest(
         const library = await teamSnippetStore.getLibrary();
         sendApiJson(res, 200, library, { method, origin: requestOrigin });
       } catch (error) {
-        handleApiError(res, error, method, requestOrigin);
+        handleApiError(res, error, method, requestOrigin, logOptions);
       }
       return;
     }
@@ -993,7 +1201,7 @@ async function handleApiRequest(
         const library = await teamSnippetStore.replaceLibrary(payload);
         sendApiJson(res, 200, library, { method, origin: requestOrigin });
       } catch (error) {
-        handleApiError(res, error, method, requestOrigin);
+        handleApiError(res, error, method, requestOrigin, logOptions);
       }
       return;
     }
@@ -1005,6 +1213,7 @@ async function handleApiRequest(
       }),
       method,
       requestOrigin,
+      logOptions,
     );
     return;
   }
@@ -1024,7 +1233,7 @@ async function handleApiRequest(
           },
         });
       } catch (error) {
-        handleApiError(res, error, method, requestOrigin);
+        handleApiError(res, error, method, requestOrigin, logOptions);
       }
       return;
     }
@@ -1039,7 +1248,7 @@ async function handleApiRequest(
         });
         sendApiJson(res, 200, plans, { method, origin: requestOrigin });
       } catch (error) {
-        handleApiError(res, error, method, requestOrigin);
+        handleApiError(res, error, method, requestOrigin, logOptions);
       }
       return;
     }
@@ -1051,6 +1260,7 @@ async function handleApiRequest(
       }),
       method,
       requestOrigin,
+      logOptions,
     );
     return;
   }
@@ -1064,6 +1274,7 @@ async function handleApiRequest(
       }),
       method,
       requestOrigin,
+      logOptions,
     );
     return;
   }
@@ -1090,7 +1301,7 @@ async function handleApiRequest(
         headers: { ETag: etag },
       });
     } catch (error) {
-      handleApiError(res, error, method, requestOrigin);
+      handleApiError(res, error, method, requestOrigin, logOptions);
     }
     return;
   }
@@ -1130,7 +1341,7 @@ async function handleApiRequest(
         headers: { ETag: buildPlanEtag(plan) },
       });
     } catch (error) {
-      handleApiError(res, error, method, requestOrigin);
+      handleApiError(res, error, method, requestOrigin, logOptions);
     }
     return;
   }
@@ -1164,7 +1375,7 @@ async function handleApiRequest(
       }
       sendApiEmpty(res, 204, { origin: requestOrigin });
     } catch (error) {
-      handleApiError(res, error, method, requestOrigin);
+      handleApiError(res, error, method, requestOrigin, logOptions);
     }
     return;
   }
@@ -1176,9 +1387,23 @@ async function handleApiRequest(
     }),
     method,
     requestOrigin,
+    logOptions,
   );
 }
 
+/**
+ * Creates the HTTP request handler for the NextPlanner server including API,
+ * health-check and static-file routing.
+ *
+ * @param {object} [options]
+ * @param {import("./stores/json-plan-store.js").JsonPlanStore} [options.store]
+ * @param {import("./stores/json-template-store.js").JsonTemplateStore} [options.templateStore]
+ * @param {import("./stores/json-snippet-store.js").JsonSnippetStore} [options.snippetStore]
+ * @param {import("./stores/json-snippet-store.js").JsonSnippetStore} [options.quickSnippetStore]
+ * @param {import("./stores/json-highlight-config-store.js").JsonHighlightConfigStore} [options.highlightConfigStore]
+ * @param {string} [options.publicDir]
+ * @returns {(req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => Promise<void>}
+ */
 export function createRequestHandler({
   store,
   templateStore,
@@ -1197,9 +1422,81 @@ export function createRequestHandler({
   const defaultDir = path.join(CURRENT_DIR, "..", "public");
   const rootDir = path.resolve(publicDir ?? defaultDir);
 
+  let requestCounter = 0;
+
   return async (req, res) => {
+    const start = process.hrtime.bigint();
+    const method = (req.method ?? "GET").toUpperCase();
+    const requestId = ++requestCounter;
+    const requestLogger = createRequestLogger({ req: requestId });
+    let pathForLogging = req.url ?? "<unknown>";
+
+    res.once("finish", () => {
+      const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+      const status = res.statusCode ?? 0;
+      const level =
+        isApiRequest(pathForLogging) || isHealthCheckRequest(pathForLogging) ? "info" : "debug";
+      const formattedDuration = Number.isFinite(durationMs)
+        ? durationMs.toFixed(1)
+        : "0.0";
+      requestLogger[level](
+        "%s %s -> %d (%s ms)",
+        method,
+        pathForLogging,
+        status,
+        formattedDuration,
+      );
+    });
+
+    res.once("error", (error) => {
+      const message = error instanceof Error ? error.stack ?? error.message : String(error);
+      requestLogger.error("Antwortfehler für %s %s: %s", method, pathForLogging, message);
+    });
+
+    const host = req.headers?.host ?? "localhost";
+    let url;
     try {
-      const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+      url = new URL(req.url ?? "/", `http://${host}`);
+      pathForLogging = url.pathname;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      requestLogger.warn("Ungültige Anfrage-URL '%s': %s", req.url ?? "<unknown>", message);
+      if (!res.headersSent) {
+        sendJson(
+          res,
+          400,
+          buildErrorPayload(
+            "invalid-url",
+            "Ungültige Anfrage-URL.",
+            undefined,
+            "Die angeforderte Adresse konnte nicht verarbeitet werden.",
+          ),
+          { method, headers: buildApiHeaders() },
+        );
+      } else {
+        res.end();
+      }
+      return;
+    }
+
+    try {
+      if (isHealthCheckRequest(url.pathname)) {
+        await handleHealthRequest(
+          req,
+          res,
+          url,
+          {
+            planStore,
+            templateStore: templateStoreInstance,
+            teamSnippetStore,
+            quickSnippetStore: localQuickSnippetStore,
+            highlightConfigStore: localHighlightConfigStore,
+          },
+          { method, logger: requestLogger },
+        );
+        return;
+      }
+
       if (isApiRequest(url.pathname)) {
         await handleApiRequest(
           req,
@@ -1211,11 +1508,15 @@ export function createRequestHandler({
           localQuickSnippetStore,
           localHighlightConfigStore,
           req.headers?.origin ?? "",
+          { method, logger: requestLogger },
         );
         return;
       }
+
       await serveStatic(req, res, url, rootDir);
     } catch (error) {
+      const message = error instanceof Error ? error.stack ?? error.message : String(error ?? "");
+      requestLogger.error("Unerwarteter Fehler für %s %s: %s", method, pathForLogging, message);
       if (!res.headersSent) {
         sendJson(
           res,
@@ -1226,6 +1527,7 @@ export function createRequestHandler({
             undefined,
             "Die Anfrage konnte nicht abgeschlossen werden. Laden Sie die Seite neu und versuchen Sie es erneut.",
           ),
+          { method, headers: buildApiHeaders() },
         );
       } else {
         res.end();
@@ -1234,6 +1536,21 @@ export function createRequestHandler({
   };
 }
 
+/**
+ * Creates an HTTP server with graceful shutdown hooks and store lifecycle
+ * management. The returned server listens for requests when `.listen()` is
+ * invoked by the caller.
+ *
+ * @param {object} [options]
+ * @param {import("./stores/json-plan-store.js").JsonPlanStore} [options.store]
+ * @param {import("./stores/json-template-store.js").JsonTemplateStore} [options.templateStore]
+ * @param {import("./stores/json-snippet-store.js").JsonSnippetStore} [options.snippetStore]
+ * @param {import("./stores/json-snippet-store.js").JsonSnippetStore} [options.quickSnippetStore]
+ * @param {import("./stores/json-highlight-config-store.js").JsonHighlightConfigStore} [options.highlightConfigStore]
+ * @param {string} [options.publicDir]
+ * @param {string[]} [options.gracefulShutdownSignals]
+ * @returns {import("node:http").Server}
+ */
 export function createServer(options = {}) {
   const {
     store = new JsonPlanStore(),
@@ -1278,7 +1595,7 @@ export function createServer(options = {}) {
           await highlightConfigStore.close();
         }
       } catch (error) {
-        console.error("Fehler beim Schließen des Planstores", error);
+        logger.error("Fehler beim Schließen des Planstores: %s", error);
         throw error;
       }
     })();
@@ -1321,7 +1638,7 @@ export function createServer(options = {}) {
           removeSignalHandlers();
           process.exit(0);
         } catch (error) {
-          console.error("Fehler beim geordneten Shutdown", error);
+          logger.error("Fehler beim geordneten Shutdown: %s", error);
           removeSignalHandlers();
           process.exit(1);
         }
