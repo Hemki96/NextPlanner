@@ -50,6 +50,7 @@ Der Syntax-Highlighter markiert Trainingsbestandteile inline, ohne den Eingabete
 Das Schnellbaustein-Panel stellt konfigurierbare Textfragmente bereit:
 - Beim Einfügen sorgt `applySnippet` dafür, dass erforderliche Leerzeilen, Cursorpositionen und eventuelle Platzhalter korrekt gesetzt werden.【F:public/js/ui/quick-snippets.js†L11-L48】
 - Die Initialisierung lädt lokale Snippet-Gruppen, synchronisiert optional eine Team-Bibliothek und rendert klickbare Buttons für jede Vorlage.【F:public/js/ui/quick-snippets.js†L50-L137】 Durch einen Klick wird der Snippet-Text eingefügt und der Parser erneut ausgelöst.
+- In den Einstellungen kannst du pro Kategorie eine **Position** vergeben. Die Werte werden automatisch validiert, neu sortiert und sofort mit dem Schnellbaustein-Panel synchronisiert.【F:public/js/settings.js†L120-L174】【F:public/js/settings.js†L673-L755】
 - Über die Einstellungen kannst du die Team-Bibliothek laden bzw. freigeben. Der Server bereinigt jeden Stand (`sanitizeQuickSnippetGroups`), schreibt ihn in `data/team-snippets.json` und versieht ihn mit einem ISO-Zeitstempel (`updatedAt`).【F:public/js/settings.js†L224-L288】【F:server/stores/json-snippet-store.js†L9-L123】
 
 ## Import, Export und Speichern

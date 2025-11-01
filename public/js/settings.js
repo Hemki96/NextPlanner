@@ -108,19 +108,77 @@ function createGroupId() {
   return `group-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function coerceSortOrder(value, fallback) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  const parsed = Number.parseInt(value ?? "", 10);
+  if (Number.isNaN(parsed)) {
+    return fallback;
+  }
+  return parsed;
+}
+
 function cloneGroups(groups) {
   if (!Array.isArray(groups)) {
     return [];
   }
-  return groups.map((group) => ({
+  return groups.map((group, index) => ({
     id: typeof group.id === "string" ? group.id : createGroupId(),
     title: typeof group.title === "string" ? group.title : "",
     description: typeof group.description === "string" ? group.description : "",
+    sortOrder: coerceSortOrder(group?.sortOrder, index),
     items: Array.isArray(group.items) ? group.items.map((item) => ({ ...item })) : [],
   }));
 }
 
+function getGroupSortValue(group, fallback) {
+  if (!group) {
+    return fallback;
+  }
+  return coerceSortOrder(group.sortOrder, fallback);
+}
+
+function reindexGroupSortOrders() {
+  snippetGroups.forEach((group, index) => {
+    if (group) {
+      group.sortOrder = index;
+    }
+  });
+}
+
+function sortGroupsBySortOrder() {
+  if (!Array.isArray(snippetGroups) || snippetGroups.length === 0) {
+    snippetGroups = Array.isArray(snippetGroups) ? snippetGroups : [];
+    return;
+  }
+
+  const decorated = snippetGroups.map((group, index) => ({
+    group,
+    order: getGroupSortValue(group, index),
+    index,
+  }));
+
+  decorated.sort((a, b) => {
+    if (a.order !== b.order) {
+      return a.order - b.order;
+    }
+    return a.index - b.index;
+  });
+
+  snippetGroups = decorated.map(({ group }) => group);
+  reindexGroupSortOrders();
+}
+
+function findGroupIndexById(groupId) {
+  if (typeof groupId !== "string") {
+    return -1;
+  }
+  return snippetGroups.findIndex((group) => group && group.id === groupId);
+}
+
 let snippetGroups = cloneGroups(getQuickSnippets());
+sortGroupsBySortOrder();
 const collapsedGroups = new Set();
 let pendingFocus = null;
 let pendingSnippetSave = null;
@@ -203,6 +261,7 @@ function performServerSave(sanitizedGroups, serializedGroups) {
       lastServerErrorTimestamp = 0;
       if (serializedResponse !== serialized) {
         snippetGroups = cloneGroups(sanitizedResponse);
+        sortGroupsBySortOrder();
         renderGroups();
         saveQuickSnippets(sanitizedResponse);
       }
@@ -276,6 +335,7 @@ async function bootstrapQuickSnippetsFromServer() {
       return;
     }
     snippetGroups = cloneGroups(sanitized);
+    sortGroupsBySortOrder();
     collapsedGroups.clear();
     renderGroups();
     saveQuickSnippets(sanitized);
@@ -309,10 +369,12 @@ function createEmptyItem() {
 }
 
 function createEmptyGroup() {
+  const nextSortOrder = Array.isArray(snippetGroups) ? snippetGroups.length : 0;
   return {
     id: createGroupId(),
     title: "Neue Kategorie",
     description: "",
+    sortOrder: nextSortOrder,
     items: [createEmptyItem()],
   };
 }
@@ -414,6 +476,7 @@ async function loadTeamLibraryFromServer() {
   try {
     const { groups, updatedAt } = await fetchTeamLibrary();
     snippetGroups = cloneGroups(groups);
+    sortGroupsBySortOrder();
     renderGroups();
     scheduleSnippetSave({ immediate: true });
     updateTeamMetadata(updatedAt);
@@ -645,6 +708,23 @@ function renderGroups() {
     const headerActions = document.createElement("div");
     headerActions.className = "snippet-settings-header-actions";
 
+    const orderLabel = document.createElement("label");
+    orderLabel.className = "number-field snippet-settings-order";
+    orderLabel.textContent = "Position";
+
+    const orderField = document.createElement("input");
+    orderField.type = "number";
+    orderField.min = "1";
+    orderField.step = "1";
+    orderField.value = String((group.sortOrder ?? groupIndex) + 1);
+    orderField.dataset.groupIndex = String(groupIndex);
+    orderField.dataset.groupId = group.id;
+    orderField.dataset.field = "sortOrder";
+    orderField.className = "snippet-settings-number";
+    orderField.title = "Position der Kategorie (1 = ganz oben)";
+    orderLabel.appendChild(orderField);
+    headerActions.appendChild(orderLabel);
+
     const moveGroupUp = document.createElement("button");
     moveGroupUp.type = "button";
     moveGroupUp.className = "ghost-button is-quiet";
@@ -871,8 +951,18 @@ function applyPendingFocus() {
     return;
   }
 
-  const { groupIndex, itemIndex, field } = pendingFocus;
-  const groupSelector = `[data-group-index="${groupIndex}"]`;
+  const { groupIndex, itemIndex, field, groupId } = pendingFocus;
+  const resolvedIndex = (() => {
+    if (typeof groupId === "string") {
+      const actualIndex = findGroupIndexById(groupId);
+      if (actualIndex !== -1) {
+        return actualIndex;
+      }
+    }
+    return groupIndex;
+  })();
+
+  const groupSelector = `[data-group-index="${resolvedIndex}"]`;
   const fieldSelector = `${groupSelector}[data-field="${field}"]`;
   const selector =
     typeof itemIndex === "number"
@@ -895,13 +985,26 @@ function applyPendingFocus() {
 function updateGroupField(groupIndex, field, value) {
   const group = snippetGroups[groupIndex];
   if (!group) {
-    return;
+    return false;
   }
   if (field === "title") {
     group.title = value;
-  } else if (field === "description") {
-    group.description = value;
+    return false;
   }
+  if (field === "description") {
+    group.description = value;
+    return false;
+  }
+  if (field === "sortOrder") {
+    const parsed = Number.parseInt(value, 10);
+    const safeValue = Number.isNaN(parsed)
+      ? groupIndex + 1
+      : Math.min(Math.max(parsed, 1), snippetGroups.length);
+    group.sortOrder = safeValue - 1;
+    sortGroupsBySortOrder();
+    return true;
+  }
+  return false;
 }
 
 function updateItemField(groupIndex, itemIndex, field, value) {
@@ -945,10 +1048,21 @@ function handleInput(event) {
     return;
   }
 
+  const group = snippetGroups[groupIndex];
+  if (!group) {
+    return;
+  }
+
   const field = target.dataset.field;
   if (!field) {
     return;
   }
+
+  if (field === "sortOrder" && event.type === "input") {
+    return;
+  }
+
+  let shouldRerender = false;
 
   if (target.dataset.itemIndex) {
     const itemIndex = Number.parseInt(target.dataset.itemIndex ?? "", 10);
@@ -962,7 +1076,27 @@ function handleInput(event) {
       updateItemField(groupIndex, itemIndex, field, target.value);
     }
   } else {
-    updateGroupField(groupIndex, field, target.value);
+    shouldRerender = updateGroupField(groupIndex, field, target.value);
+  }
+
+  if (shouldRerender) {
+    const focusGroupId =
+      typeof group.id === "string" ? group.id : target.dataset.groupId;
+    const resolvedIndex = (() => {
+      if (typeof focusGroupId === "string") {
+        const nextIndex = findGroupIndexById(focusGroupId);
+        if (nextIndex !== -1) {
+          return nextIndex;
+        }
+      }
+      return groupIndex;
+    })();
+    scheduleFocus({
+      groupId: focusGroupId,
+      groupIndex: resolvedIndex,
+      field,
+    });
+    renderGroups();
   }
 
   scheduleSnippetSave();
@@ -1010,12 +1144,14 @@ function handleClick(event) {
     if (group.id) {
       collapsedGroups.delete(group.id);
     }
+    reindexGroupSortOrders();
     renderGroups();
     scheduleSnippetSave();
   } else if (action === "move-group-up") {
     if (groupIndex > 0) {
       const [moved] = snippetGroups.splice(groupIndex, 1);
       snippetGroups.splice(groupIndex - 1, 0, moved);
+      reindexGroupSortOrders();
       renderGroups();
       scheduleSnippetSave();
     }
@@ -1023,6 +1159,7 @@ function handleClick(event) {
     if (groupIndex < snippetGroups.length - 1) {
       const [moved] = snippetGroups.splice(groupIndex, 1);
       snippetGroups.splice(groupIndex + 1, 0, moved);
+      reindexGroupSortOrders();
       renderGroups();
       scheduleSnippetSave();
     }
@@ -1108,6 +1245,7 @@ function handleReset() {
   }
   resetQuickSnippets();
   snippetGroups = cloneGroups(defaultQuickSnippetGroups);
+  sortGroupsBySortOrder();
   collapsedGroups.clear();
   scheduleSnippetSave({ immediate: true });
   showStatus("Standardbausteine wiederhergestellt.", "success");
@@ -1117,6 +1255,7 @@ function handleReset() {
 function handleAddGroup() {
   const newGroup = createEmptyGroup();
   snippetGroups.push(newGroup);
+  reindexGroupSortOrders();
   scheduleFocus({
     groupId: newGroup.id,
     groupIndex: snippetGroups.length - 1,
@@ -1180,6 +1319,7 @@ function handleImportFile(event) {
       const parsed = JSON.parse(text);
       const sanitized = sanitizeQuickSnippetGroups(parsed, { allowEmpty: true });
       snippetGroups = cloneGroups(sanitized);
+      sortGroupsBySortOrder();
       collapsedGroups.clear();
       scheduleSnippetSave({ immediate: true });
       renderGroups();
