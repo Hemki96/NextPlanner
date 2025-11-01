@@ -54,6 +54,13 @@ export const logger = Object.freeze({
   },
 });
 
+/**
+ * Builds a request-scoped logger that prefixes all messages with the provided
+ * key/value context (e.g. `req=12`).
+ *
+ * @param {Record<string, string|number>} [context]
+ * @returns {{error: Function, warn: Function, info: Function, debug: Function}}
+ */
 export function createRequestLogger(context = {}) {
   const base = Object.entries(context)
     .map(([key, value]) => `${key}=${value}`)

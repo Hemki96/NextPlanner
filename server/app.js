@@ -48,6 +48,21 @@ const MIME_TYPES = {
 };
 
 const DEFAULT_ALLOWED_ORIGINS = Object.freeze(["http://localhost:3000"]);
+const JSON_SPACING = process.env.NODE_ENV === "development" ? 2 : 0;
+
+/**
+ * Serialises JSON responses using pretty-printing only in development mode.
+ * This keeps production payloads compact while retaining readability locally.
+ *
+ * @param {unknown} payload
+ * @returns {string}
+ */
+function stringifyJson(payload) {
+  if (JSON_SPACING > 0) {
+    return JSON.stringify(payload, null, JSON_SPACING);
+  }
+  return JSON.stringify(payload);
+}
 
 function parseAllowedOrigins(value) {
   if (!value) {
@@ -289,7 +304,7 @@ function sendJson(
   payload,
   { cors = false, method = "GET", headers = {}, origin } = {},
 ) {
-  const body = JSON.stringify(payload, null, 2);
+  const body = stringifyJson(payload);
   const baseHeaders = {
     "Content-Type": "application/json; charset=utf-8",
     "Content-Length": Buffer.byteLength(body),
@@ -1376,6 +1391,19 @@ async function handleApiRequest(
   );
 }
 
+/**
+ * Creates the HTTP request handler for the NextPlanner server including API,
+ * health-check and static-file routing.
+ *
+ * @param {object} [options]
+ * @param {import("./stores/json-plan-store.js").JsonPlanStore} [options.store]
+ * @param {import("./stores/json-template-store.js").JsonTemplateStore} [options.templateStore]
+ * @param {import("./stores/json-snippet-store.js").JsonSnippetStore} [options.snippetStore]
+ * @param {import("./stores/json-snippet-store.js").JsonSnippetStore} [options.quickSnippetStore]
+ * @param {import("./stores/json-highlight-config-store.js").JsonHighlightConfigStore} [options.highlightConfigStore]
+ * @param {string} [options.publicDir]
+ * @returns {(req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => Promise<void>}
+ */
 export function createRequestHandler({
   store,
   templateStore,
@@ -1508,6 +1536,21 @@ export function createRequestHandler({
   };
 }
 
+/**
+ * Creates an HTTP server with graceful shutdown hooks and store lifecycle
+ * management. The returned server listens for requests when `.listen()` is
+ * invoked by the caller.
+ *
+ * @param {object} [options]
+ * @param {import("./stores/json-plan-store.js").JsonPlanStore} [options.store]
+ * @param {import("./stores/json-template-store.js").JsonTemplateStore} [options.templateStore]
+ * @param {import("./stores/json-snippet-store.js").JsonSnippetStore} [options.snippetStore]
+ * @param {import("./stores/json-snippet-store.js").JsonSnippetStore} [options.quickSnippetStore]
+ * @param {import("./stores/json-highlight-config-store.js").JsonHighlightConfigStore} [options.highlightConfigStore]
+ * @param {string} [options.publicDir]
+ * @param {string[]} [options.gracefulShutdownSignals]
+ * @returns {import("node:http").Server}
+ */
 export function createServer(options = {}) {
   const {
     store = new JsonPlanStore(),

@@ -5,6 +5,14 @@ const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.join(CURRENT_DIR, "..");
 const DEFAULT_DATA_DIR = path.join(PROJECT_ROOT, "data");
 
+/**
+ * Resolves an optional environment override for the data directory. Relative
+ * paths are expanded from the project root so deployments can mount volumes
+ * without changing the code base.
+ *
+ * @param {string|undefined|null} value
+ * @returns {string|null}
+ */
 function resolveConfiguredDir(value) {
   if (!value) {
     return null;
