@@ -140,6 +140,7 @@ if (quickSnippetsEnabled) {
   initQuickSnippets({
     container: dom.quickSnippetContainer,
     textarea: dom.planInput,
+    teamLibraryEnabled: featureSettings.teamLibrary !== false,
   });
 }
 

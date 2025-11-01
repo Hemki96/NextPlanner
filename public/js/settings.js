@@ -6,6 +6,11 @@ import {
   sanitizeQuickSnippetGroups,
 } from "./utils/snippet-storage.js";
 import { describeApiError } from "./utils/api-client.js";
+import {
+  fetchPersistedQuickSnippets,
+  persistQuickSnippets,
+  quickSnippetPersistenceSupported,
+} from "./utils/quick-snippet-client.js";
 import { fetchTeamLibrary, pushTeamLibrary, teamLibrarySupported } from "./utils/snippet-library-client.js";
 import { initFeatureToggleSection } from "./ui/feature-toggle-section.js";
 import { getFeatureSettings } from "./utils/feature-settings.js";
@@ -103,21 +108,243 @@ function createGroupId() {
   return `group-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function coerceSortOrder(value, fallback) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  const parsed = Number.parseInt(value ?? "", 10);
+  if (Number.isNaN(parsed)) {
+    return fallback;
+  }
+  return parsed;
+}
+
 function cloneGroups(groups) {
   if (!Array.isArray(groups)) {
     return [];
   }
-  return groups.map((group) => ({
+  return groups.map((group, index) => ({
     id: typeof group.id === "string" ? group.id : createGroupId(),
     title: typeof group.title === "string" ? group.title : "",
     description: typeof group.description === "string" ? group.description : "",
+    sortOrder: coerceSortOrder(group?.sortOrder, index),
     items: Array.isArray(group.items) ? group.items.map((item) => ({ ...item })) : [],
   }));
 }
 
+function getGroupSortValue(group, fallback) {
+  if (!group) {
+    return fallback;
+  }
+  return coerceSortOrder(group.sortOrder, fallback);
+}
+
+function reindexGroupSortOrders() {
+  snippetGroups.forEach((group, index) => {
+    if (group) {
+      group.sortOrder = index;
+    }
+  });
+}
+
+function sortGroupsBySortOrder() {
+  if (!Array.isArray(snippetGroups) || snippetGroups.length === 0) {
+    snippetGroups = Array.isArray(snippetGroups) ? snippetGroups : [];
+    return;
+  }
+
+  const decorated = snippetGroups.map((group, index) => ({
+    group,
+    order: getGroupSortValue(group, index),
+    index,
+  }));
+
+  decorated.sort((a, b) => {
+    if (a.order !== b.order) {
+      return a.order - b.order;
+    }
+    return a.index - b.index;
+  });
+
+  snippetGroups = decorated.map(({ group }) => group);
+  reindexGroupSortOrders();
+}
+
+function findGroupIndexById(groupId) {
+  if (typeof groupId !== "string") {
+    return -1;
+  }
+  return snippetGroups.findIndex((group) => group && group.id === groupId);
+}
+
 let snippetGroups = cloneGroups(getQuickSnippets());
+sortGroupsBySortOrder();
 const collapsedGroups = new Set();
 let pendingFocus = null;
+let pendingSnippetSave = null;
+const quickSnippetServerEnabled = quickSnippetPersistenceSupported();
+let lastServerSyncedSnapshot = JSON.stringify(
+  sanitizeQuickSnippetGroups(snippetGroups, { allowEmpty: true })
+);
+let serverSaveTimeout = null;
+let inFlightServerSave = null;
+let lastServerErrorMessage = null;
+let lastServerErrorTimestamp = 0;
+let serverSaveQueued = false;
+
+function flushPendingSnippetSave() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (pendingSnippetSave) {
+    window.clearTimeout(pendingSnippetSave);
+    pendingSnippetSave = null;
+  }
+
+  saveQuickSnippets(snippetGroups);
+  scheduleServerSave({ immediate: true });
+}
+
+function scheduleSnippetSave({ immediate = false } = {}) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (pendingSnippetSave) {
+    window.clearTimeout(pendingSnippetSave);
+    pendingSnippetSave = null;
+  }
+
+  if (immediate) {
+    flushPendingSnippetSave();
+    return;
+  }
+
+  pendingSnippetSave = window.setTimeout(() => {
+    pendingSnippetSave = null;
+    saveQuickSnippets(snippetGroups);
+    scheduleServerSave();
+  }, 200);
+}
+
+function reportServerSaveError(error) {
+  const message = describeApiError(error);
+  const statusType = error?.offline ? "warning" : "error";
+  const now = Date.now();
+  if (message && message === lastServerErrorMessage && now - lastServerErrorTimestamp < 4000) {
+    return;
+  }
+  lastServerErrorMessage = message;
+  lastServerErrorTimestamp = now;
+  const detail = message || "Unbekannter Fehler";
+  showStatus(`Schnellbausteine konnten nicht auf dem Server gespeichert werden: ${detail}`, statusType);
+}
+
+function performServerSave(sanitizedGroups, serializedGroups) {
+  if (!quickSnippetServerEnabled) {
+    return Promise.resolve();
+  }
+  const sanitized =
+    sanitizedGroups ?? sanitizeQuickSnippetGroups(snippetGroups, { allowEmpty: true });
+  const serialized = serializedGroups ?? JSON.stringify(sanitized);
+  if (serialized === lastServerSyncedSnapshot) {
+    return Promise.resolve();
+  }
+
+  return persistQuickSnippets(sanitized)
+    .then(({ groups }) => {
+      const sanitizedResponse = sanitizeQuickSnippetGroups(groups, { allowEmpty: true });
+      const serializedResponse = JSON.stringify(sanitizedResponse);
+      lastServerSyncedSnapshot = serializedResponse;
+      lastServerErrorMessage = null;
+      lastServerErrorTimestamp = 0;
+      if (serializedResponse !== serialized) {
+        snippetGroups = cloneGroups(sanitizedResponse);
+        sortGroupsBySortOrder();
+        renderGroups();
+        saveQuickSnippets(sanitizedResponse);
+      }
+    })
+    .catch((error) => {
+      reportServerSaveError(error);
+      throw error;
+    });
+}
+
+function flushPendingServerSave() {
+  if (!quickSnippetServerEnabled || typeof window === "undefined") {
+    return;
+  }
+  if (serverSaveTimeout) {
+    window.clearTimeout(serverSaveTimeout);
+    serverSaveTimeout = null;
+  }
+  const sanitized = sanitizeQuickSnippetGroups(snippetGroups, { allowEmpty: true });
+  const serialized = JSON.stringify(sanitized);
+  if (serialized === lastServerSyncedSnapshot) {
+    serverSaveQueued = false;
+    return;
+  }
+  if (inFlightServerSave) {
+    serverSaveQueued = true;
+    return;
+  }
+  inFlightServerSave = performServerSave(sanitized, serialized)
+    .catch(() => {})
+    .finally(() => {
+      inFlightServerSave = null;
+      if (serverSaveQueued) {
+        serverSaveQueued = false;
+        scheduleServerSave({ immediate: true });
+      }
+    });
+}
+
+function scheduleServerSave({ immediate = false } = {}) {
+  if (!quickSnippetServerEnabled || typeof window === "undefined") {
+    return;
+  }
+  if (serverSaveTimeout) {
+    window.clearTimeout(serverSaveTimeout);
+    serverSaveTimeout = null;
+  }
+  if (immediate) {
+    flushPendingServerSave();
+    return;
+  }
+  serverSaveTimeout = window.setTimeout(() => {
+    serverSaveTimeout = null;
+    flushPendingServerSave();
+  }, 300);
+}
+
+async function bootstrapQuickSnippetsFromServer() {
+  if (!quickSnippetServerEnabled) {
+    return;
+  }
+  try {
+    const { groups } = await fetchPersistedQuickSnippets();
+    const sanitized = sanitizeQuickSnippetGroups(groups, { allowEmpty: true });
+    const serializedServer = JSON.stringify(sanitized);
+    lastServerSyncedSnapshot = serializedServer;
+    const serializedLocal = JSON.stringify(
+      sanitizeQuickSnippetGroups(snippetGroups, { allowEmpty: true })
+    );
+    if (serializedServer === serializedLocal) {
+      return;
+    }
+    snippetGroups = cloneGroups(sanitized);
+    sortGroupsBySortOrder();
+    collapsedGroups.clear();
+    renderGroups();
+    saveQuickSnippets(sanitized);
+  } catch (error) {
+    const message = describeApiError(error);
+    const statusType = error?.offline ? "warning" : "error";
+    showStatus(`Schnellbausteine konnten nicht vom Server geladen werden: ${message}`, statusType);
+  }
+}
 
 function formatUpdatedAt(value) {
   if (!value) {
@@ -142,10 +369,12 @@ function createEmptyItem() {
 }
 
 function createEmptyGroup() {
+  const nextSortOrder = Array.isArray(snippetGroups) ? snippetGroups.length : 0;
   return {
     id: createGroupId(),
     title: "Neue Kategorie",
     description: "",
+    sortOrder: nextSortOrder,
     items: [createEmptyItem()],
   };
 }
@@ -247,8 +476,9 @@ async function loadTeamLibraryFromServer() {
   try {
     const { groups, updatedAt } = await fetchTeamLibrary();
     snippetGroups = cloneGroups(groups);
+    sortGroupsBySortOrder();
     renderGroups();
-    saveQuickSnippets(snippetGroups);
+    scheduleSnippetSave({ immediate: true });
     updateTeamMetadata(updatedAt);
     setTeamStatus("Team-Bibliothek übernommen.", "success");
   } catch (error) {
@@ -478,6 +708,23 @@ function renderGroups() {
     const headerActions = document.createElement("div");
     headerActions.className = "snippet-settings-header-actions";
 
+    const orderLabel = document.createElement("label");
+    orderLabel.className = "number-field snippet-settings-order";
+    orderLabel.textContent = "Position";
+
+    const orderField = document.createElement("input");
+    orderField.type = "number";
+    orderField.min = "1";
+    orderField.step = "1";
+    orderField.value = String((group.sortOrder ?? groupIndex) + 1);
+    orderField.dataset.groupIndex = String(groupIndex);
+    orderField.dataset.groupId = group.id;
+    orderField.dataset.field = "sortOrder";
+    orderField.className = "snippet-settings-number";
+    orderField.title = "Position der Kategorie (1 = ganz oben)";
+    orderLabel.appendChild(orderField);
+    headerActions.appendChild(orderLabel);
+
     const moveGroupUp = document.createElement("button");
     moveGroupUp.type = "button";
     moveGroupUp.className = "ghost-button is-quiet";
@@ -704,8 +951,18 @@ function applyPendingFocus() {
     return;
   }
 
-  const { groupIndex, itemIndex, field } = pendingFocus;
-  const groupSelector = `[data-group-index="${groupIndex}"]`;
+  const { groupIndex, itemIndex, field, groupId } = pendingFocus;
+  const resolvedIndex = (() => {
+    if (typeof groupId === "string") {
+      const actualIndex = findGroupIndexById(groupId);
+      if (actualIndex !== -1) {
+        return actualIndex;
+      }
+    }
+    return groupIndex;
+  })();
+
+  const groupSelector = `[data-group-index="${resolvedIndex}"]`;
   const fieldSelector = `${groupSelector}[data-field="${field}"]`;
   const selector =
     typeof itemIndex === "number"
@@ -728,13 +985,26 @@ function applyPendingFocus() {
 function updateGroupField(groupIndex, field, value) {
   const group = snippetGroups[groupIndex];
   if (!group) {
-    return;
+    return false;
   }
   if (field === "title") {
     group.title = value;
-  } else if (field === "description") {
-    group.description = value;
+    return false;
   }
+  if (field === "description") {
+    group.description = value;
+    return false;
+  }
+  if (field === "sortOrder") {
+    const parsed = Number.parseInt(value, 10);
+    const safeValue = Number.isNaN(parsed)
+      ? groupIndex + 1
+      : Math.min(Math.max(parsed, 1), snippetGroups.length);
+    group.sortOrder = safeValue - 1;
+    sortGroupsBySortOrder();
+    return true;
+  }
+  return false;
 }
 
 function updateItemField(groupIndex, itemIndex, field, value) {
@@ -778,10 +1048,21 @@ function handleInput(event) {
     return;
   }
 
+  const group = snippetGroups[groupIndex];
+  if (!group) {
+    return;
+  }
+
   const field = target.dataset.field;
   if (!field) {
     return;
   }
+
+  if (field === "sortOrder" && event.type === "input") {
+    return;
+  }
+
+  let shouldRerender = false;
 
   if (target.dataset.itemIndex) {
     const itemIndex = Number.parseInt(target.dataset.itemIndex ?? "", 10);
@@ -795,8 +1076,30 @@ function handleInput(event) {
       updateItemField(groupIndex, itemIndex, field, target.value);
     }
   } else {
-    updateGroupField(groupIndex, field, target.value);
+    shouldRerender = updateGroupField(groupIndex, field, target.value);
   }
+
+  if (shouldRerender) {
+    const focusGroupId =
+      typeof group.id === "string" ? group.id : target.dataset.groupId;
+    const resolvedIndex = (() => {
+      if (typeof focusGroupId === "string") {
+        const nextIndex = findGroupIndexById(focusGroupId);
+        if (nextIndex !== -1) {
+          return nextIndex;
+        }
+      }
+      return groupIndex;
+    })();
+    scheduleFocus({
+      groupId: focusGroupId,
+      groupIndex: resolvedIndex,
+      field,
+    });
+    renderGroups();
+  }
+
+  scheduleSnippetSave();
 }
 
 function handleClick(event) {
@@ -841,18 +1144,24 @@ function handleClick(event) {
     if (group.id) {
       collapsedGroups.delete(group.id);
     }
+    reindexGroupSortOrders();
     renderGroups();
+    scheduleSnippetSave();
   } else if (action === "move-group-up") {
     if (groupIndex > 0) {
       const [moved] = snippetGroups.splice(groupIndex, 1);
       snippetGroups.splice(groupIndex - 1, 0, moved);
+      reindexGroupSortOrders();
       renderGroups();
+      scheduleSnippetSave();
     }
   } else if (action === "move-group-down") {
     if (groupIndex < snippetGroups.length - 1) {
       const [moved] = snippetGroups.splice(groupIndex, 1);
       snippetGroups.splice(groupIndex + 1, 0, moved);
+      reindexGroupSortOrders();
       renderGroups();
+      scheduleSnippetSave();
     }
   } else if (action === "add-item") {
     const newItem = createEmptyItem();
@@ -864,6 +1173,7 @@ function handleClick(event) {
       field: "label",
     });
     renderGroups();
+    scheduleSnippetSave();
   } else if (action === "duplicate-item") {
     const itemIndex = Number.parseInt(target.dataset.itemIndex ?? "", 10);
     if (Number.isNaN(itemIndex) || !group.items[itemIndex]) {
@@ -886,6 +1196,7 @@ function handleClick(event) {
       field: "label",
     });
     renderGroups();
+    scheduleSnippetSave();
   } else if (action === "remove-item") {
     const itemIndex = Number.parseInt(target.dataset.itemIndex ?? "", 10);
     if (Number.isNaN(itemIndex)) {
@@ -896,6 +1207,7 @@ function handleClick(event) {
       group.items.push(createEmptyItem());
     }
     renderGroups();
+    scheduleSnippetSave();
   } else if (action === "move-item-up") {
     const itemIndex = Number.parseInt(target.dataset.itemIndex ?? "", 10);
     if (Number.isNaN(itemIndex) || itemIndex === 0) {
@@ -905,6 +1217,7 @@ function handleClick(event) {
     const [moved] = items.splice(itemIndex, 1);
     items.splice(itemIndex - 1, 0, moved);
     renderGroups();
+    scheduleSnippetSave();
   } else if (action === "move-item-down") {
     const itemIndex = Number.parseInt(target.dataset.itemIndex ?? "", 10);
     if (Number.isNaN(itemIndex) || itemIndex >= group.items.length - 1) {
@@ -914,11 +1227,12 @@ function handleClick(event) {
     const [moved] = items.splice(itemIndex, 1);
     items.splice(itemIndex + 1, 0, moved);
     renderGroups();
+    scheduleSnippetSave();
   }
 }
 
 function handleSave() {
-  saveQuickSnippets(snippetGroups);
+  scheduleSnippetSave({ immediate: true });
   showStatus("Schnellbausteine gespeichert.", "success");
 }
 
@@ -931,7 +1245,9 @@ function handleReset() {
   }
   resetQuickSnippets();
   snippetGroups = cloneGroups(defaultQuickSnippetGroups);
+  sortGroupsBySortOrder();
   collapsedGroups.clear();
+  scheduleSnippetSave({ immediate: true });
   showStatus("Standardbausteine wiederhergestellt.", "success");
   renderGroups();
 }
@@ -939,12 +1255,14 @@ function handleReset() {
 function handleAddGroup() {
   const newGroup = createEmptyGroup();
   snippetGroups.push(newGroup);
+  reindexGroupSortOrders();
   scheduleFocus({
     groupId: newGroup.id,
     groupIndex: snippetGroups.length - 1,
     field: "title",
   });
   renderGroups();
+  scheduleSnippetSave();
 }
 
 function handleExpandAll() {
@@ -968,7 +1286,7 @@ function handleExport() {
     return;
   }
 
-  const sanitized = sanitizeQuickSnippetGroups(snippetGroups);
+  const sanitized = sanitizeQuickSnippetGroups(snippetGroups, { allowEmpty: true });
   const blob = new Blob([JSON.stringify(sanitized, null, 2)], {
     type: "application/json",
   });
@@ -999,10 +1317,11 @@ function handleImportFile(event) {
     try {
       const text = typeof reader.result === "string" ? reader.result : "";
       const parsed = JSON.parse(text);
-      const sanitized = sanitizeQuickSnippetGroups(parsed);
+      const sanitized = sanitizeQuickSnippetGroups(parsed, { allowEmpty: true });
       snippetGroups = cloneGroups(sanitized);
+      sortGroupsBySortOrder();
       collapsedGroups.clear();
-      saveQuickSnippets(snippetGroups);
+      scheduleSnippetSave({ immediate: true });
       renderGroups();
       showStatus("Konfiguration importiert.", "success");
     } catch (error) {
@@ -1029,6 +1348,26 @@ groupContainer?.addEventListener("click", handleClick);
 exportButton?.addEventListener("click", handleExport);
 importButton?.addEventListener("click", handleImportClick);
 importInput?.addEventListener("change", handleImportFile);
+
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      flushPendingSnippetSave();
+      flushPendingServerSave();
+    }
+  });
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", () => {
+    flushPendingSnippetSave();
+    flushPendingServerSave();
+  });
+  window.addEventListener("beforeunload", () => {
+    flushPendingSnippetSave();
+    flushPendingServerSave();
+  });
+}
 
 if (highlightList) {
   renderHighlightOptions();
@@ -1069,3 +1408,4 @@ if (teamLibraryEnabled) {
 }
 
 renderGroups();
+bootstrapQuickSnippetsFromServer();

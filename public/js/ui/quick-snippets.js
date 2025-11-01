@@ -8,6 +8,10 @@ import {
   fetchTeamLibrary,
   teamLibrarySupported,
 } from "../utils/snippet-library-client.js";
+import {
+  fetchPersistedQuickSnippets,
+  quickSnippetPersistenceSupported,
+} from "../utils/quick-snippet-client.js";
 
 function ensureTrailingNewlines(text, minCount) {
   const match = text.match(/\n+$/);
@@ -48,13 +52,20 @@ function applySnippet(textarea, item) {
   textarea.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
-export function initQuickSnippets({ container, textarea }) {
+export function initQuickSnippets({
+  container,
+  textarea,
+  teamLibraryEnabled = true,
+} = {}) {
   if (!container || !textarea) {
     return;
   }
 
   let snippetGroups = getQuickSnippets();
   let serializedGroups = JSON.stringify(snippetGroups);
+  let quickSnippetServerEnabled = quickSnippetPersistenceSupported();
+  const teamLibraryAvailable = teamLibraryEnabled && teamLibrarySupported();
+  let allowTeamLibrarySync = teamLibraryAvailable && !quickSnippetServerEnabled;
 
   function render(groups) {
     container.innerHTML = "";
@@ -96,7 +107,7 @@ export function initQuickSnippets({ container, textarea }) {
   }
 
   function updateGroups(groups) {
-    const sanitized = sanitizeQuickSnippetGroups(groups);
+    const sanitized = sanitizeQuickSnippetGroups(groups, { allowEmpty: true });
     const serializedNext = JSON.stringify(sanitized);
     if (serializedNext === serializedGroups) {
       return;
@@ -106,14 +117,40 @@ export function initQuickSnippets({ container, textarea }) {
     render(snippetGroups);
   }
 
+  async function syncPersistedSnippets() {
+    if (!quickSnippetServerEnabled) {
+      return;
+    }
+    try {
+      const { groups } = await fetchPersistedQuickSnippets();
+      const sanitized = sanitizeQuickSnippetGroups(groups, { allowEmpty: true });
+      const serializedIncoming = JSON.stringify(sanitized);
+      if (serializedIncoming === serializedGroups) {
+        return;
+      }
+      snippetGroups = sanitized;
+      render(snippetGroups);
+      saveQuickSnippets(sanitized);
+    } catch (error) {
+      console.warn("Schnellbausteine konnten nicht vom Server geladen werden.", error);
+      if (error?.status === 404 || error?.status === 405 || error?.status === 501) {
+        quickSnippetServerEnabled = false;
+        allowTeamLibrarySync = teamLibraryAvailable;
+        if (allowTeamLibrarySync) {
+          syncTeamLibrary();
+        }
+      }
+    }
+  }
+
   async function syncTeamLibrary() {
-    if (!teamLibrarySupported()) {
+    if (!allowTeamLibrarySync) {
       return;
     }
 
     try {
       const { groups } = await fetchTeamLibrary();
-      const sanitized = sanitizeQuickSnippetGroups(groups);
+      const sanitized = sanitizeQuickSnippetGroups(groups, { allowEmpty: true });
       const serializedCurrent = JSON.stringify(snippetGroups);
       const serializedIncoming = JSON.stringify(sanitized);
       if (serializedCurrent === serializedIncoming) {
@@ -128,6 +165,7 @@ export function initQuickSnippets({ container, textarea }) {
   }
 
   render(snippetGroups);
+  syncPersistedSnippets();
   syncTeamLibrary();
 
   if (typeof window !== "undefined") {

@@ -2,6 +2,7 @@ export const QUICK_SNIPPET_STORAGE_KEY = "swimPlanner.quickSnippets.v1";
 
 export const defaultQuickSnippetGroups = [
   {
+    sortOrder: 0,
     title: "Phasen & Überschriften",
     description:
       "Bereite typische Trainingsabschnitte mit passenden Überschriften vor.",
@@ -46,6 +47,7 @@ export const defaultQuickSnippetGroups = [
     ],
   },
   {
+    sortOrder: 1,
     title: "Technik & Variationen",
     description: "Füge gezielte Drills und Varianten mit Platzhaltern ein.",
     items: [
@@ -77,6 +79,7 @@ export const defaultQuickSnippetGroups = [
     ],
   },
   {
+    sortOrder: 2,
     title: "Runden & Wiederholungen",
     description: "Strukturiere Serien mit Wiederholungen oder Leitern.",
     items: [
@@ -109,6 +112,7 @@ export const defaultQuickSnippetGroups = [
     ],
   },
   {
+    sortOrder: 3,
     title: "Material",
     description: "Häufig genutztes Equipment schnell ergänzen.",
     items: [
@@ -136,6 +140,7 @@ export const defaultQuickSnippetGroups = [
     ],
   },
   {
+    sortOrder: 4,
     title: "Intensitäten",
     description: "Markiere die Belastungsstufe innerhalb eines Sets.",
     items: [
@@ -166,6 +171,7 @@ export const defaultQuickSnippetGroups = [
     ],
   },
   {
+    sortOrder: 5,
     title: "Abgang & Pausen",
     description: "Intervalle und Regenerationszeiten hinzufügen.",
     items: [
@@ -200,6 +206,7 @@ export const defaultQuickSnippetGroups = [
     ],
   },
   {
+    sortOrder: 6,
     title: "Coaching-Hinweise",
     description:
       "Gib Kontext zu Belastung, Technikschwerpunkt oder gewünschten Effekten.",
@@ -254,13 +261,13 @@ function hasLocalStorage() {
   }
 }
 
-export function sanitizeQuickSnippetGroups(candidate) {
+export function sanitizeQuickSnippetGroups(candidate, { allowEmpty = false } = {}) {
   if (!Array.isArray(candidate)) {
     return cloneData(defaultQuickSnippetGroups);
   }
 
   const groups = candidate
-    .map((group) => {
+    .map((group, index) => {
       if (!group || typeof group !== "object") {
         return null;
       }
@@ -268,6 +275,11 @@ export function sanitizeQuickSnippetGroups(candidate) {
       const title = typeof group.title === "string" ? group.title : "Gruppe";
       const description =
         typeof group.description === "string" ? group.description : "";
+      const parsedSortOrder =
+        typeof group.sortOrder === "number"
+          ? group.sortOrder
+          : Number.parseInt(group.sortOrder ?? "", 10);
+      const sortOrder = Number.isFinite(parsedSortOrder) ? parsedSortOrder : index;
 
       const items = Array.isArray(group.items)
         ? group.items
@@ -301,13 +313,31 @@ export function sanitizeQuickSnippetGroups(candidate) {
       return {
         title,
         description,
+        sortOrder,
         items,
+        originalIndex: index,
       };
     })
     .filter(Boolean)
     .filter((group) => group.items.length > 0 || group.title.trim().length > 0);
 
-  return groups.length > 0 ? groups : cloneData(defaultQuickSnippetGroups);
+  if (groups.length > 0) {
+    return [...groups]
+      .sort((a, b) => {
+        if (a.sortOrder !== b.sortOrder) {
+          return a.sortOrder - b.sortOrder;
+        }
+        return a.originalIndex - b.originalIndex;
+      })
+      .map((group, index) => ({
+        title: group.title,
+        description: group.description,
+        sortOrder: index,
+        items: group.items,
+      }));
+  }
+
+  return allowEmpty ? [] : cloneData(defaultQuickSnippetGroups);
 }
 
 export function getQuickSnippets() {
@@ -322,7 +352,7 @@ export function getQuickSnippets() {
 
   try {
     const parsed = JSON.parse(stored);
-    return sanitizeQuickSnippetGroups(parsed);
+    return sanitizeQuickSnippetGroups(parsed, { allowEmpty: true });
   } catch (error) {
     return cloneData(defaultQuickSnippetGroups);
   }
@@ -333,7 +363,7 @@ export function saveQuickSnippets(groups) {
     return;
   }
 
-  const sanitized = sanitizeQuickSnippetGroups(groups);
+  const sanitized = sanitizeQuickSnippetGroups(groups, { allowEmpty: true });
   window.localStorage.setItem(QUICK_SNIPPET_STORAGE_KEY, JSON.stringify(sanitized));
   dispatchQuickSnippetUpdate(sanitized);
 }

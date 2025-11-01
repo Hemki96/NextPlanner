@@ -79,7 +79,7 @@ export class JsonSnippetStore {
       if (!parsed || typeof parsed !== "object") {
         throw new Error("Snippet storage muss ein Objekt sein");
       }
-      const groups = sanitizeQuickSnippetGroups(parsed.groups);
+      const groups = sanitizeQuickSnippetGroups(parsed.groups, { allowEmpty: true });
       const updatedAt = normalizeUpdatedAt(parsed.updatedAt) ?? new Date().toISOString();
       const shouldPersistGroups =
         !Array.isArray(parsed.groups) || !isDeepStrictEqual(groups, parsed.groups);
@@ -123,7 +123,7 @@ export class JsonSnippetStore {
       throw new Error("Snippet store is closed");
     }
     await this.#ready;
-    const sanitized = sanitizeQuickSnippetGroups(groups);
+    const sanitized = sanitizeQuickSnippetGroups(groups, { allowEmpty: true });
     if (isDeepStrictEqual(sanitized, this.#data.groups)) {
       return snapshot(this.#data);
     }
