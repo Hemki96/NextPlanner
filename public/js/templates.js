@@ -381,7 +381,7 @@ function resetForm() {
     tagsInput.value = "";
   }
   if (contentTextarea) {
-    templateHighlighter.refresh();
+    templateHighlighter.setText("");
   }
   analyzeTemplateContent();
 }
@@ -786,9 +786,8 @@ function handleEdit(id) {
     tagsInput.value = (template.tags ?? []).join(", ");
   }
   if (contentTextarea) {
-    contentTextarea.value = template.content;
+    templateHighlighter.setText(template.content ?? "");
   }
-  templateHighlighter.refresh();
   analyzeTemplateContent();
   submitButton.textContent = "Vorlage aktualisieren";
   cancelButton.hidden = false;
