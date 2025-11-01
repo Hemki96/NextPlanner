@@ -12,6 +12,10 @@ import {
   StorageIntegrityError,
 } from "./stores/json-plan-store.js";
 import { JsonSnippetStore } from "./stores/json-snippet-store.js";
+import {
+  JsonTemplateStore,
+  TemplateValidationError,
+} from "./stores/json-template-store.js";
 
 const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(CURRENT_DIR, "..", "data");
@@ -143,6 +147,26 @@ function canonicalizePlan(plan) {
 
 function buildPlanEtag(plan) {
   const canonical = canonicalizePlan(plan);
+  const hash = createHash("sha256").update(canonical).digest("hex");
+  return `"${hash}"`;
+}
+
+function canonicalizeTemplate(template) {
+  const canonicalTemplate = {
+    id: template.id,
+    type: template.type,
+    title: template.title,
+    notes: template.notes,
+    content: template.content,
+    tags: Array.isArray(template.tags) ? [...template.tags] : [],
+    createdAt: template.createdAt,
+    updatedAt: template.updatedAt,
+  };
+  return JSON.stringify(sortCanonical(canonicalTemplate));
+}
+
+function buildTemplateEtag(template) {
+  const canonical = canonicalizeTemplate(template);
   const hash = createHash("sha256").update(canonical).digest("hex");
   return `"${hash}"`;
 }
@@ -437,6 +461,14 @@ function parseIdFromPath(pathname) {
   return Number(match[1]);
 }
 
+function parseTemplateIdFromPath(pathname) {
+  const match = /^\/api\/templates\/([^/]+)$/.exec(pathname);
+  if (!match) {
+    return null;
+  }
+  return match[1];
+}
+
 function ensureJsonObject(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new HttpError(400, "JSON body muss ein Objekt sein", {
@@ -548,6 +580,17 @@ function handleApiError(res, error, method = "GET", origin) {
     );
     return;
   }
+  if (error instanceof TemplateValidationError) {
+    sendError(
+      400,
+      "template-validation",
+      error.message,
+      undefined,
+      undefined,
+      "Überprüfen Sie die Angaben zur Vorlage und korrigieren Sie ungültige Werte.",
+    );
+    return;
+  }
   if (error instanceof PlanConflictError) {
     const details = error.currentPlan ? { currentPlan: error.currentPlan } : undefined;
     const headers = error.currentPlan ? { ETag: buildPlanEtag(error.currentPlan) } : undefined;
@@ -583,6 +626,7 @@ async function handleApiRequest(
   res,
   url,
   planStore,
+  templateStore,
   teamSnippetStore,
   quickSnippetStore,
   origin,
@@ -688,6 +732,175 @@ async function handleApiRequest(
       res,
       new HttpError(405, "Methode nicht erlaubt", {
         hint: "Verwenden Sie GET/HEAD zum Abrufen oder PUT zum Aktualisieren der Schnellbausteine.",
+      }),
+      method,
+      requestOrigin,
+    );
+    return;
+  }
+
+  if (url.pathname === "/api/templates") {
+    if (!templateStore) {
+      handleApiError(
+        res,
+        new HttpError(503, "Template-Speicher nicht verfügbar", {
+          hint: "Der Server konnte keinen Speicher für Vorlagen initialisieren.",
+        }),
+        method,
+        requestOrigin,
+      );
+      return;
+    }
+
+    if (method === "GET" || method === "HEAD") {
+      try {
+        const templates = await templateStore.listTemplates();
+        sendApiJson(res, 200, templates, { method, origin: requestOrigin });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin);
+      }
+      return;
+    }
+
+    if (method === "POST") {
+      try {
+        const body = await readJsonBody(req, { limit: 500_000 });
+        const template = await templateStore.createTemplate(body);
+        sendApiJson(res, 201, template, {
+          method,
+          origin: requestOrigin,
+          headers: {
+            Location: `/api/templates/${encodeURIComponent(template.id)}`,
+            ETag: buildTemplateEtag(template),
+          },
+        });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin);
+      }
+      return;
+    }
+
+    handleApiError(
+      res,
+      new HttpError(405, "Methode nicht erlaubt", {
+        hint: "Nutzen Sie GET/HEAD zum Abruf oder POST zum Anlegen neuer Vorlagen.",
+      }),
+      method,
+      requestOrigin,
+    );
+    return;
+  }
+
+  const templateId = parseTemplateIdFromPath(url.pathname);
+  if (templateId !== null) {
+    if (!templateStore) {
+      handleApiError(
+        res,
+        new HttpError(503, "Template-Speicher nicht verfügbar", {
+          hint: "Der Server konnte keinen Speicher für Vorlagen initialisieren.",
+        }),
+        method,
+        requestOrigin,
+      );
+      return;
+    }
+
+    if (method === "GET" || method === "HEAD") {
+      try {
+        const template = await templateStore.getTemplate(templateId);
+        if (!template) {
+          throw new HttpError(404, "Vorlage nicht gefunden", {
+            hint: "Prüfen Sie, ob die Vorlage bereits gelöscht wurde.",
+          });
+        }
+        const etag = buildTemplateEtag(template);
+        if (etagMatches(req.headers?.["if-none-match"], etag)) {
+          sendApiEmpty(res, 304, {
+            headers: { ETag: etag },
+            origin: requestOrigin,
+          });
+          return;
+        }
+        sendApiJson(res, 200, template, {
+          method,
+          origin: requestOrigin,
+          headers: { ETag: etag },
+        });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin);
+      }
+      return;
+    }
+
+    if (method === "PUT") {
+      try {
+        const ifMatch = req.headers?.["if-match"];
+        const current = await templateStore.getTemplate(templateId);
+        if (!current) {
+          throw new HttpError(404, "Vorlage nicht gefunden", {
+            hint: "Die Vorlage wurde möglicherweise gelöscht.",
+          });
+        }
+        const currentEtag = buildTemplateEtag(current);
+        if (ifMatch && !ifMatchSatisfied(ifMatch, currentEtag)) {
+          throw new HttpError(412, "Vorlage wurde bereits geändert.", {
+            code: "template-conflict",
+            hint: "Laden Sie die aktuelle Version und versuchen Sie es erneut.",
+            expose: true,
+          });
+        }
+        const body = await readJsonBody(req, { limit: 500_000 });
+        const template = await templateStore.updateTemplate(templateId, body);
+        if (!template) {
+          throw new HttpError(404, "Vorlage nicht gefunden", {
+            hint: "Die Vorlage wurde möglicherweise gelöscht.",
+          });
+        }
+        sendApiJson(res, 200, template, {
+          method,
+          origin: requestOrigin,
+          headers: { ETag: buildTemplateEtag(template) },
+        });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin);
+      }
+      return;
+    }
+
+    if (method === "DELETE") {
+      try {
+        const ifMatch = req.headers?.["if-match"];
+        const current = await templateStore.getTemplate(templateId);
+        if (!current) {
+          throw new HttpError(404, "Vorlage nicht gefunden", {
+            hint: "Die Vorlage wurde möglicherweise bereits gelöscht.",
+          });
+        }
+        const currentEtag = buildTemplateEtag(current);
+        if (ifMatch && !ifMatchSatisfied(ifMatch, currentEtag)) {
+          throw new HttpError(412, "Vorlage wurde bereits geändert.", {
+            code: "template-conflict",
+            hint: "Laden Sie die aktuelle Version und versuchen Sie es erneut.",
+            expose: true,
+          });
+        }
+        const removed = await templateStore.deleteTemplate(templateId);
+        if (!removed) {
+          throw new HttpError(404, "Vorlage nicht gefunden", {
+            hint: "Die Vorlage wurde möglicherweise bereits gelöscht.",
+          });
+        }
+        sendApiEmpty(res, 204, { origin: requestOrigin });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin);
+      }
+      return;
+    }
+
+    handleApiError(
+      res,
+      new HttpError(405, "Methode nicht erlaubt", {
+        hint: "Erlaubte Methoden sind GET/HEAD, PUT und DELETE.",
       }),
       method,
       requestOrigin,
@@ -919,11 +1132,13 @@ async function handleApiRequest(
 
 export function createRequestHandler({
   store,
+  templateStore,
   snippetStore,
   quickSnippetStore,
   publicDir,
 } = {}) {
   const planStore = store ?? new JsonPlanStore();
+  const templateStoreInstance = templateStore ?? new JsonTemplateStore();
   const teamSnippetStore = snippetStore ?? new JsonSnippetStore();
   const localQuickSnippetStore =
     quickSnippetStore ?? new JsonSnippetStore({ storageFile: DEFAULT_QUICK_SNIPPET_FILE });
@@ -939,6 +1154,7 @@ export function createRequestHandler({
           res,
           url,
           planStore,
+          templateStoreInstance,
           teamSnippetStore,
           localQuickSnippetStore,
           req.headers?.origin ?? "",
@@ -968,6 +1184,7 @@ export function createRequestHandler({
 export function createServer(options = {}) {
   const {
     store = new JsonPlanStore(),
+    templateStore = new JsonTemplateStore(),
     snippetStore = new JsonSnippetStore(),
     quickSnippetStore = new JsonSnippetStore({ storageFile: DEFAULT_QUICK_SNIPPET_FILE }),
     publicDir,
@@ -975,6 +1192,7 @@ export function createServer(options = {}) {
   } = options;
   const handler = createRequestHandler({
     store,
+    templateStore,
     snippetStore,
     quickSnippetStore,
     publicDir,
@@ -992,6 +1210,7 @@ export function createServer(options = {}) {
     closePromise = (async () => {
       try {
         await store.close();
+        await templateStore.close();
         if (snippetStore && typeof snippetStore.close === "function") {
           await snippetStore.close();
         }

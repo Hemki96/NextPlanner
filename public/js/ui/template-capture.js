@@ -1,6 +1,5 @@
 import {
   appendTemplate,
-  createTemplateRecord,
   getTemplateTypeLabel,
   parseTagsInput,
 } from "../utils/template-storage.js";
@@ -225,7 +224,7 @@ export function initTemplateCapture({ blockList }) {
     openOverlay(data);
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
     if (!selection) {
       return;
@@ -241,25 +240,26 @@ export function initTemplateCapture({ blockList }) {
       return;
     }
 
-    const template = createTemplateRecord({
-      type: selection.type,
-      title: title || selection.defaultTitle || getTemplateTypeLabel(selection.type),
-      notes: "",
-      content,
-      tags,
-    });
-
-    if (!template) {
-      setStatus(statusElement, "Vorlage konnte nicht erstellt werden.", "warning");
-      return;
+    try {
+      await appendTemplate({
+        type: selection.type,
+        title: title || selection.defaultTitle || getTemplateTypeLabel(selection.type),
+        notes: "",
+        content,
+        tags,
+      });
+      setStatus(statusElement, "Vorlage gespeichert.", "success");
+      window.setTimeout(() => {
+        closeOverlay();
+      }, 600);
+    } catch (error) {
+      console.error("Vorlage konnte nicht erstellt werden.", error);
+      setStatus(
+        statusElement,
+        error?.message || "Vorlage konnte nicht erstellt werden.",
+        "warning",
+      );
     }
-
-    appendTemplate(template);
-    setStatus(statusElement, "Vorlage gespeichert.", "success");
-
-    window.setTimeout(() => {
-      closeOverlay();
-    }, 600);
   }
 
   blockList.addEventListener("click", handleButtonClick);
@@ -285,7 +285,9 @@ export function initTemplateCapture({ blockList }) {
     }
   });
 
-  form.addEventListener("submit", handleSubmit);
+  form.addEventListener("submit", (event) => {
+    void handleSubmit(event);
+  });
 
   return {
     update(plan) {

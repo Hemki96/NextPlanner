@@ -37,7 +37,7 @@ export function initTemplateLibraryPanel({ container, textarea }) {
   const list = container.querySelector("[data-template-list]");
   const emptyState = container.querySelector("[data-template-empty]");
 
-  let templates = loadTemplates();
+  let templates = [];
   let query = normalizeQuery(searchInput?.value ?? "");
 
   const insertTemplate = (template) => {
@@ -155,8 +155,13 @@ export function initTemplateLibraryPanel({ container, textarea }) {
     list.appendChild(fragment);
   };
 
-  const refresh = () => {
-    templates = loadTemplates();
+  const refresh = async () => {
+    try {
+      templates = await loadTemplates();
+    } catch (error) {
+      console.error("Vorlagen konnten nicht geladen werden.", error);
+      templates = [];
+    }
     render();
   };
 
@@ -165,15 +170,11 @@ export function initTemplateLibraryPanel({ container, textarea }) {
     render();
   });
 
-  window.addEventListener("nextplanner:templates-updated", refresh);
-  window.addEventListener("storage", (event) => {
-    if (event.key && event.key !== "swimPlanner.templates.v1") {
-      return;
-    }
-    refresh();
+  window.addEventListener("nextplanner:templates-updated", () => {
+    void refresh();
   });
 
-  render();
+  void refresh();
 
   return {
     refresh,

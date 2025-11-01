@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import { JsonPlanStore } from "../server/stores/json-plan-store.js";
 import { JsonSnippetStore } from "../server/stores/json-snippet-store.js";
+import { JsonTemplateStore } from "../server/stores/json-template-store.js";
 import { createServer } from "../server/app.js";
 import { sanitizeQuickSnippetGroups } from "../public/js/utils/snippet-storage.js";
 
@@ -18,9 +19,11 @@ function createTempStore() {
   const dir = mkdtempSync(path.join(tmpdir(), "nextplanner-api-"));
   const storageFile = path.join(dir, "plans.json");
   const snippetFile = path.join(dir, "snippets.json");
+  const templateFile = path.join(dir, "templates.json");
   const store = new JsonPlanStore({ storageFile });
   const snippetStore = new JsonSnippetStore({ storageFile: snippetFile });
-  return { dir, store, snippetStore };
+  const templateStore = new JsonTemplateStore({ storageFile: templateFile });
+  return { dir, store, snippetStore, templateStore };
 }
 
 describe("Plan API", () => {
@@ -29,13 +32,20 @@ describe("Plan API", () => {
   let snippetStore;
   let server;
   let baseUrl;
+  let templateStore;
 
   before(async () => {
     const temp = createTempStore();
     tempDir = temp.dir;
     store = temp.store;
     snippetStore = temp.snippetStore;
-    server = createServer({ store, snippetStore, publicDir: path.join(repoRoot, "public") });
+    templateStore = temp.templateStore;
+    server = createServer({
+      store,
+      templateStore,
+      snippetStore,
+      publicDir: path.join(repoRoot, "public"),
+    });
     server.listen(0);
     await once(server, "listening");
     const address = server.address();
@@ -47,6 +57,7 @@ describe("Plan API", () => {
     await new Promise((resolve) => server.close(resolve));
     await store?.close();
     await snippetStore?.close();
+    await templateStore?.close();
     rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -223,6 +234,57 @@ describe("Plan API", () => {
       },
     });
     assert.equal(cleanup.status, 204);
+  });
+
+  it("verwaltet Vorlagen über die API", async () => {
+    const createPayload = {
+      type: "Block",
+      title: "Sprintblock",
+      notes: "3×",
+      content: "## Sprint\n4×50m All-Out",
+      tags: ["Sprint", "Kurz"],
+    };
+
+    const createResponse = await fetch(`${baseUrl}/api/templates`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(createPayload),
+    });
+
+    assert.equal(createResponse.status, 201);
+    const created = await createResponse.json();
+    assert.ok(typeof created.id === "string" && created.id.length > 0);
+    assert.equal(created.type, "Block");
+    assert.equal(createResponse.headers.get("cache-control"), "no-store");
+
+    const listResponse = await fetch(`${baseUrl}/api/templates`);
+    assert.equal(listResponse.status, 200);
+    const templates = await listResponse.json();
+    assert.equal(templates.length, 1);
+    assert.equal(templates[0].title, "Sprintblock");
+
+    const updatePayload = { ...createPayload, title: "Sprintblock #1" };
+    const updateResponse = await fetch(`${baseUrl}/api/templates/${encodeURIComponent(created.id)}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(updatePayload),
+    });
+
+    assert.equal(updateResponse.status, 200);
+    const updated = await updateResponse.json();
+    assert.equal(updated.title, "Sprintblock #1");
+
+    const deleteResponse = await fetch(`${baseUrl}/api/templates/${encodeURIComponent(created.id)}`, {
+      method: "DELETE",
+    });
+    assert.equal(deleteResponse.status, 204);
+
+    const remaining = await templateStore.listTemplates();
+    assert.equal(remaining.length, 0);
   });
 
   it("exportiert und stellt Sicherungen über die API bereit", async () => {

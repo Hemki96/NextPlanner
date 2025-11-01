@@ -1,8 +1,9 @@
 import {
   TEMPLATE_TYPES,
   loadTemplates,
-  persistTemplates,
-  createTemplateRecord,
+  createTemplate,
+  updateTemplate,
+  deleteTemplate,
   parseTagsInput,
 } from "./utils/template-storage.js";
 import {
@@ -31,8 +32,30 @@ subscribeToFeatureSettings(() => {
 
 const templateFeatureEnabled = featureSettings.templateLibrary !== false;
 
-let templates = loadTemplates();
+let templates = [];
 let editId = null;
+let isLoading = false;
+
+async function refreshTemplates({ showError = true } = {}) {
+  if (!templateFeatureEnabled) {
+    return;
+  }
+  if (isLoading) {
+    return;
+  }
+  isLoading = true;
+  try {
+    templates = await loadTemplates();
+    renderTemplates();
+  } catch (error) {
+    console.error("Vorlagen konnten nicht geladen werden.", error);
+    if (showError) {
+      showStatus("Vorlagen konnten nicht geladen werden.", "warning");
+    }
+  } finally {
+    isLoading = false;
+  }
+}
 
 function resetForm() {
   form?.reset();
@@ -230,7 +253,7 @@ function handleEdit(id) {
   editId = id;
 }
 
-function handleDelete(id) {
+async function handleDelete(id) {
   const index = templates.findIndex((entry) => entry.id === id);
   if (index === -1) {
     showStatus("Vorlage nicht gefunden.", "warning");
@@ -240,17 +263,26 @@ function handleDelete(id) {
   if (!confirmDelete) {
     return;
   }
-  templates.splice(index, 1);
-  templates = persistTemplates(templates);
-  renderTemplates();
-  showStatus("Vorlage gelöscht.", "success");
-  if (editId === id) {
-    resetForm();
+  try {
+    const removed = await deleteTemplate(id);
+    if (!removed) {
+      showStatus("Vorlage konnte nicht gelöscht werden.", "warning");
+      return;
+    }
+    templates.splice(index, 1);
+    renderTemplates();
+    showStatus("Vorlage gelöscht.", "success");
+    if (editId === id) {
+      resetForm();
+    }
+  } catch (error) {
+    console.error("Vorlage konnte nicht gelöscht werden.", error);
+    showStatus("Vorlage konnte nicht gelöscht werden.", "warning");
   }
 }
 
 if (templateFeatureEnabled) {
-  form?.addEventListener("submit", (event) => {
+  form?.addEventListener("submit", async (event) => {
     event.preventDefault();
 
     const type = typeSelect.value;
@@ -265,32 +297,37 @@ if (templateFeatureEnabled) {
       return;
     }
 
-    if (editId) {
-      templates = templates.map((entry) =>
-        entry.id === editId
-          ? { ...entry, type, title: title || entry.title, notes, content, tags }
-          : entry
-      );
-      showStatus("Vorlage aktualisiert.", "success");
-    } else {
-      const newTemplate = createTemplateRecord({
-        type,
-        title: title || "Unbenannte Vorlage",
-        notes,
-        content,
-        tags,
-      });
-      if (!newTemplate) {
-        showStatus("Vorlage konnte nicht gespeichert werden.", "warning");
-        return;
+    try {
+      if (editId) {
+        const updated = await updateTemplate(editId, {
+          type,
+          title: title || undefined,
+          notes,
+          content,
+          tags,
+        });
+        templates = templates.map((entry) => (entry.id === editId ? updated : entry));
+        showStatus("Vorlage aktualisiert.", "success");
+      } else {
+        const created = await createTemplate({
+          type,
+          title: title || "Unbenannte Vorlage",
+          notes,
+          content,
+          tags,
+        });
+        templates.push(created);
+        showStatus("Vorlage gespeichert.", "success");
       }
-      templates.push(newTemplate);
-      showStatus("Vorlage gespeichert.", "success");
+      renderTemplates();
+      resetForm();
+    } catch (error) {
+      console.error("Vorlage konnte nicht gespeichert werden.", error);
+      showStatus(
+        error?.message || "Vorlage konnte nicht gespeichert werden.",
+        "warning",
+      );
     }
-
-    templates = persistTemplates(templates);
-    renderTemplates();
-    resetForm();
   });
 
   cancelButton?.addEventListener("click", () => {
@@ -318,11 +355,15 @@ if (templateFeatureEnabled) {
     } else if (action === "edit") {
       handleEdit(id);
     } else if (action === "delete") {
-      handleDelete(id);
+      void handleDelete(id);
     }
   });
 
-  renderTemplates();
+  refreshTemplates();
+
+  window.addEventListener("nextplanner:templates-updated", () => {
+    refreshTemplates({ showError: false });
+  });
 } else {
   showStatus("Die Vorlagenfunktion ist in den Einstellungen deaktiviert.", "info");
   if (form) {
