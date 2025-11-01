@@ -63,7 +63,7 @@ Das Schnellbaustein-Panel stellt konfigurierbare Textfragmente bereit:
 - In `templates.html` können Vorlagen gruppiert angezeigt, durchsucht, editiert, gelöscht oder exportiert werden.【F:public/js/templates.js†L1-L120】
 
 ## Speicherorte und Automatisierung
-Gespeicherte Pläne landen in `data/plans.json`, Schnellbausteine in `data/team-snippets.json`. Beide Dateien werden bei Bedarf erzeugt und vom Repository ausgeschlossen.【F:README.md†L85-L161】 Die Snippet-Datei besteht immer aus einem Snapshot `{ updatedAt, groups }`, der serverseitig normalisiert wird; so bleiben kollaborative Änderungen konsistent und versionsfähig.【F:server/stores/json-snippet-store.js†L9-L153】 Über die Plan-CLI lassen sich Pläne hinzufügen, filtern, anzeigen oder löschen – sie nutzt dieselben JSON-Daten wie die Weboberfläche.【F:README.md†L128-L148】
+Gespeicherte Pläne landen in `data/plans.json`, persönliche Schnellbausteine in `data/quick-snippets.json` und die Team-Bibliothek in `data/team-snippets.json`. Alle Dateien werden bei Bedarf erzeugt und vom Repository ausgeschlossen.【F:README.md†L85-L161】 Die Snippet-Dateien bestehen immer aus einem Snapshot `{ updatedAt, groups }`, der serverseitig normalisiert wird; so bleiben kollaborative Änderungen konsistent und versionsfähig.【F:server/stores/json-snippet-store.js†L9-L153】 Über die Plan-CLI lassen sich Pläne hinzufügen, filtern, anzeigen oder löschen – sie nutzt dieselben JSON-Daten wie die Weboberfläche.【F:README.md†L128-L148】
 
 ## Troubleshooting
 - Stellt der Speicherdialog eine Offline-Verbindung fest, prüfe, ob der lokale Server läuft (`npm start`).【F:public/js/ui/plan-save-dialog.js†L109-L132】

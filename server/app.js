@@ -13,6 +13,10 @@ import {
 } from "./stores/json-plan-store.js";
 import { JsonSnippetStore } from "./stores/json-snippet-store.js";
 
+const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = path.join(CURRENT_DIR, "..", "data");
+const DEFAULT_QUICK_SNIPPET_FILE = path.join(DATA_DIR, "quick-snippets.json");
+
 class HttpError extends Error {
   constructor(status, message, { expose = true, code = null, hint = null } = {}) {
     super(message);
@@ -579,7 +583,8 @@ async function handleApiRequest(
   res,
   url,
   planStore,
-  snippetStore,
+  teamSnippetStore,
+  quickSnippetStore,
   origin,
 ) {
   const requestOrigin = origin ?? req.headers?.origin ?? "";
@@ -638,12 +643,12 @@ async function handleApiRequest(
     return;
   }
 
-  if (url.pathname === "/api/snippets") {
-    if (!snippetStore) {
+  if (url.pathname === "/api/quick-snippets") {
+    if (!quickSnippetStore) {
       handleApiError(
         res,
-        new HttpError(503, "Team-Bibliothek nicht verfügbar", {
-          hint: "Aktivieren oder konfigurieren Sie die Team-Bibliothek, um auf Snippets zuzugreifen.",
+        new HttpError(503, "Schnellbausteine nicht verfügbar", {
+          hint: "Der Server konnte keinen Speicher für Schnellbausteine initialisieren.",
         }),
         method,
         requestOrigin,
@@ -653,7 +658,7 @@ async function handleApiRequest(
 
     if (method === "GET" || method === "HEAD") {
       try {
-        const library = await snippetStore.getLibrary();
+        const library = await quickSnippetStore.getLibrary();
         sendApiJson(res, 200, library, { method, origin: requestOrigin });
       } catch (error) {
         handleApiError(res, error, method, requestOrigin);
@@ -671,7 +676,59 @@ async function handleApiRequest(
             hint: "Senden Sie ein Array mit Gruppenobjekten, jeweils inklusive 'title' und 'snippets'.",
           });
         }
-        const library = await snippetStore.replaceLibrary(payload);
+        const library = await quickSnippetStore.replaceLibrary(payload);
+        sendApiJson(res, 200, library, { method, origin: requestOrigin });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin);
+      }
+      return;
+    }
+
+    handleApiError(
+      res,
+      new HttpError(405, "Methode nicht erlaubt", {
+        hint: "Verwenden Sie GET/HEAD zum Abrufen oder PUT zum Aktualisieren der Schnellbausteine.",
+      }),
+      method,
+      requestOrigin,
+    );
+    return;
+  }
+
+  if (url.pathname === "/api/snippets") {
+    if (!teamSnippetStore) {
+      handleApiError(
+        res,
+        new HttpError(503, "Team-Bibliothek nicht verfügbar", {
+          hint: "Aktivieren oder konfigurieren Sie die Team-Bibliothek, um auf Snippets zuzugreifen.",
+        }),
+        method,
+        requestOrigin,
+      );
+      return;
+    }
+
+    if (method === "GET" || method === "HEAD") {
+      try {
+        const library = await teamSnippetStore.getLibrary();
+        sendApiJson(res, 200, library, { method, origin: requestOrigin });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin);
+      }
+      return;
+    }
+
+    if (method === "PUT") {
+      try {
+        const body = await readJsonBody(req, { limit: 1_000_000 });
+        const payload = Array.isArray(body) ? body : ensureJsonObject(body).groups ?? body;
+        if (!Array.isArray(payload)) {
+          throw new HttpError(400, "Erwartet wurde ein Array von Gruppen", {
+            code: "invalid-snippet-payload",
+            hint: "Senden Sie ein Array mit Gruppenobjekten, jeweils inklusive 'title' und 'snippets'.",
+          });
+        }
+        const library = await teamSnippetStore.replaceLibrary(payload);
         sendApiJson(res, 200, library, { method, origin: requestOrigin });
       } catch (error) {
         handleApiError(res, error, method, requestOrigin);
@@ -860,14 +917,17 @@ async function handleApiRequest(
   );
 }
 
-export function createRequestHandler({ store, snippetStore, publicDir } = {}) {
+export function createRequestHandler({
+  store,
+  snippetStore,
+  quickSnippetStore,
+  publicDir,
+} = {}) {
   const planStore = store ?? new JsonPlanStore();
   const teamSnippetStore = snippetStore ?? new JsonSnippetStore();
-  const defaultDir = path.join(
-    path.dirname(fileURLToPath(import.meta.url)),
-    "..",
-    "public",
-  );
+  const localQuickSnippetStore =
+    quickSnippetStore ?? new JsonSnippetStore({ storageFile: DEFAULT_QUICK_SNIPPET_FILE });
+  const defaultDir = path.join(CURRENT_DIR, "..", "public");
   const rootDir = path.resolve(publicDir ?? defaultDir);
 
   return async (req, res) => {
@@ -880,6 +940,7 @@ export function createRequestHandler({ store, snippetStore, publicDir } = {}) {
           url,
           planStore,
           teamSnippetStore,
+          localQuickSnippetStore,
           req.headers?.origin ?? "",
         );
         return;
@@ -908,10 +969,16 @@ export function createServer(options = {}) {
   const {
     store = new JsonPlanStore(),
     snippetStore = new JsonSnippetStore(),
+    quickSnippetStore = new JsonSnippetStore({ storageFile: DEFAULT_QUICK_SNIPPET_FILE }),
     publicDir,
     gracefulShutdownSignals = ["SIGINT", "SIGTERM"],
   } = options;
-  const handler = createRequestHandler({ store, snippetStore, publicDir });
+  const handler = createRequestHandler({
+    store,
+    snippetStore,
+    quickSnippetStore,
+    publicDir,
+  });
   const server = createHttpServer(handler);
 
   const signalHandlers = new Map();
@@ -927,6 +994,9 @@ export function createServer(options = {}) {
         await store.close();
         if (snippetStore && typeof snippetStore.close === "function") {
           await snippetStore.close();
+        }
+        if (quickSnippetStore && typeof quickSnippetStore.close === "function") {
+          await quickSnippetStore.close();
         }
       } catch (error) {
         console.error("Fehler beim Schließen des Planstores", error);

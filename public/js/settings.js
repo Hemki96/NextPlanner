@@ -6,6 +6,11 @@ import {
   sanitizeQuickSnippetGroups,
 } from "./utils/snippet-storage.js";
 import { describeApiError } from "./utils/api-client.js";
+import {
+  fetchPersistedQuickSnippets,
+  persistQuickSnippets,
+  quickSnippetPersistenceSupported,
+} from "./utils/quick-snippet-client.js";
 import { fetchTeamLibrary, pushTeamLibrary, teamLibrarySupported } from "./utils/snippet-library-client.js";
 import { initFeatureToggleSection } from "./ui/feature-toggle-section.js";
 import { getFeatureSettings } from "./utils/feature-settings.js";
@@ -119,6 +124,13 @@ let snippetGroups = cloneGroups(getQuickSnippets());
 const collapsedGroups = new Set();
 let pendingFocus = null;
 let pendingSnippetSave = null;
+const quickSnippetServerEnabled = quickSnippetPersistenceSupported();
+let lastServerSyncedSnapshot = JSON.stringify(sanitizeQuickSnippetGroups(snippetGroups));
+let serverSaveTimeout = null;
+let inFlightServerSave = null;
+let lastServerErrorMessage = null;
+let lastServerErrorTimestamp = 0;
+let serverSaveQueued = false;
 
 function flushPendingSnippetSave() {
   if (typeof window === "undefined") {
@@ -131,6 +143,7 @@ function flushPendingSnippetSave() {
   }
 
   saveQuickSnippets(snippetGroups);
+  scheduleServerSave({ immediate: true });
 }
 
 function scheduleSnippetSave({ immediate = false } = {}) {
@@ -151,7 +164,121 @@ function scheduleSnippetSave({ immediate = false } = {}) {
   pendingSnippetSave = window.setTimeout(() => {
     pendingSnippetSave = null;
     saveQuickSnippets(snippetGroups);
+    scheduleServerSave();
   }, 200);
+}
+
+function reportServerSaveError(error) {
+  const message = describeApiError(error);
+  const statusType = error?.offline ? "warning" : "error";
+  const now = Date.now();
+  if (message && message === lastServerErrorMessage && now - lastServerErrorTimestamp < 4000) {
+    return;
+  }
+  lastServerErrorMessage = message;
+  lastServerErrorTimestamp = now;
+  const detail = message || "Unbekannter Fehler";
+  showStatus(`Schnellbausteine konnten nicht auf dem Server gespeichert werden: ${detail}`, statusType);
+}
+
+function performServerSave(sanitizedGroups, serializedGroups) {
+  if (!quickSnippetServerEnabled) {
+    return Promise.resolve();
+  }
+  const sanitized = sanitizedGroups ?? sanitizeQuickSnippetGroups(snippetGroups);
+  const serialized = serializedGroups ?? JSON.stringify(sanitized);
+  if (serialized === lastServerSyncedSnapshot) {
+    return Promise.resolve();
+  }
+
+  return persistQuickSnippets(sanitized)
+    .then(({ groups }) => {
+      const sanitizedResponse = sanitizeQuickSnippetGroups(groups);
+      const serializedResponse = JSON.stringify(sanitizedResponse);
+      lastServerSyncedSnapshot = serializedResponse;
+      lastServerErrorMessage = null;
+      lastServerErrorTimestamp = 0;
+      if (serializedResponse !== serialized) {
+        snippetGroups = cloneGroups(sanitizedResponse);
+        renderGroups();
+        saveQuickSnippets(sanitizedResponse);
+      }
+    })
+    .catch((error) => {
+      reportServerSaveError(error);
+      throw error;
+    });
+}
+
+function flushPendingServerSave() {
+  if (!quickSnippetServerEnabled || typeof window === "undefined") {
+    return;
+  }
+  if (serverSaveTimeout) {
+    window.clearTimeout(serverSaveTimeout);
+    serverSaveTimeout = null;
+  }
+  const sanitized = sanitizeQuickSnippetGroups(snippetGroups);
+  const serialized = JSON.stringify(sanitized);
+  if (serialized === lastServerSyncedSnapshot) {
+    serverSaveQueued = false;
+    return;
+  }
+  if (inFlightServerSave) {
+    serverSaveQueued = true;
+    return;
+  }
+  inFlightServerSave = performServerSave(sanitized, serialized)
+    .catch(() => {})
+    .finally(() => {
+      inFlightServerSave = null;
+      if (serverSaveQueued) {
+        serverSaveQueued = false;
+        scheduleServerSave({ immediate: true });
+      }
+    });
+}
+
+function scheduleServerSave({ immediate = false } = {}) {
+  if (!quickSnippetServerEnabled || typeof window === "undefined") {
+    return;
+  }
+  if (serverSaveTimeout) {
+    window.clearTimeout(serverSaveTimeout);
+    serverSaveTimeout = null;
+  }
+  if (immediate) {
+    flushPendingServerSave();
+    return;
+  }
+  serverSaveTimeout = window.setTimeout(() => {
+    serverSaveTimeout = null;
+    flushPendingServerSave();
+  }, 300);
+}
+
+async function bootstrapQuickSnippetsFromServer() {
+  if (!quickSnippetServerEnabled) {
+    return;
+  }
+  try {
+    const { groups } = await fetchPersistedQuickSnippets();
+    const sanitized = sanitizeQuickSnippetGroups(groups);
+    const serializedServer = JSON.stringify(sanitized);
+    lastServerSyncedSnapshot = serializedServer;
+    const serializedLocal = JSON.stringify(sanitizeQuickSnippetGroups(snippetGroups));
+    if (serializedServer === serializedLocal) {
+      return;
+    }
+    snippetGroups = cloneGroups(sanitized);
+    collapsedGroups.clear();
+    renderGroups();
+    saveQuickSnippets(sanitized);
+  } catch (error) {
+    const message = describeApiError(error);
+    const statusType = error?.offline ? "warning" : "error";
+    showStatus(`Schnellbausteine konnten nicht vom Server geladen werden: ${message}`, statusType);
+  }
 }
 
 function formatUpdatedAt(value) {
@@ -1081,13 +1208,20 @@ if (typeof document !== "undefined") {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {
       flushPendingSnippetSave();
+      flushPendingServerSave();
     }
   });
 }
 
 if (typeof window !== "undefined") {
-  window.addEventListener("pagehide", flushPendingSnippetSave);
-  window.addEventListener("beforeunload", flushPendingSnippetSave);
+  window.addEventListener("pagehide", () => {
+    flushPendingSnippetSave();
+    flushPendingServerSave();
+  });
+  window.addEventListener("beforeunload", () => {
+    flushPendingSnippetSave();
+    flushPendingServerSave();
+  });
 }
 
 if (highlightList) {
@@ -1129,3 +1263,4 @@ if (teamLibraryEnabled) {
 }
 
 renderGroups();
+bootstrapQuickSnippetsFromServer();

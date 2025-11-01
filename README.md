@@ -83,7 +83,7 @@ Du hast zwei gleichwertige Möglichkeiten, die Anwendung während der Entwicklun
 
 ### 8. Häufige Fragen
 
-- **Wo liegen die lokalen Datendateien?** – Die Anwendung legt `data/plans.json` (Pläne) und `data/team-snippets.json` (Schnellbausteine) bei Bedarf automatisch an; beide Pfade sind in `.gitignore` ausgeschlossen. Die Snippet-Datei enthält immer ein gültiges `{ updatedAt, groups }`-Objekt und wird beim Laden automatisch saniert.
+- **Wo liegen die lokalen Datendateien?** – Die Anwendung legt `data/plans.json` (Pläne), `data/quick-snippets.json` (persönliche Schnellbausteine) und `data/team-snippets.json` (Team-Bibliothek) bei Bedarf automatisch an; alle Pfade sind in `.gitignore` ausgeschlossen. Die Snippet-Dateien enthalten immer ein gültiges `{ updatedAt, groups }`-Objekt und werden beim Laden automatisch saniert.
 - **Warum schlägt „Plan speichern“ fehl?** – Stelle sicher, dass `npm start` läuft. Ohne Server kann die App nicht auf das Dateisystem zugreifen.
 - **Wie ändere ich die Port-Konfiguration?** – Passe den Port in `server/server.js` an oder setze die Umgebungsvariable `PORT` (z. B. `PORT=4000 npm start`).
 - **Kann ich Tests debuggen?** – Ja. Verwende in der Run-&-Debug-Ansicht die Konfiguration „Node.js: Launch via NPM“, wähle `test` als Script und setze Breakpoints in deinen Testdateien unter `tests/`.
@@ -119,7 +119,8 @@ Du hast zwei gleichwertige Möglichkeiten, die Anwendung während der Entwicklun
 
 Zusätzlich zum Freitext-Editor kannst du komplette Workouts inklusive Metadaten lokal auf Dateibasis sichern.
 Der JSON-Speicher legt die Daten standardmäßig unter `data/plans.json` ab (die Datei wird bei Bedarf automatisch erstellt und
-ist vom Repository ausgeschlossen). Zusätzlich erzeugt die Team-Snippet-Bibliothek eine `data/team-snippets.json`, sobald sie mit eigenen Gruppen befüllt wird.
+ist vom Repository ausgeschlossen). Eigene Schnellbausteine landen automatisch in `data/quick-snippets.json`, die Team-Snippet-
+Bibliothek erzeugt zusätzlich eine `data/team-snippets.json`, sobald sie mit eigenen Gruppen befüllt wird.
 
 ### Plan über den Speicher-Button sichern
 

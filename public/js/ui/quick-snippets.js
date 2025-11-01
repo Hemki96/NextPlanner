@@ -8,6 +8,10 @@ import {
   fetchTeamLibrary,
   teamLibrarySupported,
 } from "../utils/snippet-library-client.js";
+import {
+  fetchPersistedQuickSnippets,
+  quickSnippetPersistenceSupported,
+} from "../utils/quick-snippet-client.js";
 
 function ensureTrailingNewlines(text, minCount) {
   const match = text.match(/\n+$/);
@@ -55,6 +59,7 @@ export function initQuickSnippets({ container, textarea }) {
 
   let snippetGroups = getQuickSnippets();
   let serializedGroups = JSON.stringify(snippetGroups);
+  const quickSnippetServerEnabled = quickSnippetPersistenceSupported();
 
   function render(groups) {
     container.innerHTML = "";
@@ -106,6 +111,25 @@ export function initQuickSnippets({ container, textarea }) {
     render(snippetGroups);
   }
 
+  async function syncPersistedSnippets() {
+    if (!quickSnippetServerEnabled) {
+      return;
+    }
+    try {
+      const { groups } = await fetchPersistedQuickSnippets();
+      const sanitized = sanitizeQuickSnippetGroups(groups);
+      const serializedIncoming = JSON.stringify(sanitized);
+      if (serializedIncoming === serializedGroups) {
+        return;
+      }
+      snippetGroups = sanitized;
+      render(snippetGroups);
+      saveQuickSnippets(sanitized);
+    } catch (error) {
+      console.warn("Schnellbausteine konnten nicht vom Server geladen werden.", error);
+    }
+  }
+
   async function syncTeamLibrary() {
     if (!teamLibrarySupported()) {
       return;
@@ -128,6 +152,7 @@ export function initQuickSnippets({ container, textarea }) {
   }
 
   render(snippetGroups);
+  syncPersistedSnippets();
   syncTeamLibrary();
 
   if (typeof window !== "undefined") {
