@@ -94,7 +94,7 @@ const templateMetricsCache = new Map();
 const filterState = {
   query: "",
   queryTokens: [],
-  type: filterTypeSelectInput?.value || "Set",
+  type: filterTypeSelectInput?.value || "all",
   tags: [],
   minDistance: null,
   maxDistance: null,
@@ -579,7 +579,7 @@ function updateFilterSummary(filteredTemplates) {
 function applyFiltersFromInputs() {
   filterState.query = normalizeFilterText(filterQueryInput?.value ?? "");
   filterState.queryTokens = filterState.query ? filterState.query.split(/\s+/).filter(Boolean) : [];
-  const typeValue = filterTypeSelectInput?.value || "Set";
+  const typeValue = filterTypeSelectInput?.value || "all";
   if (typeValue === "all") {
     filterState.type = "all";
   } else if (TEMPLATE_TYPES.some((entry) => entry.value === typeValue)) {
