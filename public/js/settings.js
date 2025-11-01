@@ -125,7 +125,9 @@ const collapsedGroups = new Set();
 let pendingFocus = null;
 let pendingSnippetSave = null;
 const quickSnippetServerEnabled = quickSnippetPersistenceSupported();
-let lastServerSyncedSnapshot = JSON.stringify(sanitizeQuickSnippetGroups(snippetGroups));
+let lastServerSyncedSnapshot = JSON.stringify(
+  sanitizeQuickSnippetGroups(snippetGroups, { allowEmpty: true })
+);
 let serverSaveTimeout = null;
 let inFlightServerSave = null;
 let lastServerErrorMessage = null;
@@ -185,7 +187,8 @@ function performServerSave(sanitizedGroups, serializedGroups) {
   if (!quickSnippetServerEnabled) {
     return Promise.resolve();
   }
-  const sanitized = sanitizedGroups ?? sanitizeQuickSnippetGroups(snippetGroups);
+  const sanitized =
+    sanitizedGroups ?? sanitizeQuickSnippetGroups(snippetGroups, { allowEmpty: true });
   const serialized = serializedGroups ?? JSON.stringify(sanitized);
   if (serialized === lastServerSyncedSnapshot) {
     return Promise.resolve();
@@ -193,7 +196,7 @@ function performServerSave(sanitizedGroups, serializedGroups) {
 
   return persistQuickSnippets(sanitized)
     .then(({ groups }) => {
-      const sanitizedResponse = sanitizeQuickSnippetGroups(groups);
+      const sanitizedResponse = sanitizeQuickSnippetGroups(groups, { allowEmpty: true });
       const serializedResponse = JSON.stringify(sanitizedResponse);
       lastServerSyncedSnapshot = serializedResponse;
       lastServerErrorMessage = null;
@@ -218,7 +221,7 @@ function flushPendingServerSave() {
     window.clearTimeout(serverSaveTimeout);
     serverSaveTimeout = null;
   }
-  const sanitized = sanitizeQuickSnippetGroups(snippetGroups);
+  const sanitized = sanitizeQuickSnippetGroups(snippetGroups, { allowEmpty: true });
   const serialized = JSON.stringify(sanitized);
   if (serialized === lastServerSyncedSnapshot) {
     serverSaveQueued = false;
@@ -263,10 +266,12 @@ async function bootstrapQuickSnippetsFromServer() {
   }
   try {
     const { groups } = await fetchPersistedQuickSnippets();
-    const sanitized = sanitizeQuickSnippetGroups(groups);
+    const sanitized = sanitizeQuickSnippetGroups(groups, { allowEmpty: true });
     const serializedServer = JSON.stringify(sanitized);
     lastServerSyncedSnapshot = serializedServer;
-    const serializedLocal = JSON.stringify(sanitizeQuickSnippetGroups(snippetGroups));
+    const serializedLocal = JSON.stringify(
+      sanitizeQuickSnippetGroups(snippetGroups, { allowEmpty: true })
+    );
     if (serializedServer === serializedLocal) {
       return;
     }
@@ -1142,7 +1147,7 @@ function handleExport() {
     return;
   }
 
-  const sanitized = sanitizeQuickSnippetGroups(snippetGroups);
+  const sanitized = sanitizeQuickSnippetGroups(snippetGroups, { allowEmpty: true });
   const blob = new Blob([JSON.stringify(sanitized, null, 2)], {
     type: "application/json",
   });
@@ -1173,7 +1178,7 @@ function handleImportFile(event) {
     try {
       const text = typeof reader.result === "string" ? reader.result : "";
       const parsed = JSON.parse(text);
-      const sanitized = sanitizeQuickSnippetGroups(parsed);
+      const sanitized = sanitizeQuickSnippetGroups(parsed, { allowEmpty: true });
       snippetGroups = cloneGroups(sanitized);
       collapsedGroups.clear();
       scheduleSnippetSave({ immediate: true });

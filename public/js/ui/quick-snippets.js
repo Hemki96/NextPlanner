@@ -101,7 +101,7 @@ export function initQuickSnippets({ container, textarea }) {
   }
 
   function updateGroups(groups) {
-    const sanitized = sanitizeQuickSnippetGroups(groups);
+    const sanitized = sanitizeQuickSnippetGroups(groups, { allowEmpty: true });
     const serializedNext = JSON.stringify(sanitized);
     if (serializedNext === serializedGroups) {
       return;
@@ -117,7 +117,7 @@ export function initQuickSnippets({ container, textarea }) {
     }
     try {
       const { groups } = await fetchPersistedQuickSnippets();
-      const sanitized = sanitizeQuickSnippetGroups(groups);
+      const sanitized = sanitizeQuickSnippetGroups(groups, { allowEmpty: true });
       const serializedIncoming = JSON.stringify(sanitized);
       if (serializedIncoming === serializedGroups) {
         return;
@@ -137,7 +137,7 @@ export function initQuickSnippets({ container, textarea }) {
 
     try {
       const { groups } = await fetchTeamLibrary();
-      const sanitized = sanitizeQuickSnippetGroups(groups);
+      const sanitized = sanitizeQuickSnippetGroups(groups, { allowEmpty: true });
       const serializedCurrent = JSON.stringify(snippetGroups);
       const serializedIncoming = JSON.stringify(sanitized);
       if (serializedCurrent === serializedIncoming) {

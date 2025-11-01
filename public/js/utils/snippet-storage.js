@@ -254,7 +254,7 @@ function hasLocalStorage() {
   }
 }
 
-export function sanitizeQuickSnippetGroups(candidate) {
+export function sanitizeQuickSnippetGroups(candidate, { allowEmpty = false } = {}) {
   if (!Array.isArray(candidate)) {
     return cloneData(defaultQuickSnippetGroups);
   }
@@ -307,7 +307,11 @@ export function sanitizeQuickSnippetGroups(candidate) {
     .filter(Boolean)
     .filter((group) => group.items.length > 0 || group.title.trim().length > 0);
 
-  return groups.length > 0 ? groups : cloneData(defaultQuickSnippetGroups);
+  if (groups.length > 0) {
+    return groups;
+  }
+
+  return allowEmpty ? [] : cloneData(defaultQuickSnippetGroups);
 }
 
 export function getQuickSnippets() {
@@ -322,7 +326,7 @@ export function getQuickSnippets() {
 
   try {
     const parsed = JSON.parse(stored);
-    return sanitizeQuickSnippetGroups(parsed);
+    return sanitizeQuickSnippetGroups(parsed, { allowEmpty: true });
   } catch (error) {
     return cloneData(defaultQuickSnippetGroups);
   }
@@ -333,7 +337,7 @@ export function saveQuickSnippets(groups) {
     return;
   }
 
-  const sanitized = sanitizeQuickSnippetGroups(groups);
+  const sanitized = sanitizeQuickSnippetGroups(groups, { allowEmpty: true });
   window.localStorage.setItem(QUICK_SNIPPET_STORAGE_KEY, JSON.stringify(sanitized));
   dispatchQuickSnippetUpdate(sanitized);
 }
