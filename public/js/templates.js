@@ -23,6 +23,8 @@ const cancelButton = document.getElementById("template-cancel");
 const statusElement = document.getElementById("template-status");
 const listContainer = document.getElementById("template-list");
 const exportButton = document.getElementById("export-templates");
+const importButton = document.getElementById("import-templates");
+const importInput = document.getElementById("import-templates-input");
 
 const featureSettings = getFeatureSettings();
 applyFeatureVisibility(document, featureSettings);
@@ -35,6 +37,253 @@ const templateFeatureEnabled = featureSettings.templateLibrary !== false;
 let templates = [];
 let editId = null;
 let isLoading = false;
+
+function normalizeTagsList(value) {
+  if (Array.isArray(value)) {
+    return Array.from(
+      new Set(
+        value
+          .filter((item) => typeof item === "string")
+          .map((item) => item.trim())
+          .filter(Boolean),
+      ),
+    );
+  }
+  if (typeof value === "string") {
+    return normalizeTagsList(value.split(/[;,]/));
+  }
+  return [];
+}
+
+function sanitizeImportedTemplate(raw) {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const rawType = typeof raw.type === "string" ? raw.type.trim() : "";
+  const type = TEMPLATE_TYPES.some((entry) => entry.value === rawType) ? rawType : "Set";
+  const title = typeof raw.title === "string" && raw.title.trim() ? raw.title.trim() : "Unbenannte Vorlage";
+  const notes = typeof raw.notes === "string" ? raw.notes.trim() : "";
+  const content = typeof raw.content === "string" ? raw.content.trim() : "";
+  if (!content) {
+    return null;
+  }
+  const tags = normalizeTagsList(raw.tags ?? []);
+  return { type, title, notes, content, tags };
+}
+
+function normalizeForComparison(template) {
+  if (!template) {
+    return {
+      type: "Set",
+      title: "",
+      notes: "",
+      content: "",
+      tags: [],
+    };
+  }
+  const tags = Array.isArray(template.tags)
+    ? template.tags
+        .filter((tag) => typeof tag === "string")
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b, "de", { sensitivity: "base" }))
+    : [];
+  return {
+    type: typeof template.type === "string" && template.type.trim() ? template.type.trim() : "Set",
+    title: typeof template.title === "string" ? template.title.trim() : "",
+    notes: typeof template.notes === "string" ? template.notes.trim() : "",
+    content: typeof template.content === "string" ? template.content.trim() : "",
+    tags,
+  };
+}
+
+function isExactDuplicate(existing, candidate) {
+  const normalizedExisting = normalizeForComparison(existing);
+  const normalizedCandidate = normalizeForComparison(candidate);
+  if (
+    normalizedExisting.type !== normalizedCandidate.type ||
+    normalizedExisting.title !== normalizedCandidate.title ||
+    normalizedExisting.notes !== normalizedCandidate.notes ||
+    normalizedExisting.content !== normalizedCandidate.content ||
+    normalizedExisting.tags.length !== normalizedCandidate.tags.length
+  ) {
+    return false;
+  }
+  return normalizedExisting.tags.every((tag, index) => tag === normalizedCandidate.tags[index]);
+}
+
+function normalizeContentForSimilarity(value) {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+}
+
+function isSimilarTemplate(existing, candidate) {
+  const normalizedExisting = normalizeForComparison(existing);
+  const normalizedCandidate = normalizeForComparison(candidate);
+  if (isExactDuplicate(normalizedExisting, normalizedCandidate)) {
+    return false;
+  }
+  const sameType = normalizedExisting.type === normalizedCandidate.type;
+  const sameTitle =
+    normalizedExisting.title &&
+    normalizedCandidate.title &&
+    normalizedExisting.title.localeCompare(normalizedCandidate.title, "de", { sensitivity: "base" }) === 0;
+  if (sameType && sameTitle) {
+    return true;
+  }
+  const existingContent = normalizeContentForSimilarity(normalizedExisting.content);
+  const candidateContent = normalizeContentForSimilarity(normalizedCandidate.content);
+  if (existingContent && candidateContent && existingContent === candidateContent) {
+    return true;
+  }
+  return false;
+}
+
+function truncateValue(value, maxLength = 320) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, maxLength)}…`;
+}
+
+function formatTagList(tags) {
+  return tags.length > 0 ? tags.join(", ") : "(keine)";
+}
+
+function buildDifferenceMessage(existing, candidate) {
+  const differences = [];
+  if (existing.type !== candidate.type) {
+    differences.push(`Typ: ${existing.type} → ${candidate.type}`);
+  }
+  if (existing.title !== candidate.title) {
+    differences.push(`Titel: "${existing.title}" → "${candidate.title}"`);
+  }
+  if (existing.notes !== candidate.notes) {
+    differences.push(`Notiz: "${existing.notes}" → "${candidate.notes}"`);
+  }
+  const existingTags = Array.isArray(existing.tags) ? existing.tags : [];
+  const candidateTags = Array.isArray(candidate.tags) ? candidate.tags : [];
+  const tagsChanged =
+    existingTags.length !== candidateTags.length ||
+    existingTags.some((tag, index) => tag !== candidateTags[index]);
+  if (tagsChanged) {
+    differences.push(`Tags: ${formatTagList(existingTags)} → ${formatTagList(candidateTags)}`);
+  }
+  if (existing.content !== candidate.content) {
+    differences.push(
+      `Inhalt (bestehend):\n${truncateValue(existing.content)}\n\nInhalt (Import):\n${truncateValue(candidate.content)}`,
+    );
+  }
+  return differences.join("\n\n");
+}
+
+function confirmSimilarImport(existing, candidate) {
+  const messageParts = [
+    `Die importierte Vorlage "${candidate.title}" ähnelt einer bestehenden Vorlage.`,
+    `Bestehende Vorlage: "${existing.title}"`,
+  ];
+  const differences = buildDifferenceMessage(normalizeForComparison(existing), normalizeForComparison(candidate));
+  if (differences) {
+    messageParts.push("Unterschiede:");
+    messageParts.push(differences);
+  }
+  messageParts.push("Soll die neue Vorlage trotzdem importiert werden?");
+  return window.confirm(messageParts.join("\n\n"));
+}
+
+async function handleTemplateImport(file) {
+  if (!file) {
+    return;
+  }
+
+  let text;
+  try {
+    text = await file.text();
+  } catch (error) {
+    console.error("Importdatei konnte nicht gelesen werden.", error);
+    showStatus("Importdatei konnte nicht gelesen werden.", "warning");
+    return;
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    console.error("Importdatei ist keine gültige JSON-Datei.", error);
+    showStatus("Importdatei ist keine gültige JSON-Datei.", "warning");
+    return;
+  }
+
+  const rawTemplates = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.templates)
+    ? parsed.templates
+    : [];
+
+  const candidates = rawTemplates
+    .map((item) => sanitizeImportedTemplate(item))
+    .filter((item) => item !== null);
+
+  if (candidates.length === 0) {
+    showStatus("Keine importierbaren Vorlagen gefunden.", "info");
+    return;
+  }
+
+  let importedCount = 0;
+  let skippedDuplicates = 0;
+  let skippedSimilar = 0;
+  let failed = 0;
+
+  for (const candidate of candidates) {
+    const exactMatch = templates.find((existing) => isExactDuplicate(existing, candidate));
+    if (exactMatch) {
+      skippedDuplicates += 1;
+      continue;
+    }
+
+    const similarMatch = templates.find((existing) => isSimilarTemplate(existing, candidate));
+    if (similarMatch && !confirmSimilarImport(similarMatch, candidate)) {
+      skippedSimilar += 1;
+      continue;
+    }
+
+    try {
+      const created = await createTemplate(candidate);
+      templates.push(created);
+      importedCount += 1;
+    } catch (error) {
+      console.error("Vorlage konnte nicht importiert werden.", error);
+      failed += 1;
+    }
+  }
+
+  if (importedCount > 0) {
+    renderTemplates();
+  }
+
+  const summary = [];
+  if (importedCount > 0) {
+    summary.push(`${importedCount} Vorlage(n) importiert.`);
+  }
+  if (skippedDuplicates > 0) {
+    summary.push(`${skippedDuplicates} Duplikat(e) übersprungen.`);
+  }
+  if (skippedSimilar > 0) {
+    summary.push(`${skippedSimilar} ähnliche Vorlage(n) übersprungen.`);
+  }
+  if (failed > 0) {
+    summary.push(`${failed} Import(e) fehlgeschlagen.`);
+  }
+
+  if (summary.length === 0) {
+    summary.push("Keine neuen Vorlagen importiert.");
+  }
+
+  const statusType = failed > 0 ? "warning" : importedCount > 0 ? "success" : "info";
+  showStatus(summary.join(" "), statusType);
+}
 
 async function refreshTemplates({ showError = true } = {}) {
   if (!templateFeatureEnabled) {
@@ -339,6 +588,19 @@ if (templateFeatureEnabled) {
     exportTemplates();
   });
 
+  importButton?.addEventListener("click", () => {
+    importInput?.click();
+  });
+
+  importInput?.addEventListener("change", async (event) => {
+    const target = event.target;
+    const file = target instanceof HTMLInputElement && target.files ? target.files[0] : undefined;
+    await handleTemplateImport(file);
+    if (target instanceof HTMLInputElement) {
+      target.value = "";
+    }
+  });
+
   listContainer?.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLButtonElement)) {
@@ -370,6 +632,12 @@ if (templateFeatureEnabled) {
     form.querySelectorAll("input, select, textarea, button").forEach((element) => {
       element.disabled = true;
     });
+  }
+  if (exportButton) {
+    exportButton.disabled = true;
+  }
+  if (importButton) {
+    importButton.disabled = true;
   }
   if (listContainer) {
     listContainer.innerHTML = "";
