@@ -1,4 +1,5 @@
-import { intensityLevels, focusTags } from "../config/constants.js";
+import { focusTags } from "../config/constants.js";
+import { matchEquipment, matchIntensities } from "../utils/highlight-vocabulary.js";
 import { parseDuration } from "../utils/time.js";
 
 function createId() {
@@ -78,19 +79,44 @@ function parseSetLine(line) {
   const pauseMatch = line.match(/P\s*:\s*([0-9:]+)/i);
   const pause = pauseMatch ? parseDuration(pauseMatch[1]) : 0;
 
-  const equipment = [];
-  for (const match of line.matchAll(/w\/([^@P]+)/gi)) {
-    const items = match[1]
+  const equipmentMap = new Map();
+  const addEquipment = (label) => {
+    if (!label) {
+      return;
+    }
+    const trimmed = String(label).trim();
+    if (!trimmed) {
+      return;
+    }
+    const key = trimmed.toUpperCase();
+    if (equipmentMap.has(key)) {
+      return;
+    }
+    equipmentMap.set(key, trimmed);
+  };
+  for (const match of line.matchAll(/w\/([^\n]+)/gi)) {
+    const sanitizedSegment = match[1].replace(/(@|P\s*:).*/i, "").trim();
+    const items = sanitizedSegment
       .split(/[,+]/)
       .map((item) => item.trim())
       .filter(Boolean);
-    equipment.push(...items);
+    for (const item of items) {
+      const matches = matchEquipment(item);
+      if (matches.length > 0) {
+        matches.forEach(addEquipment);
+      } else {
+        addEquipment(item);
+      }
+    }
   }
 
+  const inlineMatches = matchEquipment(line);
+  inlineMatches.forEach(addEquipment);
+
+  const equipment = Array.from(equipmentMap.values());
+
   const focusMatches = line.match(/\b(Ar|Be|GSA)\b/gi) ?? [];
-  const intensities = intensityLevels.filter((intensity) =>
-    line.toUpperCase().includes(intensity.toUpperCase()),
-  );
+  const intensities = matchIntensities(line);
 
   return {
     quantity,

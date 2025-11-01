@@ -1,3 +1,5 @@
+import { getIntensityPattern } from "../utils/highlight-vocabulary.js";
+
 const intensityColorTokens = [
   { token: "CLEAR", className: "intensity-color-clear" },
   { token: "WHITE", className: "intensity-color-white" },
@@ -17,16 +19,6 @@ export function getIntensityColorClass(label) {
 }
 
 export function getKnownIntensityPattern() {
-  const parts = [
-    "CLEAR",
-    "WHITE(?:2|3)?",
-    "PINK(?:4|5)?",
-    "RED(?:6|7)?",
-    "ORANGE(?:8|9|10)?",
-    "PURPLE(?:9|10)?",
-    "BLUE(?:8|9|10)?",
-    "GREEN",
-    "GOLD",
-  ];
-  return new RegExp(`\\b(?:${parts.join("|")})\\b`, "gi");
+  const pattern = getIntensityPattern();
+  return new RegExp(pattern.source, pattern.flags);
 }

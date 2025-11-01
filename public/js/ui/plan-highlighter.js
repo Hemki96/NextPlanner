@@ -1,63 +1,83 @@
-import { getIntensityColorClass, getKnownIntensityPattern } from "./intensity-colors.js";
+import { getIntensityColorClass } from "./intensity-colors.js";
 import {
   HIGHLIGHT_OPTION_DEFINITIONS,
   getHighlightSettings,
   isHighlightEnabled,
   subscribeToHighlightSettings,
 } from "../utils/highlight-settings.js";
+import {
+  getEquipmentPatternSource,
+  getIntensityPattern,
+  subscribeToHighlightVocabulary,
+} from "../utils/highlight-vocabulary.js";
 
-const intensityPattern = getKnownIntensityPattern();
+function buildHighlightPatternDefinitions() {
+  const intensityRegex = getIntensityPattern();
+  const equipmentSource = getEquipmentPatternSource();
+  const equipmentRegex = equipmentSource
+    ? new RegExp(`(?:\\bw/\\s*|\\b)(?:${equipmentSource})\\b`, "gi")
+    : new RegExp("(?!x)", "gi");
+  const patterns = [
+    {
+      key: "heading",
+      type: "heading",
+      priority: 6,
+      regex: /^(?:\s*#{1,6}[^\S\n]*)[^\n]+$/gm,
+    },
+    {
+      key: "distance",
+      type: "distance",
+      priority: 5,
+      regex: /\b\d+\s*(?:x|×)\s*\d+(?:[.,]\d+)?\s*(?:m|meter|km|yd|y)?\b/gi,
+    },
+    {
+      key: "distance",
+      type: "distance",
+      priority: 4,
+      regex: /\b\d+(?:[.,]\d+)?\s*(?:m|meter|km|yd|y)\b/gi,
+    },
+    {
+      key: "round",
+      type: "round",
+      priority: 3,
+      regex: /\b\d+\s*(?:Runden?|Rd)\b:?/gi,
+    },
+    {
+      key: "round",
+      type: "round",
+      priority: 3,
+      regex: /\bRunde\s*(?:x|×)\s*\d+\b:?/gi,
+    },
+    {
+      key: "interval",
+      type: "interval",
+      priority: 3,
+      regex: /@\s*\d+:\d+(?::\d+)?/g,
+    },
+  ];
 
-const HIGHLIGHT_PATTERN_DEFINITIONS = [
-  {
-    key: "heading",
-    type: "heading",
-    priority: 6,
-    regex: /^(?:\s*#{1,6}[^\S\n]*)[^\n]+$/gm,
-  },
-  {
-    key: "distance",
-    type: "distance",
-    priority: 5,
-    regex: /\b\d+\s*(?:x|×)\s*\d+(?:[.,]\d+)?\s*(?:m|meter|km|yd|y)?\b/gi,
-  },
-  {
-    key: "distance",
-    type: "distance",
-    priority: 4,
-    regex: /\b\d+(?:[.,]\d+)?\s*(?:m|meter|km|yd|y)\b/gi,
-  },
-  {
-    key: "round",
-    type: "round",
-    priority: 3,
-    regex: /\b\d+\s*(?:Runden?|Rd)\b:?/gi,
-  },
-  {
-    key: "round",
-    type: "round",
-    priority: 3,
-    regex: /\bRunde\s*(?:x|×)\s*\d+\b:?/gi,
-  },
-  {
-    key: "interval",
-    type: "interval",
-    priority: 3,
-    regex: /@\s*\d+:\d+(?::\d+)?/g,
-  },
-  {
-    key: "equipment",
-    type: "equipment",
-    priority: 2,
-    regex: /w\/\s*[^@\n]*?(?=\s+(?:@\s*\d|P:|\b(?:CLEAR|WHITE\d*|PINK\d*|RED\d*|ORANGE\d*|PURPLE\d*|BLUE\d*|GREEN|GOLD))|\s*$|\n)/gi,
-  },
-  {
-    key: "intensity",
-    type: "intensity",
-    priority: 4,
-    regex: intensityPattern,
-  },
-];
+  if (equipmentSource) {
+    patterns.push({
+      key: "equipment",
+      type: "equipment",
+      priority: 2,
+      regex: equipmentRegex,
+    });
+  }
+
+  patterns.push(
+    {
+      key: "intensity",
+      type: "intensity",
+      priority: 4,
+      regex: intensityRegex,
+    },
+  );
+
+  return patterns;
+}
+
+let highlightPatternDefinitions = buildHighlightPatternDefinitions();
 
 const KNOWN_HIGHLIGHT_KEYS = new Set(HIGHLIGHT_OPTION_DEFINITIONS.map((option) => option.key));
 
@@ -70,7 +90,7 @@ function isPatternEnabled(settings, pattern) {
 
 function gatherMatches(text, settings) {
   const matches = [];
-  for (const pattern of HIGHLIGHT_PATTERN_DEFINITIONS) {
+  for (const pattern of highlightPatternDefinitions) {
     if (!isPatternEnabled(settings, pattern)) {
       continue;
     }
@@ -265,6 +285,11 @@ export function initPlanHighlighter({ textarea, highlightLayer }) {
     renderHighlight();
   });
 
+  const unsubscribeVocabulary = subscribeToHighlightVocabulary(() => {
+    highlightPatternDefinitions = buildHighlightPatternDefinitions();
+    renderHighlight();
+  });
+
   refresh();
 
   return {
@@ -273,6 +298,7 @@ export function initPlanHighlighter({ textarea, highlightLayer }) {
     setIssues,
     destroy() {
       unsubscribeHighlightSettings();
+      unsubscribeVocabulary();
     },
   };
 }

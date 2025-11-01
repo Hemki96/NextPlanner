@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { JsonPlanStore } from "../server/stores/json-plan-store.js";
 import { JsonSnippetStore } from "../server/stores/json-snippet-store.js";
 import { JsonTemplateStore } from "../server/stores/json-template-store.js";
+import { JsonHighlightConfigStore } from "../server/stores/json-highlight-config-store.js";
 import { createServer } from "../server/app.js";
 import { sanitizeQuickSnippetGroups } from "../public/js/utils/snippet-storage.js";
 
@@ -20,10 +21,12 @@ function createTempStore() {
   const storageFile = path.join(dir, "plans.json");
   const snippetFile = path.join(dir, "snippets.json");
   const templateFile = path.join(dir, "templates.json");
+  const highlightFile = path.join(dir, "highlight.json");
   const store = new JsonPlanStore({ storageFile });
   const snippetStore = new JsonSnippetStore({ storageFile: snippetFile });
   const templateStore = new JsonTemplateStore({ storageFile: templateFile });
-  return { dir, store, snippetStore, templateStore };
+  const highlightStore = new JsonHighlightConfigStore({ storageFile: highlightFile });
+  return { dir, store, snippetStore, templateStore, highlightStore };
 }
 
 describe("Plan API", () => {
@@ -33,6 +36,7 @@ describe("Plan API", () => {
   let server;
   let baseUrl;
   let templateStore;
+  let highlightStore;
 
   before(async () => {
     const temp = createTempStore();
@@ -40,10 +44,12 @@ describe("Plan API", () => {
     store = temp.store;
     snippetStore = temp.snippetStore;
     templateStore = temp.templateStore;
+    highlightStore = temp.highlightStore;
     server = createServer({
       store,
       templateStore,
       snippetStore,
+      highlightConfigStore: highlightStore,
       publicDir: path.join(repoRoot, "public"),
     });
     server.listen(0);
@@ -58,6 +64,7 @@ describe("Plan API", () => {
     await store?.close();
     await snippetStore?.close();
     await templateStore?.close();
+    await highlightStore?.close();
     rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -408,6 +415,36 @@ describe("Plan API", () => {
       headers: { "If-Match": etag },
     });
     assert.equal(cleanup.status, 204);
+  });
+
+  it("verwaltet die Highlight-Konfiguration über die API", async () => {
+    const initialResponse = await fetch(`${baseUrl}/api/highlight-config`);
+    assert.equal(initialResponse.status, 200);
+    const initial = await initialResponse.json();
+    assert.ok(Array.isArray(initial.intensities));
+    assert.ok(initial.intensities.length > 0);
+    assert.ok(Array.isArray(initial.equipment));
+
+    const updateResponse = await fetch(`${baseUrl}/api/highlight-config`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        intensities: [" en1 ", "EN1", "Sprint"],
+        equipment: ["Brett", "Paddles", "Brett"],
+      }),
+    });
+    assert.equal(updateResponse.status, 200);
+    const updated = await updateResponse.json();
+    assert.deepEqual(updated.intensities, ["en1", "Sprint"]);
+    assert.deepEqual(updated.equipment, ["Brett", "Paddles"]);
+
+    const reloadResponse = await fetch(`${baseUrl}/api/highlight-config`);
+    assert.equal(reloadResponse.status, 200);
+    const reloaded = await reloadResponse.json();
+    assert.deepEqual(reloaded.intensities, ["en1", "Sprint"]);
+    assert.deepEqual(reloaded.equipment, ["Brett", "Paddles"]);
   });
 
   it("liefert statische Dateien gestreamt mit Cache-Headern", async () => {

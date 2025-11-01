@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { parsePlan } from '../public/js/parser/plan-parser.js';
+import {
+  getHighlightVocabulary,
+  setHighlightVocabulary,
+} from '../public/js/utils/highlight-vocabulary.js';
 
 const stripCarriageReturn = (text) => text.replace(/\r/g, '');
 
@@ -182,4 +186,59 @@ test('parsePlan ignoriert Aufzählungen ohne Set-Zuordnung', () => {
 
   const [set] = mainBlock.sets;
   assert.deepEqual(set.notes, ['- Variation Technik']);
+});
+
+test('parsePlan verwendet konfigurierbare Intensitäten', (t) => {
+  const previous = getHighlightVocabulary();
+  t.after(() => {
+    setHighlightVocabulary(previous);
+  });
+
+  const customVocabulary = {
+    intensities: ['EN1'],
+    equipment: previous.equipment,
+  };
+  setHighlightVocabulary(customVocabulary);
+
+  const result = parsePlan('4x100m EN1');
+  assert.equal(result.blocks.length, 1);
+  const [block] = result.blocks;
+  assert.equal(block.sets.length, 1);
+  const [set] = block.sets;
+  assert.deepEqual(set.intensities, ['EN1']);
+});
+
+test('parsePlan berücksichtigt konfigurierbares Material', (t) => {
+  const previous = getHighlightVocabulary();
+  t.after(() => {
+    setHighlightVocabulary(previous);
+  });
+
+  const customVocabulary = {
+    intensities: previous.intensities,
+    equipment: ['Pull Buoy', 'Fallschirm'],
+  };
+  setHighlightVocabulary(customVocabulary);
+
+  const plan = stripCarriageReturn(`
+4x50m @1:00 w/pull buoy + snorkel + FALLSCHIRM
+`);
+
+  const result = parsePlan(plan);
+  assert.equal(result.blocks.length, 1);
+  const [block] = result.blocks;
+  assert.equal(block.sets.length, 1);
+  const [set] = block.sets;
+  assert.deepEqual(
+    [...set.equipment].sort(),
+    ['Pull Buoy', 'snorkel', 'Fallschirm'].sort(),
+  );
+
+  const pullBuoyStats = result.equipment.get('pull buoy');
+  assert.ok(pullBuoyStats, 'Pull Buoy sollte gezählt werden');
+  assert.equal(pullBuoyStats.label, 'Pull Buoy');
+
+  const parachuteStats = result.equipment.get('fallschirm');
+  assert.ok(parachuteStats, 'Fallschirm sollte erkannt werden');
+  assert.equal(parachuteStats.label, 'Fallschirm');
 });

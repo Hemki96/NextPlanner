@@ -271,6 +271,18 @@ body {
   background: var(--input-bg-focus);
 }
 
+.highlight-config-grid {
+  margin-top: 1.25rem;
+}
+
+.highlight-config-grid textarea {
+  min-height: 160px;
+}
+
+.highlight-config-actions {
+  margin-top: 0.75rem;
+}
+
 .theme-settings {
   display: grid;
   gap: 1.5rem;
