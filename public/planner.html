@@ -99,25 +99,76 @@
         >
           Hinweise &amp; Syntax
         </button>
-        <button type="button" id="import-button" class="secondary-button">
-          Plan importieren
-        </button>
+        <div class="plan-io-controls" data-feature="plannerTools">
+          <button
+            type="button"
+            id="plan-io-toggle"
+            class="secondary-button"
+            aria-expanded="false"
+            aria-controls="plan-io-menu"
+          >
+            Import &amp; Export
+          </button>
+          <div id="plan-io-menu" class="plan-io-menu" hidden>
+            <div class="plan-io-section">
+              <h3 class="plan-io-heading">Exportieren</h3>
+              <ul class="plan-io-list">
+                <li>
+                  <button type="button" id="export-markdown" class="plan-io-action">
+                    Markdown (.md)
+                  </button>
+                </li>
+                <li>
+                  <button type="button" id="export-word" class="plan-io-action">
+                    Word (.doc)
+                  </button>
+                </li>
+                <li>
+                  <button type="button" id="export-json" class="plan-io-action">
+                    JSON (.json)
+                  </button>
+                </li>
+              </ul>
+            </div>
+            <div class="plan-io-section">
+              <h3 class="plan-io-heading">Importieren</h3>
+              <ul class="plan-io-list">
+                <li>
+                  <button type="button" id="import-markdown-button" class="plan-io-action">
+                    Markdown-Datei wählen
+                  </button>
+                </li>
+                <li>
+                  <button type="button" id="import-json-button" class="plan-io-action">
+                    JSON-Datei wählen
+                  </button>
+                </li>
+              </ul>
+              <p class="plan-io-hint">
+                Unterstützt werden Pläne im Markdown- oder NextPlanner-JSON-Format.
+              </p>
+            </div>
+          </div>
+        </div>
         <input
           type="file"
-          id="import-input"
+          id="import-markdown-input"
           class="sr-only"
-          accept=".txt,.md,.markdown,.doc,.html,.htm"
+          accept=".md,.markdown,.txt,.text,.doc,.html,.htm"
+          aria-hidden="true"
+          tabindex="-1"
+        />
+        <input
+          type="file"
+          id="import-json-input"
+          class="sr-only"
+          accept=".json"
+          multiple
           aria-hidden="true"
           tabindex="-1"
         />
         <button type="button" id="save-plan-button" class="primary-button">
           Plan speichern
-        </button>
-        <button type="button" id="export-markdown" class="secondary-button">
-          Als Markdown exportieren
-        </button>
-        <button type="button" id="export-word" class="secondary-button">
-          Als Word exportieren
         </button>
       </div>
       <p class="hint">Nutze Überschriften (z.B. <code>## Warm-up</code>) für Blöcke. Formate wie <code>4x50m</code>, <code>w/</code> für Material, <code>@</code> für Intervalle, <code>P:</code> für Pausen sowie Rundenangaben wie <code>3 Runden:</code> werden automatisch erkannt.</p>
@@ -271,6 +322,37 @@
           speichern. Ohne Server lässt sich der Plan nicht sichern.
         </p>
       </form>
+    </div>
+  </div>
+  <div
+    id="plan-import-overlay"
+    class="template-overlay"
+    aria-hidden="true"
+    hidden
+    data-feature="plannerTools"
+  >
+    <div
+      class="template-dialog plan-import-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="plan-import-heading"
+    >
+      <header class="template-dialog-header">
+        <h2 id="plan-import-heading">Plan auswählen</h2>
+        <button type="button" class="icon-button" id="plan-import-close" aria-label="Dialog schließen">
+          ×
+        </button>
+      </header>
+      <div class="plan-import-content">
+        <p id="plan-import-description" class="plan-import-description">
+          Mehrere Pläne gefunden. Wähle einen Plan zum Laden oder übernehme alle Inhalte.
+        </p>
+        <ul id="plan-import-list" class="plan-import-list"></ul>
+        <div class="form-actions plan-import-actions">
+          <button type="button" class="ghost-button" id="plan-import-cancel">Abbrechen</button>
+          <button type="button" class="primary-button" id="plan-import-merge">Alle übernehmen</button>
+        </div>
+      </div>
     </div>
   </div>
   <!-- Overlay mit einer ausführlichen Dokumentation der Schlüsselbegriffe und Kürzel -->
