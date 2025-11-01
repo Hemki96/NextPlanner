@@ -740,6 +740,46 @@ body {
   gap: 1.5rem;
 }
 
+.template-filter {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.25rem;
+  padding: 1.15rem 1.35rem;
+  border-radius: 16px;
+  border: 1px solid rgba(9, 38, 63, 0.12);
+  background: rgba(9, 38, 63, 0.05);
+}
+
+.template-filter-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.template-filter-range-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.template-filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.template-filter-actions .ghost-button {
+  flex-shrink: 0;
+}
+
+.template-filter-summary {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
 .template-section {
   display: grid;
   gap: 0.85rem;

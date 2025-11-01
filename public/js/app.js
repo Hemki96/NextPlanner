@@ -15,11 +15,7 @@ import {
   getFeatureSettings,
   subscribeToFeatureSettings,
 } from "./utils/feature-settings.js";
-import {
-  highlightConfigPersistenceSupported,
-  fetchHighlightVocabularyConfig,
-} from "./utils/highlight-config-client.js";
-import { setHighlightVocabulary } from "./utils/highlight-vocabulary.js";
+import { bootstrapHighlightVocabulary } from "./utils/highlight-bootstrap.js";
 
 const originalTitle = document.title;
 
@@ -107,22 +103,6 @@ initTrendReports({
   exportButton: dom.trendExportButton,
 });
 
-async function bootstrapHighlightVocabulary() {
-  if (!highlightConfigPersistenceSupported()) {
-    return;
-  }
-  try {
-    const { vocabulary } = await fetchHighlightVocabularyConfig();
-    if (vocabulary) {
-      setHighlightVocabulary(vocabulary);
-      updateSummary();
-      planHighlighter.refresh();
-    }
-  } catch (error) {
-    console.warn("Highlight-Konfiguration konnte nicht geladen werden", error);
-  }
-}
-
 /**
  * Liest den aktuellen Text aus dem Eingabefeld, parst ihn und aktualisiert die Anzeige.
  */
@@ -138,7 +118,12 @@ function updateSummary() {
 dom.planInput?.addEventListener("input", updateSummary);
 updateSummary();
 
-bootstrapHighlightVocabulary();
+bootstrapHighlightVocabulary({
+  onVocabularyLoaded: () => {
+    updateSummary();
+    planHighlighter.refresh();
+  },
+});
 
 // Initialisiere das Hinweis-Overlay inklusive Fokusmanagement.
 initHelpOverlay({
