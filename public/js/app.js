@@ -9,17 +9,14 @@ import { initPlanSaveDialog } from "./ui/plan-save-dialog.js";
 import { initValidationPanel } from "./ui/validation-panel.js";
 import { ApiError, apiRequest, canUseApi, describeApiError } from "./utils/api-client.js";
 import { ensurePlanSkeleton } from "./utils/plan-defaults.js";
+import { loadPlanDraft, savePlanDraft } from "./utils/plan-draft-storage.js";
 import { initTrendReports } from "./ui/trend-reports.js";
 import {
   applyFeatureVisibility,
   getFeatureSettings,
   subscribeToFeatureSettings,
 } from "./utils/feature-settings.js";
-import {
-  highlightConfigPersistenceSupported,
-  fetchHighlightVocabularyConfig,
-} from "./utils/highlight-config-client.js";
-import { setHighlightVocabulary } from "./utils/highlight-vocabulary.js";
+import { bootstrapHighlightVocabulary } from "./utils/highlight-bootstrap.js";
 
 const originalTitle = document.title;
 
@@ -57,6 +54,11 @@ const dom = {
   quickPanelExpand: document.getElementById("quick-panel-expand"),
   validationPanel: document.getElementById("validation-panel"),
 };
+
+const initialPlanDraft = loadPlanDraft();
+if (typeof initialPlanDraft === "string" && dom.planInput) {
+  dom.planInput.value = initialPlanDraft;
+}
 
 ensurePlanSkeleton(dom.planInput);
 
@@ -107,27 +109,15 @@ initTrendReports({
   exportButton: dom.trendExportButton,
 });
 
-async function bootstrapHighlightVocabulary() {
-  if (!highlightConfigPersistenceSupported()) {
-    return;
-  }
-  try {
-    const { vocabulary } = await fetchHighlightVocabularyConfig();
-    if (vocabulary) {
-      setHighlightVocabulary(vocabulary);
-      updateSummary();
-      planHighlighter.refresh();
-    }
-  } catch (error) {
-    console.warn("Highlight-Konfiguration konnte nicht geladen werden", error);
-  }
-}
-
 /**
  * Liest den aktuellen Text aus dem Eingabefeld, parst ihn und aktualisiert die Anzeige.
  */
 function updateSummary() {
-  const plan = parsePlan(dom.planInput?.value ?? "");
+  const planText = dom.planInput?.value ?? "";
+  if (dom.planInput) {
+    savePlanDraft(planText);
+  }
+  const plan = parsePlan(planText);
   renderSummary(plan, dom);
   validationPanel.update(plan.issues ?? []);
   templateCapture.update(plan);
@@ -138,7 +128,12 @@ function updateSummary() {
 dom.planInput?.addEventListener("input", updateSummary);
 updateSummary();
 
-bootstrapHighlightVocabulary();
+bootstrapHighlightVocabulary({
+  onVocabularyLoaded: () => {
+    updateSummary();
+    planHighlighter.refresh();
+  },
+});
 
 // Initialisiere das Hinweis-Overlay inklusive Fokusmanagement.
 initHelpOverlay({

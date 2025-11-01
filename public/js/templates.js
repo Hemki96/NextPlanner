@@ -6,6 +6,10 @@ import {
   deleteTemplate,
   parseTagsInput,
 } from "./utils/template-storage.js";
+import { parsePlan } from "./parser/plan-parser.js";
+import { initPlanHighlighter } from "./ui/plan-highlighter.js";
+import { initValidationPanel } from "./ui/validation-panel.js";
+import { bootstrapHighlightVocabulary } from "./utils/highlight-bootstrap.js";
 import {
   applyFeatureVisibility,
   getFeatureSettings,
@@ -22,9 +26,21 @@ const submitButton = document.getElementById("template-submit");
 const cancelButton = document.getElementById("template-cancel");
 const statusElement = document.getElementById("template-status");
 const listContainer = document.getElementById("template-list");
+const filterForm = document.getElementById("template-filter-form");
+const filterQueryInput = document.getElementById("template-filter-query");
+const filterTypeSelectInput = document.getElementById("template-filter-type");
+const filterTagsInput = document.getElementById("template-filter-tags");
+const filterDistanceMinInput = document.getElementById("template-filter-distance-min");
+const filterDistanceMaxInput = document.getElementById("template-filter-distance-max");
+const filterTimeMinInput = document.getElementById("template-filter-time-min");
+const filterTimeMaxInput = document.getElementById("template-filter-time-max");
+const filterSummaryElement = document.getElementById("template-filter-summary");
 const exportButton = document.getElementById("export-templates");
 const importButton = document.getElementById("import-templates");
 const importInput = document.getElementById("import-templates-input");
+const contentHighlight = document.getElementById("template-highlight");
+const validationContainer = document.getElementById("template-validation");
+const templateEditor = contentTextarea?.closest(".plan-editor");
 
 const featureSettings = getFeatureSettings();
 applyFeatureVisibility(document, featureSettings);
@@ -33,10 +49,58 @@ subscribeToFeatureSettings(() => {
 });
 
 const templateFeatureEnabled = featureSettings.templateLibrary !== false;
+const syntaxValidationEnabled = featureSettings.syntaxValidation !== false;
+
+const templateHighlighter = initPlanHighlighter({
+  textarea: contentTextarea,
+  highlightLayer: contentHighlight,
+});
+
+if (templateEditor) {
+  templateEditor.classList.add("plan-editor--enhanced");
+}
+
+const templateValidationPanel = syntaxValidationEnabled
+  ? initValidationPanel({
+      container: validationContainer,
+      textarea: contentTextarea,
+      highlighter: templateHighlighter,
+    })
+  : { update() {} };
+
+function analyzeTemplateContent() {
+  if (!contentTextarea) {
+    return;
+  }
+  const plan = parsePlan(contentTextarea.value ?? "");
+  templateValidationPanel.update(plan.issues ?? []);
+}
+
+contentTextarea?.addEventListener("input", analyzeTemplateContent);
+
+analyzeTemplateContent();
+
+bootstrapHighlightVocabulary({
+  onVocabularyLoaded: () => {
+    analyzeTemplateContent();
+    templateHighlighter.refresh();
+  },
+});
 
 let templates = [];
 let editId = null;
 let isLoading = false;
+const templateMetricsCache = new Map();
+const filterState = {
+  query: "",
+  queryTokens: [],
+  type: filterTypeSelectInput?.value || "Set",
+  tags: [],
+  minDistance: null,
+  maxDistance: null,
+  minTime: null,
+  maxTime: null,
+};
 
 function normalizeTagsList(value) {
   if (Array.isArray(value)) {
@@ -252,6 +316,7 @@ async function handleTemplateImport(file) {
     try {
       const created = await createTemplate(candidate);
       templates.push(created);
+      invalidateTemplateMetrics(created.id);
       importedCount += 1;
     } catch (error) {
       console.error("Vorlage konnte nicht importiert werden.", error);
@@ -295,6 +360,7 @@ async function refreshTemplates({ showError = true } = {}) {
   isLoading = true;
   try {
     templates = await loadTemplates();
+    clearTemplateMetricsCache();
     renderTemplates();
   } catch (error) {
     console.error("Vorlagen konnten nicht geladen werden.", error);
@@ -314,6 +380,10 @@ function resetForm() {
   if (tagsInput) {
     tagsInput.value = "";
   }
+  if (contentTextarea) {
+    templateHighlighter.setText("");
+  }
+  analyzeTemplateContent();
 }
 
 function showStatus(message, type = "info") {
@@ -332,13 +402,222 @@ function showStatus(message, type = "info") {
   }
 }
 
-function groupTemplates() {
+function normalizeFilterText(value) {
+  return typeof value === "string" ? value.toLocaleLowerCase("de-DE").trim() : "";
+}
+
+function parsePositiveNumber(value) {
+  if (typeof value !== "string") {
+    value = value !== undefined && value !== null ? String(value) : "";
+  }
+  const normalized = value.replace(/,/g, ".").trim();
+  if (!normalized) {
+    return null;
+  }
+  const number = Number.parseFloat(normalized);
+  if (!Number.isFinite(number) || number < 0) {
+    return null;
+  }
+  return number;
+}
+
+function parseDistanceFilter(value) {
+  const number = parsePositiveNumber(value);
+  if (number === null) {
+    return null;
+  }
+  return Math.round(number);
+}
+
+function parseTimeFilter(value) {
+  const number = parsePositiveNumber(value);
+  if (number === null) {
+    return null;
+  }
+  return Math.round(number * 60);
+}
+
+function invalidateTemplateMetrics(id) {
+  if (!id) {
+    return;
+  }
+  templateMetricsCache.delete(id);
+}
+
+function clearTemplateMetricsCache() {
+  templateMetricsCache.clear();
+}
+
+function getTemplateMetrics(template) {
+  if (!template || !template.id) {
+    return { distance: 0, time: 0 };
+  }
+  const cached = templateMetricsCache.get(template.id);
+  if (cached && cached.content === template.content) {
+    return cached.metrics;
+  }
+
+  let metrics = { distance: 0, time: 0 };
+  try {
+    const plan = parsePlan(template.content ?? "");
+    const totalDistance = Number.isFinite(plan?.totalDistance) ? plan.totalDistance : 0;
+    const totalTime = Number.isFinite(plan?.totalTime) ? plan.totalTime : 0;
+    metrics = { distance: totalDistance, time: totalTime };
+  } catch (error) {
+    console.warn("Vorlage konnte nicht analysiert werden.", error);
+  }
+
+  templateMetricsCache.set(template.id, { content: template.content, metrics });
+  return metrics;
+}
+
+function matchesFilter(template) {
+  if (!template) {
+    return false;
+  }
+
+  if (filterState.type !== "all" && template.type !== filterState.type) {
+    return false;
+  }
+
+  if (filterState.queryTokens.length > 0) {
+    const haystack = [
+      template.title,
+      template.notes,
+      template.content,
+      Array.isArray(template.tags) ? template.tags.join(" ") : "",
+    ]
+      .map((value) => normalizeFilterText(value))
+      .join("\n");
+    const matchesAllTokens = filterState.queryTokens.every((token) => haystack.includes(token));
+    if (!matchesAllTokens) {
+      return false;
+    }
+  }
+
+  if (filterState.tags.length > 0) {
+    const tagSet = new Set((template.tags ?? []).map((tag) => normalizeFilterText(tag)).filter(Boolean));
+    const hasAllTags = filterState.tags.every((tag) => tagSet.has(tag));
+    if (!hasAllTags) {
+      return false;
+    }
+  }
+
+  if (
+    filterState.minDistance !== null ||
+    filterState.maxDistance !== null ||
+    filterState.minTime !== null ||
+    filterState.maxTime !== null
+  ) {
+    const metrics = getTemplateMetrics(template);
+    if (filterState.minDistance !== null && metrics.distance < filterState.minDistance) {
+      return false;
+    }
+    if (filterState.maxDistance !== null && metrics.distance > filterState.maxDistance) {
+      return false;
+    }
+    if (filterState.minTime !== null && metrics.time < filterState.minTime) {
+      return false;
+    }
+    if (filterState.maxTime !== null && metrics.time > filterState.maxTime) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function getFilteredTemplates() {
+  if (!Array.isArray(templates) || templates.length === 0) {
+    return [];
+  }
+  const requiresFiltering =
+    filterState.type !== "all" ||
+    Boolean(filterState.query) ||
+    filterState.tags.length > 0 ||
+    filterState.minDistance !== null ||
+    filterState.maxDistance !== null ||
+    filterState.minTime !== null ||
+    filterState.maxTime !== null;
+
+  if (!requiresFiltering) {
+    return templates.slice();
+  }
+
+  return templates.filter((template) => matchesFilter(template));
+}
+
+function formatTemplateCount(value) {
+  return `${value} ${value === 1 ? "Vorlage" : "Vorlagen"}`;
+}
+
+function updateFilterSummary(filteredTemplates) {
+  if (!filterSummaryElement) {
+    return;
+  }
+  if (!Array.isArray(templates) || templates.length === 0) {
+    filterSummaryElement.textContent = "Noch keine Vorlagen gespeichert.";
+    return;
+  }
+
+  const total = templates.length;
+  const count = filteredTemplates.length;
+
+  if (count === 0) {
+    filterSummaryElement.textContent = "Keine Vorlagen entsprechen den aktuellen Filterkriterien.";
+    return;
+  }
+
+  if (count === total) {
+    filterSummaryElement.textContent = `${formatTemplateCount(count)} angezeigt.`;
+    return;
+  }
+
+  filterSummaryElement.textContent = `${formatTemplateCount(count)} gefunden (von ${formatTemplateCount(total)} insgesamt).`;
+}
+
+function applyFiltersFromInputs() {
+  filterState.query = normalizeFilterText(filterQueryInput?.value ?? "");
+  filterState.queryTokens = filterState.query ? filterState.query.split(/\s+/).filter(Boolean) : [];
+  const typeValue = filterTypeSelectInput?.value || "Set";
+  if (typeValue === "all") {
+    filterState.type = "all";
+  } else if (TEMPLATE_TYPES.some((entry) => entry.value === typeValue)) {
+    filterState.type = typeValue;
+  } else {
+    filterState.type = "all";
+  }
+  filterState.tags = normalizeTagsList(filterTagsInput?.value ?? "")
+    .map((tag) => normalizeFilterText(tag))
+    .filter(Boolean);
+  filterState.minDistance = parseDistanceFilter(filterDistanceMinInput?.value ?? "");
+  filterState.maxDistance = parseDistanceFilter(filterDistanceMaxInput?.value ?? "");
+  if (
+    filterState.minDistance !== null &&
+    filterState.maxDistance !== null &&
+    filterState.minDistance > filterState.maxDistance
+  ) {
+    [filterState.minDistance, filterState.maxDistance] = [
+      filterState.maxDistance,
+      filterState.minDistance,
+    ];
+  }
+  filterState.minTime = parseTimeFilter(filterTimeMinInput?.value ?? "");
+  filterState.maxTime = parseTimeFilter(filterTimeMaxInput?.value ?? "");
+  if (filterState.minTime !== null && filterState.maxTime !== null && filterState.minTime > filterState.maxTime) {
+    [filterState.minTime, filterState.maxTime] = [filterState.maxTime, filterState.minTime];
+  }
+
+  renderTemplates();
+}
+
+function groupTemplates(source = templates) {
   const map = new Map();
   TEMPLATE_TYPES.forEach((type) => {
     map.set(type.value, []);
   });
 
-  templates.forEach((template) => {
+  source.forEach((template) => {
     const bucket = map.get(template.type) ?? map.get("Set");
     bucket.push(template);
   });
@@ -363,6 +642,9 @@ function renderTemplates() {
     return;
   }
 
+  const filtered = getFilteredTemplates();
+  updateFilterSummary(filtered);
+
   listContainer.innerHTML = "";
 
   if (templates.length === 0) {
@@ -373,7 +655,15 @@ function renderTemplates() {
     return;
   }
 
-  const grouped = groupTemplates();
+  if (filtered.length === 0) {
+    const emptyFiltered = document.createElement("p");
+    emptyFiltered.className = "empty-hint";
+    emptyFiltered.textContent = "Keine Vorlagen entsprechen den aktuellen Filterkriterien.";
+    listContainer.appendChild(emptyFiltered);
+    return;
+  }
+
+  const grouped = groupTemplates(filtered);
 
   TEMPLATE_TYPES.forEach((type) => {
     const entries = grouped.get(type.value) ?? [];
@@ -495,7 +785,10 @@ function handleEdit(id) {
   if (tagsInput) {
     tagsInput.value = (template.tags ?? []).join(", ");
   }
-  contentTextarea.value = template.content;
+  if (contentTextarea) {
+    templateHighlighter.setText(template.content ?? "");
+  }
+  analyzeTemplateContent();
   submitButton.textContent = "Vorlage aktualisieren";
   cancelButton.hidden = false;
   cancelButton.focus();
@@ -519,6 +812,7 @@ async function handleDelete(id) {
       return;
     }
     templates.splice(index, 1);
+    invalidateTemplateMetrics(id);
     renderTemplates();
     showStatus("Vorlage gelöscht.", "success");
     if (editId === id) {
@@ -556,6 +850,7 @@ if (templateFeatureEnabled) {
           tags,
         });
         templates = templates.map((entry) => (entry.id === editId ? updated : entry));
+        invalidateTemplateMetrics(editId);
         showStatus("Vorlage aktualisiert.", "success");
       } else {
         const created = await createTemplate({
@@ -566,6 +861,7 @@ if (templateFeatureEnabled) {
           tags,
         });
         templates.push(created);
+        invalidateTemplateMetrics(created.id);
         showStatus("Vorlage gespeichert.", "success");
       }
       renderTemplates();
@@ -601,6 +897,22 @@ if (templateFeatureEnabled) {
     }
   });
 
+  const handleFilterChange = () => {
+    applyFiltersFromInputs();
+  };
+
+  filterForm?.addEventListener("input", handleFilterChange);
+  filterForm?.addEventListener("change", handleFilterChange);
+  filterForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    handleFilterChange();
+  });
+  filterForm?.addEventListener("reset", () => {
+    window.setTimeout(() => {
+      handleFilterChange();
+    }, 0);
+  });
+
   listContainer?.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLButtonElement)) {
@@ -621,6 +933,7 @@ if (templateFeatureEnabled) {
     }
   });
 
+  applyFiltersFromInputs();
   refreshTemplates();
 
   window.addEventListener("nextplanner:templates-updated", () => {
@@ -638,6 +951,14 @@ if (templateFeatureEnabled) {
   }
   if (importButton) {
     importButton.disabled = true;
+  }
+  if (filterForm) {
+    filterForm.querySelectorAll("input, select, button").forEach((element) => {
+      element.disabled = true;
+    });
+  }
+  if (filterSummaryElement) {
+    filterSummaryElement.textContent = "Vorlagen sind deaktiviert.";
   }
   if (listContainer) {
     listContainer.innerHTML = "";
