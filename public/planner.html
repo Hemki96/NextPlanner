@@ -163,6 +163,7 @@
           id="import-json-input"
           class="sr-only"
           accept=".json"
+          multiple
           aria-hidden="true"
           tabindex="-1"
         />
@@ -321,6 +322,37 @@
           speichern. Ohne Server lässt sich der Plan nicht sichern.
         </p>
       </form>
+    </div>
+  </div>
+  <div
+    id="plan-import-overlay"
+    class="template-overlay"
+    aria-hidden="true"
+    hidden
+    data-feature="plannerTools"
+  >
+    <div
+      class="template-dialog plan-import-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="plan-import-heading"
+    >
+      <header class="template-dialog-header">
+        <h2 id="plan-import-heading">Plan auswählen</h2>
+        <button type="button" class="icon-button" id="plan-import-close" aria-label="Dialog schließen">
+          ×
+        </button>
+      </header>
+      <div class="plan-import-content">
+        <p id="plan-import-description" class="plan-import-description">
+          Mehrere Pläne gefunden. Wähle einen Plan zum Laden oder übernehme alle Inhalte.
+        </p>
+        <ul id="plan-import-list" class="plan-import-list"></ul>
+        <div class="form-actions plan-import-actions">
+          <button type="button" class="ghost-button" id="plan-import-cancel">Abbrechen</button>
+          <button type="button" class="primary-button" id="plan-import-merge">Alle übernehmen</button>
+        </div>
+      </div>
     </div>
   </div>
   <!-- Overlay mit einer ausführlichen Dokumentation der Schlüsselbegriffe und Kürzel -->
