@@ -120,6 +120,19 @@ const collapsedGroups = new Set();
 let pendingFocus = null;
 let pendingSnippetSave = null;
 
+function flushPendingSnippetSave() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (pendingSnippetSave) {
+    window.clearTimeout(pendingSnippetSave);
+    pendingSnippetSave = null;
+  }
+
+  saveQuickSnippets(snippetGroups);
+}
+
 function scheduleSnippetSave({ immediate = false } = {}) {
   if (typeof window === "undefined") {
     return;
@@ -131,7 +144,7 @@ function scheduleSnippetSave({ immediate = false } = {}) {
   }
 
   if (immediate) {
-    saveQuickSnippets(snippetGroups);
+    flushPendingSnippetSave();
     return;
   }
 
@@ -1063,6 +1076,19 @@ groupContainer?.addEventListener("click", handleClick);
 exportButton?.addEventListener("click", handleExport);
 importButton?.addEventListener("click", handleImportClick);
 importInput?.addEventListener("change", handleImportFile);
+
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      flushPendingSnippetSave();
+    }
+  });
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", flushPendingSnippetSave);
+  window.addEventListener("beforeunload", flushPendingSnippetSave);
+}
 
 if (highlightList) {
   renderHighlightOptions();
