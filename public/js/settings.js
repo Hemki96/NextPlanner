@@ -118,6 +118,28 @@ function cloneGroups(groups) {
 let snippetGroups = cloneGroups(getQuickSnippets());
 const collapsedGroups = new Set();
 let pendingFocus = null;
+let pendingSnippetSave = null;
+
+function scheduleSnippetSave({ immediate = false } = {}) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (pendingSnippetSave) {
+    window.clearTimeout(pendingSnippetSave);
+    pendingSnippetSave = null;
+  }
+
+  if (immediate) {
+    saveQuickSnippets(snippetGroups);
+    return;
+  }
+
+  pendingSnippetSave = window.setTimeout(() => {
+    pendingSnippetSave = null;
+    saveQuickSnippets(snippetGroups);
+  }, 200);
+}
 
 function formatUpdatedAt(value) {
   if (!value) {
@@ -248,7 +270,7 @@ async function loadTeamLibraryFromServer() {
     const { groups, updatedAt } = await fetchTeamLibrary();
     snippetGroups = cloneGroups(groups);
     renderGroups();
-    saveQuickSnippets(snippetGroups);
+    scheduleSnippetSave({ immediate: true });
     updateTeamMetadata(updatedAt);
     setTeamStatus("Team-Bibliothek übernommen.", "success");
   } catch (error) {
@@ -797,6 +819,8 @@ function handleInput(event) {
   } else {
     updateGroupField(groupIndex, field, target.value);
   }
+
+  scheduleSnippetSave();
 }
 
 function handleClick(event) {
@@ -842,17 +866,20 @@ function handleClick(event) {
       collapsedGroups.delete(group.id);
     }
     renderGroups();
+    scheduleSnippetSave();
   } else if (action === "move-group-up") {
     if (groupIndex > 0) {
       const [moved] = snippetGroups.splice(groupIndex, 1);
       snippetGroups.splice(groupIndex - 1, 0, moved);
       renderGroups();
+      scheduleSnippetSave();
     }
   } else if (action === "move-group-down") {
     if (groupIndex < snippetGroups.length - 1) {
       const [moved] = snippetGroups.splice(groupIndex, 1);
       snippetGroups.splice(groupIndex + 1, 0, moved);
       renderGroups();
+      scheduleSnippetSave();
     }
   } else if (action === "add-item") {
     const newItem = createEmptyItem();
@@ -864,6 +891,7 @@ function handleClick(event) {
       field: "label",
     });
     renderGroups();
+    scheduleSnippetSave();
   } else if (action === "duplicate-item") {
     const itemIndex = Number.parseInt(target.dataset.itemIndex ?? "", 10);
     if (Number.isNaN(itemIndex) || !group.items[itemIndex]) {
@@ -886,6 +914,7 @@ function handleClick(event) {
       field: "label",
     });
     renderGroups();
+    scheduleSnippetSave();
   } else if (action === "remove-item") {
     const itemIndex = Number.parseInt(target.dataset.itemIndex ?? "", 10);
     if (Number.isNaN(itemIndex)) {
@@ -896,6 +925,7 @@ function handleClick(event) {
       group.items.push(createEmptyItem());
     }
     renderGroups();
+    scheduleSnippetSave();
   } else if (action === "move-item-up") {
     const itemIndex = Number.parseInt(target.dataset.itemIndex ?? "", 10);
     if (Number.isNaN(itemIndex) || itemIndex === 0) {
@@ -905,6 +935,7 @@ function handleClick(event) {
     const [moved] = items.splice(itemIndex, 1);
     items.splice(itemIndex - 1, 0, moved);
     renderGroups();
+    scheduleSnippetSave();
   } else if (action === "move-item-down") {
     const itemIndex = Number.parseInt(target.dataset.itemIndex ?? "", 10);
     if (Number.isNaN(itemIndex) || itemIndex >= group.items.length - 1) {
@@ -914,11 +945,12 @@ function handleClick(event) {
     const [moved] = items.splice(itemIndex, 1);
     items.splice(itemIndex + 1, 0, moved);
     renderGroups();
+    scheduleSnippetSave();
   }
 }
 
 function handleSave() {
-  saveQuickSnippets(snippetGroups);
+  scheduleSnippetSave({ immediate: true });
   showStatus("Schnellbausteine gespeichert.", "success");
 }
 
@@ -932,6 +964,7 @@ function handleReset() {
   resetQuickSnippets();
   snippetGroups = cloneGroups(defaultQuickSnippetGroups);
   collapsedGroups.clear();
+  scheduleSnippetSave({ immediate: true });
   showStatus("Standardbausteine wiederhergestellt.", "success");
   renderGroups();
 }
@@ -945,6 +978,7 @@ function handleAddGroup() {
     field: "title",
   });
   renderGroups();
+  scheduleSnippetSave();
 }
 
 function handleExpandAll() {
@@ -1002,7 +1036,7 @@ function handleImportFile(event) {
       const sanitized = sanitizeQuickSnippetGroups(parsed);
       snippetGroups = cloneGroups(sanitized);
       collapsedGroups.clear();
-      saveQuickSnippets(snippetGroups);
+      scheduleSnippetSave({ immediate: true });
       renderGroups();
       showStatus("Konfiguration importiert.", "success");
     } catch (error) {
