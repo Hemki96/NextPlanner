@@ -2,7 +2,7 @@
  * Zentrale Konfigurationswerte der Anwendung.
  * Die Intensitätsliste wird von Parser und UI genutzt, um Konsistenz zu gewährleisten.
  */
-export const intensityLevels = [
+const DEFAULT_INTENSITY_CODES = [
   "CLEAR",
   "White2",
   "White3",
@@ -21,6 +21,19 @@ export const intensityLevels = [
   "GREEN",
   "GOLD",
 ];
+
+export const defaultIntensityCodes = Object.freeze([...DEFAULT_INTENSITY_CODES]);
+export const intensityLevels = Object.freeze([...DEFAULT_INTENSITY_CODES]);
+
+const DEFAULT_EQUIPMENT_ITEMS = [
+  "Pullbuoy",
+  "Paddles",
+  "Flossen",
+  "Schnorchel",
+  "Brett",
+];
+
+export const defaultEquipmentItems = Object.freeze([...DEFAULT_EQUIPMENT_ITEMS]);
 
 /**
  * Kürzel für Fokusbereiche, die der Parser aus Freitext extrahiert.

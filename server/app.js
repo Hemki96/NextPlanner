@@ -16,10 +16,12 @@ import {
   JsonTemplateStore,
   TemplateValidationError,
 } from "./stores/json-template-store.js";
+import { JsonHighlightConfigStore } from "./stores/json-highlight-config-store.js";
 
 const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(CURRENT_DIR, "..", "data");
 const DEFAULT_QUICK_SNIPPET_FILE = path.join(DATA_DIR, "quick-snippets.json");
+const DEFAULT_HIGHLIGHT_CONFIG_FILE = path.join(DATA_DIR, "highlight-config.json");
 
 class HttpError extends Error {
   constructor(status, message, { expose = true, code = null, hint = null } = {}) {
@@ -629,6 +631,7 @@ async function handleApiRequest(
   templateStore,
   teamSnippetStore,
   quickSnippetStore,
+  highlightConfigStore,
   origin,
 ) {
   const requestOrigin = origin ?? req.headers?.origin ?? "";
@@ -732,6 +735,52 @@ async function handleApiRequest(
       res,
       new HttpError(405, "Methode nicht erlaubt", {
         hint: "Verwenden Sie GET/HEAD zum Abrufen oder PUT zum Aktualisieren der Schnellbausteine.",
+      }),
+      method,
+      requestOrigin,
+    );
+    return;
+  }
+
+  if (url.pathname === "/api/highlight-config") {
+    if (!highlightConfigStore) {
+      handleApiError(
+        res,
+        new HttpError(503, "Highlight-Konfiguration nicht verfügbar", {
+          hint: "Der Server konnte die Konfiguration für Plan-Markierungen nicht initialisieren.",
+        }),
+        method,
+        requestOrigin,
+      );
+      return;
+    }
+
+    if (method === "GET" || method === "HEAD") {
+      try {
+        const config = await highlightConfigStore.getConfig();
+        sendApiJson(res, 200, config, { method, origin: requestOrigin });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin);
+      }
+      return;
+    }
+
+    if (method === "PUT") {
+      try {
+        const body = await readJsonBody(req, { limit: 200_000 });
+        const payload = ensureJsonObject(body);
+        const updated = await highlightConfigStore.updateConfig(payload);
+        sendApiJson(res, 200, updated, { method, origin: requestOrigin });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin);
+      }
+      return;
+    }
+
+    handleApiError(
+      res,
+      new HttpError(405, "Methode nicht erlaubt", {
+        hint: "Verwenden Sie GET/HEAD zum Abrufen oder PUT zum Aktualisieren der Highlight-Konfiguration.",
       }),
       method,
       requestOrigin,
@@ -1135,6 +1184,7 @@ export function createRequestHandler({
   templateStore,
   snippetStore,
   quickSnippetStore,
+  highlightConfigStore,
   publicDir,
 } = {}) {
   const planStore = store ?? new JsonPlanStore();
@@ -1142,6 +1192,8 @@ export function createRequestHandler({
   const teamSnippetStore = snippetStore ?? new JsonSnippetStore();
   const localQuickSnippetStore =
     quickSnippetStore ?? new JsonSnippetStore({ storageFile: DEFAULT_QUICK_SNIPPET_FILE });
+  const localHighlightConfigStore =
+    highlightConfigStore ?? new JsonHighlightConfigStore({ storageFile: DEFAULT_HIGHLIGHT_CONFIG_FILE });
   const defaultDir = path.join(CURRENT_DIR, "..", "public");
   const rootDir = path.resolve(publicDir ?? defaultDir);
 
@@ -1157,6 +1209,7 @@ export function createRequestHandler({
           templateStoreInstance,
           teamSnippetStore,
           localQuickSnippetStore,
+          localHighlightConfigStore,
           req.headers?.origin ?? "",
         );
         return;
@@ -1187,6 +1240,9 @@ export function createServer(options = {}) {
     templateStore = new JsonTemplateStore(),
     snippetStore = new JsonSnippetStore(),
     quickSnippetStore = new JsonSnippetStore({ storageFile: DEFAULT_QUICK_SNIPPET_FILE }),
+    highlightConfigStore = new JsonHighlightConfigStore({
+      storageFile: DEFAULT_HIGHLIGHT_CONFIG_FILE,
+    }),
     publicDir,
     gracefulShutdownSignals = ["SIGINT", "SIGTERM"],
   } = options;
@@ -1195,6 +1251,7 @@ export function createServer(options = {}) {
     templateStore,
     snippetStore,
     quickSnippetStore,
+    highlightConfigStore,
     publicDir,
   });
   const server = createHttpServer(handler);
@@ -1216,6 +1273,9 @@ export function createServer(options = {}) {
         }
         if (quickSnippetStore && typeof quickSnippetStore.close === "function") {
           await quickSnippetStore.close();
+        }
+        if (highlightConfigStore && typeof highlightConfigStore.close === "function") {
+          await highlightConfigStore.close();
         }
       } catch (error) {
         console.error("Fehler beim Schließen des Planstores", error);

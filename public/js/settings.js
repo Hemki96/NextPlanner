@@ -22,6 +22,16 @@ import {
   setHighlightEnabled,
   subscribeToHighlightSettings,
 } from "./utils/highlight-settings.js";
+import {
+  getHighlightVocabulary,
+  resetHighlightVocabulary,
+  setHighlightVocabulary,
+} from "./utils/highlight-vocabulary.js";
+import {
+  highlightConfigPersistenceSupported,
+  fetchHighlightVocabularyConfig,
+  persistHighlightVocabularyConfig,
+} from "./utils/highlight-config-client.js";
 
 const groupContainer = document.getElementById("snippet-groups");
 const addGroupButton = document.getElementById("add-group");
@@ -40,6 +50,9 @@ const teamUpdatedElement = document.getElementById("team-library-updated");
 const highlightList = document.getElementById("highlight-settings-list");
 const highlightStatusElement = document.getElementById("highlight-settings-status");
 const highlightResetButton = document.getElementById("highlight-settings-reset");
+const highlightIntensityInput = document.getElementById("highlight-intensity-input");
+const highlightEquipmentInput = document.getElementById("highlight-equipment-input");
+const highlightConfigSaveButton = document.getElementById("highlight-config-save");
 const featureList = document.getElementById("feature-settings-list");
 const featureStatusElement = document.getElementById("feature-settings-status");
 const featureResetButton = document.getElementById("feature-settings-reset");
@@ -47,6 +60,9 @@ const themeToggle = document.getElementById("theme-toggle");
 const themeStatusElement = document.getElementById("theme-settings-status");
 
 let highlightStatusTimeout = null;
+const highlightConfigServerSupported = highlightConfigPersistenceSupported();
+let highlightConfigRequest = null;
+let highlightConfigDirty = false;
 
 let teamLibraryEnabled = getFeatureSettings().teamLibrary !== false;
 
@@ -624,8 +640,122 @@ function handleHighlightChange(event) {
 
 function handleHighlightReset() {
   const defaults = resetHighlightSettings();
+  const vocabularyDefaults = resetHighlightVocabulary();
   renderHighlightOptions(defaults);
+  updateHighlightInputsFromVocabulary(vocabularyDefaults);
+  highlightConfigDirty = false;
   setHighlightStatus("Alle Markierungen wurden zurückgesetzt.", "info");
+  if (!highlightConfigServerSupported || highlightConfigRequest) {
+    return;
+  }
+  highlightConfigRequest = persistHighlightVocabularyConfig(vocabularyDefaults)
+    .then(({ vocabulary }) => {
+      const synced = setHighlightVocabulary(vocabulary);
+      updateHighlightInputsFromVocabulary(synced);
+    })
+    .catch((error) => {
+      const message = describeApiError(error);
+      const statusType = error?.offline ? "warning" : "error";
+      setHighlightStatus(`Standardeinstellungen konnten nicht gespeichert werden: ${message}`,
+        statusType,
+      );
+    })
+    .finally(() => {
+      highlightConfigRequest = null;
+    });
+}
+
+function parseHighlightList(value) {
+  return (value ?? "")
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function updateHighlightInputsFromVocabulary(vocabulary) {
+  if (highlightIntensityInput) {
+    highlightIntensityInput.value = (vocabulary?.intensities ?? []).join("\n");
+    autoResizeTextArea(highlightIntensityInput);
+  }
+  if (highlightEquipmentInput) {
+    highlightEquipmentInput.value = (vocabulary?.equipment ?? []).join("\n");
+    autoResizeTextArea(highlightEquipmentInput);
+  }
+}
+
+function readHighlightInputs() {
+  return {
+    intensities: parseHighlightList(highlightIntensityInput?.value ?? ""),
+    equipment: parseHighlightList(highlightEquipmentInput?.value ?? ""),
+  };
+}
+
+async function loadHighlightVocabularyFromServer() {
+  if (!highlightConfigServerSupported) {
+    setHighlightStatus(
+      "Markierungen werden lokal gespeichert. Starte den lokalen Server (npm start), um sie zu synchronisieren.",
+      "warning",
+    );
+    return;
+  }
+  try {
+    const { vocabulary } = await fetchHighlightVocabularyConfig();
+    const sanitized = setHighlightVocabulary(vocabulary);
+    highlightConfigDirty = false;
+    updateHighlightInputsFromVocabulary(sanitized);
+    setHighlightStatus("Markierungen vom Server übernommen.", "info");
+  } catch (error) {
+    const message = describeApiError(error);
+    const statusType = error?.offline ? "warning" : "error";
+    setHighlightStatus(`Markierungen konnten nicht geladen werden: ${message}`, statusType);
+  }
+}
+
+async function handleHighlightConfigSave() {
+  if (highlightConfigRequest) {
+    return;
+  }
+  const draft = readHighlightInputs();
+  const sanitized = setHighlightVocabulary(draft);
+  updateHighlightInputsFromVocabulary(sanitized);
+  highlightConfigDirty = false;
+  if (!highlightConfigServerSupported) {
+    setHighlightStatus(
+      "Markierungen wurden lokal aktualisiert. Starte den lokalen Server, um sie dauerhaft zu speichern.",
+      "warning",
+    );
+    return;
+  }
+  if (highlightConfigSaveButton) {
+    highlightConfigSaveButton.disabled = true;
+    highlightConfigSaveButton.setAttribute("aria-busy", "true");
+  }
+  highlightConfigRequest = persistHighlightVocabularyConfig(sanitized)
+    .then(({ vocabulary }) => {
+      const synced = setHighlightVocabulary(vocabulary);
+      updateHighlightInputsFromVocabulary(synced);
+      setHighlightStatus("Markierungen gespeichert.", "success");
+    })
+    .catch((error) => {
+      const message = describeApiError(error);
+      const statusType = error?.offline ? "warning" : "error";
+      setHighlightStatus(`Markierungen konnten nicht gespeichert werden: ${message}`, statusType);
+    })
+    .finally(() => {
+      highlightConfigRequest = null;
+      if (highlightConfigSaveButton) {
+        highlightConfigSaveButton.disabled = false;
+        highlightConfigSaveButton.removeAttribute("aria-busy");
+      }
+    });
+}
+
+function handleHighlightInputChange(event) {
+  highlightConfigDirty = true;
+  const target = event?.target;
+  if (target instanceof HTMLTextAreaElement) {
+    autoResizeTextArea(target);
+  }
 }
 
 function renderGroups() {
@@ -1369,6 +1499,16 @@ if (typeof window !== "undefined") {
   });
 }
 
+updateHighlightInputsFromVocabulary(getHighlightVocabulary());
+highlightIntensityInput?.addEventListener("input", handleHighlightInputChange);
+highlightEquipmentInput?.addEventListener("input", handleHighlightInputChange);
+highlightConfigSaveButton?.addEventListener("click", () => {
+  handleHighlightConfigSave().catch((error) => {
+    console.error("Fehler beim Speichern der Highlight-Konfiguration", error);
+    setHighlightStatus("Markierungen konnten nicht gespeichert werden.", "error");
+  });
+});
+
 if (highlightList) {
   renderHighlightOptions();
   highlightList.addEventListener("change", handleHighlightChange);
@@ -1378,6 +1518,10 @@ if (highlightList) {
 }
 
 highlightResetButton?.addEventListener("click", handleHighlightReset);
+
+loadHighlightVocabularyFromServer().catch((error) => {
+  console.error("Fehler beim Laden der Highlight-Konfiguration", error);
+});
 
 if (teamLibraryEnabled) {
   teamRefreshButton?.addEventListener("click", () => {

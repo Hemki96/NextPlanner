@@ -80,6 +80,29 @@
       </header>
       <p class="form-hint">Wähle aus, welche Eingaben im Plan-Editor farblich hervorgehoben werden – zum Beispiel Überschriften, Distanzen oder Intensitätscodes.</p>
       <ul id="highlight-settings-list" class="feature-toggle-list"></ul>
+      <div class="highlight-config-grid form-grid">
+        <label class="form-field" for="highlight-intensity-input">
+          <span>Intensitätscodes (je Zeile ein Eintrag)</span>
+          <textarea
+            id="highlight-intensity-input"
+            rows="6"
+            placeholder="CLEAR&#10;PINK4&#10;EN1"
+          ></textarea>
+          <span class="field-hint">Neue Codes werden automatisch in Markierungen und Auswertungen berücksichtigt.</span>
+        </label>
+        <label class="form-field" for="highlight-equipment-input">
+          <span>Material (je Zeile ein Eintrag)</span>
+          <textarea
+            id="highlight-equipment-input"
+            rows="6"
+            placeholder="Pullbuoy&#10;Paddles&#10;Flossen"
+          ></textarea>
+          <span class="field-hint">Hinterlegte Bezeichnungen erscheinen im Materialüberblick der Auswertung.</span>
+        </label>
+      </div>
+      <div class="form-actions highlight-config-actions">
+        <button type="button" class="primary-button" id="highlight-config-save">Markierungen speichern</button>
+      </div>
       <p id="highlight-settings-status" class="form-status" role="status" aria-live="polite"></p>
     </section>
     <section class="page-card" data-feature="teamLibrary">
