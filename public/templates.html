@@ -76,7 +76,11 @@
     <section class="page-card">
       <header class="section-header">
         <h2>Gespeicherte Vorlagen</h2>
-        <button type="button" class="ghost-button" id="export-templates">Vorlagen exportieren</button>
+        <div class="section-actions">
+          <input type="file" id="import-templates-input" accept="application/json" hidden />
+          <button type="button" class="ghost-button" id="import-templates">Vorlagen importieren</button>
+          <button type="button" class="ghost-button" id="export-templates">Vorlagen exportieren</button>
+        </div>
       </header>
       <div id="template-list" class="template-list" aria-live="polite"></div>
     </section>
