@@ -5,3 +5,7 @@ backups/
 
 # Datenbankdateien werden zur Laufzeit erstellt
 *.db
+
+# Automatisch generierte Konfigurationen
+highlight-config.json
+quick-snippets.json
