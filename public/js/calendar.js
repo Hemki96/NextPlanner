@@ -1,4 +1,7 @@
 import { ApiError, apiRequest, canUseApi, describeApiError } from "./utils/api-client.js";
+import { triggerDownload } from "./utils/download.js";
+import { createWeekPdfDocument, createWeekWordDocument } from "./utils/week-export.js";
+import { parsePlan } from "./parser/plan-parser.js";
 import {
   applyFeatureVisibility,
   getFeatureSettings,
@@ -16,6 +19,11 @@ const dayLabelFormatter = new Intl.DateTimeFormat("de-DE", {
   month: "long",
   year: "numeric",
 });
+const shortDateFormatter = new Intl.DateTimeFormat("de-DE", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+});
 const timeFormatter = new Intl.DateTimeFormat("de-DE", {
   hour: "2-digit",
   minute: "2-digit",
@@ -29,6 +37,8 @@ const statusElement = document.getElementById("calendar-status");
 const createPlanButton = document.getElementById("calendar-create-plan");
 const createPlanHint = document.getElementById("calendar-create-hint");
 const copyLastButton = document.getElementById("calendar-copy-last");
+const exportWeekWordButton = document.getElementById("calendar-export-week-word");
+const exportWeekPdfButton = document.getElementById("calendar-export-week-pdf");
 const prevButton = document.getElementById("calendar-prev");
 const nextButton = document.getElementById("calendar-next");
 const todayButton = document.getElementById("calendar-today");
@@ -342,6 +352,494 @@ function formatTime(isoString) {
   return timeFormatter.format(parsed);
 }
 
+function getWeekRange(dateKey) {
+  if (!dateKey) {
+    return null;
+  }
+  const referenceDate = keyToDate(dateKey);
+  if (!referenceDate || Number.isNaN(referenceDate.getTime())) {
+    return null;
+  }
+
+  const start = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate());
+  start.setHours(0, 0, 0, 0);
+  const weekdayIndex = (start.getDay() + 6) % 7; // Montag = 0
+  start.setDate(start.getDate() - weekdayIndex);
+
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+  end.setHours(23, 59, 59, 999);
+
+  return {
+    start,
+    end,
+    startKey: dateToKey(start),
+    endKey: dateToKey(end),
+  };
+}
+
+const isoWeekdayLabels = ["So.", "Mo.", "Di.", "Mi.", "Do.", "Fr.", "Sa."];
+const weekBlockOrder = ["Einschwimmen", "Main", "Ausschwimmen"];
+
+function formatShortExportDate(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = String(date.getFullYear() % 100).padStart(2, "0");
+  return `${day}.${month}.${year}`;
+}
+
+function computeIsoWeekInfo(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return { week: 0, year: 0 };
+  }
+  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  target.setHours(0, 0, 0, 0);
+  target.setDate(target.getDate() + 3 - ((target.getDay() + 6) % 7));
+  const firstThursday = new Date(target.getFullYear(), 0, 4);
+  firstThursday.setHours(0, 0, 0, 0);
+  firstThursday.setDate(firstThursday.getDate() + 3 - ((firstThursday.getDay() + 6) % 7));
+  const diff = target.getTime() - firstThursday.getTime();
+  const week = 1 + Math.round(diff / (7 * 24 * 60 * 60 * 1000));
+  return { week, year: target.getFullYear() };
+}
+
+function toDisplayTime(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
+function toCompactTime(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${hours}${minutes}`;
+}
+
+function detectGroupLabel(line) {
+  if (typeof line !== "string") {
+    return null;
+  }
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const headingMatch = trimmed.match(/^#{3,6}\s*(.+)$/);
+  if (headingMatch) {
+    const label = headingMatch[1].trim();
+    return label || null;
+  }
+  if (trimmed.endsWith(":")) {
+    const candidate = trimmed.slice(0, -1).trim();
+    if (candidate && candidate.length <= 40 && !/\d/.test(candidate)) {
+      return candidate;
+    }
+  }
+  if (/gruppe$/i.test(trimmed) && !/\d/.test(trimmed) && trimmed.length <= 40) {
+    return trimmed;
+  }
+  return null;
+}
+
+function classifyBlockName(name) {
+  const normalized = (name ?? "").trim().toLowerCase();
+  if (!normalized) {
+    return "Main";
+  }
+  if (/dry|land|stabi|kraft/.test(normalized)) {
+    return "Dryland";
+  }
+  if (/einschwimmen|warm/.test(normalized)) {
+    return "Einschwimmen";
+  }
+  if (/ausschwimmen|cool|locker/.test(normalized)) {
+    return "Ausschwimmen";
+  }
+  if (/main|haupt|kern|key|set/.test(normalized)) {
+    return "Main";
+  }
+  return "Main";
+}
+
+function sanitizePlanLine(line) {
+  if (typeof line !== "string") {
+    return "";
+  }
+  return line.replace(/\t/g, "  ").replace(/\s+$/u, "");
+}
+
+function createSectionSummary(distance, time) {
+  const totalDistance = Number.isFinite(distance) ? distance : 0;
+  const totalTime = Number.isFinite(time) ? time : 0;
+  if (totalDistance <= 0 && totalTime <= 0) {
+    return null;
+  }
+  const summary = {};
+  if (totalDistance > 0) {
+    summary.km = Math.round(((totalDistance ?? 0) / 1000) * 10) / 10;
+  }
+  if (totalTime > 0) {
+    summary.min = Math.round((totalTime ?? 0) / 60);
+  }
+  return summary;
+}
+
+function safeParsePlanText(text) {
+  try {
+    return parsePlan(typeof text === "string" ? text : "");
+  } catch (error) {
+    console.warn("Plan konnte nicht für den Export analysiert werden.", error);
+    return {
+      blocks: [],
+      totalDistance: 0,
+      totalTime: 0,
+      equipment: new Map(),
+    };
+  }
+}
+
+function buildEquipmentList(plan, parsedPlan) {
+  const collected = [];
+  const seen = new Set();
+  const push = (value) => {
+    if (!value) {
+      return;
+    }
+    const label = String(value).trim();
+    if (!label || seen.has(label)) {
+      return;
+    }
+    seen.add(label);
+    collected.push(label);
+  };
+
+  const summaryEquipment = plan?.metadata?.summary?.equipment;
+  if (Array.isArray(summaryEquipment)) {
+    summaryEquipment.forEach((item) => push(item?.label));
+  }
+
+  if (parsedPlan?.equipment instanceof Map) {
+    for (const entry of parsedPlan.equipment.values()) {
+      push(entry?.label);
+    }
+  }
+
+  return collected;
+}
+
+function extractSessionStructure(parsedPlan) {
+  const groupsMap = new Map();
+  const sectionTotals = new Map();
+  const drylandLines = [];
+
+  const ensureGroup = (label) => {
+    const key = label ?? "__default";
+    if (!groupsMap.has(key)) {
+      groupsMap.set(key, { label: label ?? null, blocks: new Map() });
+    }
+    return groupsMap.get(key);
+  };
+
+  const addLineToGroup = (label, blockType, rawLine) => {
+    const sanitized = sanitizePlanLine(rawLine);
+    if (!sanitized) {
+      return;
+    }
+    const group = ensureGroup(label);
+    if (!group.blocks.has(blockType)) {
+      group.blocks.set(blockType, { type: blockType, lines: [] });
+    }
+    group.blocks.get(blockType).lines.push(sanitized);
+  };
+
+  const extractContentLines = (sourceLines) => {
+    if (!Array.isArray(sourceLines)) {
+      return [];
+    }
+    if (sourceLines.length > 0 && /^#{1,6}\s/.test(sourceLines[0]?.trim?.() ?? "")) {
+      return sourceLines.slice(1);
+    }
+    return sourceLines;
+  };
+
+  for (const block of parsedPlan?.blocks ?? []) {
+    const blockType = classifyBlockName(block?.name);
+    const contentLines = extractContentLines(block?.sourceLines ?? []);
+    if (blockType === "Dryland") {
+      contentLines
+        .map(sanitizePlanLine)
+        .filter(Boolean)
+        .forEach((line) => {
+          drylandLines.push(line);
+        });
+      continue;
+    }
+
+    if (!sectionTotals.has(blockType)) {
+      sectionTotals.set(blockType, { distance: 0, time: 0 });
+    }
+    const totals = sectionTotals.get(blockType);
+    if (Number.isFinite(block?.distance)) {
+      totals.distance += block.distance;
+    }
+    if (Number.isFinite(block?.time)) {
+      totals.time += block.time;
+    }
+
+    let currentGroup = null;
+    for (const line of contentLines) {
+      const trimmed = typeof line === "string" ? line.trim() : "";
+      if (!trimmed) {
+        continue;
+      }
+      const maybeGroup = detectGroupLabel(line);
+      if (maybeGroup !== null) {
+        currentGroup = maybeGroup;
+        ensureGroup(currentGroup);
+        continue;
+      }
+      addLineToGroup(currentGroup, blockType, line);
+    }
+  }
+
+  const sectionSummaries = {};
+  for (const [type, totals] of sectionTotals.entries()) {
+    const summary = createSectionSummary(totals.distance, totals.time);
+    if (summary) {
+      sectionSummaries[type] = summary;
+    }
+  }
+
+  const groups = Array.from(groupsMap.values())
+    .map((entry) => {
+      const blocks = weekBlockOrder
+        .map((type) => {
+          const blockEntry = entry.blocks.get(type);
+          if (!blockEntry) {
+            return null;
+          }
+          if (sectionSummaries[type]) {
+            blockEntry.section_sum = sectionSummaries[type];
+          }
+          return blockEntry;
+        })
+        .filter(Boolean);
+      if (blocks.length === 0) {
+        return null;
+      }
+      return { label: entry.label, blocks };
+    })
+    .filter(Boolean);
+
+  return { groups, dryland: drylandLines, sectionSummaries };
+}
+
+function convertPlanToWeekSession(plan, sessionDate) {
+  const parsedPlan = safeParsePlanText(plan?.content ?? "");
+  const planDate = parsePlanDate(plan?.planDate);
+  const summaryDistance = Number(plan?.metadata?.summary?.totalDistance);
+  const summaryTime = Number(plan?.metadata?.summary?.totalTime);
+  const totalDistance = Number.isFinite(summaryDistance) && summaryDistance > 0
+    ? Math.round(summaryDistance)
+    : Math.round(parsedPlan?.totalDistance ?? 0);
+  const totalTimeSeconds = Number.isFinite(summaryTime) && summaryTime > 0
+    ? summaryTime
+    : parsedPlan?.totalTime ?? 0;
+  const endDate = planDate && totalTimeSeconds > 0
+    ? new Date(planDate.getTime() + totalTimeSeconds * 1000)
+    : planDate ?? null;
+
+  const equipment = buildEquipmentList(plan, parsedPlan);
+  const { groups, dryland, sectionSummaries } = extractSessionStructure(parsedPlan);
+
+  let sessionGroups = groups;
+  if (sessionGroups.length === 0) {
+    const fallbackLines = String(plan?.content ?? "")
+      .replace(/\r\n/g, "\n")
+      .split("\n")
+      .map(sanitizePlanLine)
+      .filter(Boolean);
+    if (fallbackLines.length > 0) {
+      sessionGroups = [
+        {
+          label: null,
+          blocks: [
+            {
+              type: "Main",
+              lines: fallbackLines,
+              section_sum:
+                sectionSummaries.Main ?? createSectionSummary(totalDistance, totalTimeSeconds),
+            },
+          ],
+        },
+      ];
+    }
+  }
+
+  if (!sectionSummaries.Main && (totalDistance > 0 || totalTimeSeconds > 0)) {
+    sectionSummaries.Main = createSectionSummary(totalDistance, totalTimeSeconds);
+  }
+
+  const focus = plan?.focus?.trim?.() || "";
+  const title = plan?.title?.trim?.() || "";
+  const dateLabel = sessionDate ? formatShortExportDate(sessionDate) : "";
+  const weekday = sessionDate ? isoWeekdayLabels[sessionDate.getDay()] ?? "" : "";
+  const timeStartDisplay = toDisplayTime(planDate);
+  const timeEndDisplay = toDisplayTime(endDate) || timeStartDisplay;
+  const compactStart = toCompactTime(planDate);
+  const rawCompactEnd = toCompactTime(endDate);
+  const compactEnd = rawCompactEnd || compactStart || "";
+  const timeWindow = compactStart && compactEnd ? `${compactStart}-${compactEnd}` : compactStart || "";
+
+  return {
+    id: plan?.id ?? null,
+    title: title || focus || "Ohne Titel",
+    focus,
+    weekday,
+    date: sessionDate ? dateToKey(sessionDate) : null,
+    dateLabel,
+    time_start: timeStartDisplay,
+    time_end: timeEndDisplay,
+    time_window: timeWindow,
+    time_start_compact: compactStart,
+    time_end_compact: compactEnd,
+    equipment,
+    total_m: Number.isFinite(totalDistance) && totalDistance > 0 ? totalDistance : 0,
+    groups: sessionGroups,
+    dryland,
+    sectionSummaries,
+  };
+}
+
+function buildWeekExportData(dateKey) {
+  const range = getWeekRange(dateKey);
+  if (!range) {
+    return null;
+  }
+
+  const { start, end, startKey, endKey } = range;
+  const { week: weekNumber, year: isoYear } = computeIsoWeekInfo(start);
+  const sessions = [];
+  const focusSet = new Set();
+
+  for (let offset = 0; offset < 7; offset += 1) {
+    const current = new Date(start.getFullYear(), start.getMonth(), start.getDate() + offset);
+    current.setHours(0, 0, 0, 0);
+    const currentKey = dateToKey(current);
+    const plansForDay = (plansByDate.get(currentKey) ?? [])
+      .slice()
+      .sort((a, b) => new Date(a.planDate).getTime() - new Date(b.planDate).getTime());
+
+    for (const plan of plansForDay) {
+      const session = convertPlanToWeekSession(plan, current);
+      sessions.push(session);
+      if (session.focus) {
+        focusSet.add(session.focus);
+      }
+    }
+  }
+
+  const overviewRows = sessions.map((session) => ({
+    weekday: session.weekday,
+    date: session.dateLabel,
+    title: session.title,
+    focus: session.focus,
+    timeWindow: session.time_window,
+    equipment: session.equipment?.length ? session.equipment.join(", ") : "–",
+    total: session.total_m ? `${session.total_m}m` : "–",
+  }));
+
+  const rangeLabel = `${shortDateFormatter.format(start)} – ${shortDateFormatter.format(end)}`;
+  const longRangeLabel = `${dayLabelFormatter.format(start)} – ${dayLabelFormatter.format(end)}`;
+  const hasPlans = sessions.length > 0;
+  const focusSummary = Array.from(focusSet).filter(Boolean);
+
+  return {
+    title: `KW ${weekNumber} – Wochenplan`,
+    subtitle: focusSummary.length > 0 ? focusSummary.join(" • ") : longRangeLabel,
+    rangeLabel,
+    startKey,
+    endKey,
+    start,
+    end,
+    kw: weekNumber,
+    isoYear,
+    longRangeLabel,
+    sessions,
+    overviewRows,
+    hasPlans,
+  };
+}
+
+function buildWeekFilenamePrefix(week) {
+  return `nextplanner-woche-${week.startKey}-bis-${week.endKey}`;
+}
+
+function handleWeekWordExport(button) {
+  const week = buildWeekExportData(selectedDateKey);
+  if (!week) {
+    setStatus("Woche konnte nicht exportiert werden: Ungültiges Datum.", "error");
+    return;
+  }
+
+  const targetButton = button ?? exportWeekWordButton;
+  if (targetButton) {
+    targetButton.disabled = true;
+  }
+
+  try {
+    const documentHtml = createWeekWordDocument(week);
+    const blob = new Blob([documentHtml], { type: "application/msword" });
+    const filename = `${buildWeekFilenamePrefix(week)}.doc`;
+    triggerDownload(filename, blob);
+    setStatus(`Woche ${week.rangeLabel} als Word exportiert.`, "success");
+  } catch (error) {
+    console.error("Woche konnte nicht als Word exportiert werden", error);
+    const message = error instanceof Error ? error.message : "Woche konnte nicht als Word exportiert werden.";
+    setStatus(message, "error");
+  } finally {
+    if (targetButton) {
+      targetButton.disabled = false;
+    }
+  }
+}
+
+function handleWeekPdfExport(button) {
+  const week = buildWeekExportData(selectedDateKey);
+  if (!week) {
+    setStatus("Woche konnte nicht exportiert werden: Ungültiges Datum.", "error");
+    return;
+  }
+
+  const targetButton = button ?? exportWeekPdfButton;
+  if (targetButton) {
+    targetButton.disabled = true;
+  }
+
+  try {
+    const pdfBytes = createWeekPdfDocument(week);
+    const blob = new Blob([pdfBytes], { type: "application/pdf" });
+    const filename = `${buildWeekFilenamePrefix(week)}.pdf`;
+    triggerDownload(filename, blob);
+    setStatus(`Woche ${week.rangeLabel} als PDF exportiert.`, "success");
+  } catch (error) {
+    console.error("Woche konnte nicht als PDF exportiert werden", error);
+    const message = error instanceof Error ? error.message : "Woche konnte nicht als PDF exportiert werden.";
+    setStatus(message, "error");
+  } finally {
+    if (targetButton) {
+      targetButton.disabled = false;
+    }
+  }
+}
+
 function buildDuplicateUrl(plan, targetDateKey) {
   if (!plan || !plan.id) {
     return "planner.html";
@@ -571,6 +1069,14 @@ if (calendarFeatureEnabled) {
     if (url) {
       window.location.href = url;
     }
+  });
+
+  exportWeekWordButton?.addEventListener("click", () => {
+    handleWeekWordExport(exportWeekWordButton);
+  });
+
+  exportWeekPdfButton?.addEventListener("click", () => {
+    handleWeekPdfExport(exportWeekPdfButton);
   });
 
   renderCalendar();
