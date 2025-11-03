@@ -1,71 +1,5 @@
 const textEncoder = new TextEncoder();
 
-const DEFAULT_LEGEND = [
-  {
-    farbe: "KLAR",
-    wahrnehmung: "sehr einfach / einfach",
-    rpe: "0-2",
-    tempo: "n/A",
-    hf10s: "n/A",
-  },
-  {
-    farbe: "WEIß",
-    wahrnehmung: "Leicht bis mittelschwer, aber nicht so einfach",
-    rpe: "1-3",
-    tempo: "100 m PB +17-25\"",
-    hf10s: "Unter 140  <23",
-  },
-  {
-    farbe: "ROSA",
-    wahrnehmung: "Etwas hart bis hart",
-    rpe: "4-5",
-    tempo: "100 m PB +15-20\"",
-    hf10s: "130 – 160  21-27",
-  },
-  {
-    farbe: "ROT",
-    wahrnehmung: "Hart bis sehr hart",
-    rpe: "6-8",
-    tempo: "100 m PB +12-15\"",
-    hf10s: "150 – 170  25-29",
-  },
-  {
-    farbe: "ORANGE",
-    wahrnehmung: "Schnell geht es nicht über die Distanz",
-    rpe: "8-10",
-    tempo: "400m, 800m, 1500m",
-    hf10s: "160 und höher  >26",
-  },
-  {
-    farbe: "BLAU",
-    wahrnehmung: "All-out Wettkampfdistanz",
-    rpe: "8-10",
-    tempo: "400m, 200m",
-    hf10s: "100 BEP maximal maximal",
-  },
-  {
-    farbe: "LILA",
-    wahrnehmung: "Maximale Anstrengung",
-    rpe: "9-10",
-    tempo: "200m FEP, 100m, 50m",
-    hf10s: "maximal maximal",
-  },
-  {
-    farbe: "GRÜN",
-    wahrnehmung: "Maximale Geschwindigkeit",
-    rpe: "n/A",
-    tempo: "50m und schneller",
-    hf10s: "n/A n/A",
-  },
-  {
-    farbe: "GOLD",
-    wahrnehmung: "Explosive Geschwindigkeit !",
-    rpe: "n/A",
-    tempo: "Schneller als 50m",
-    hf10s: "n/A n/A",
-  },
-];
-
 const BLOCK_ORDER = ["Einschwimmen", "Main", "Ausschwimmen"];
 const WEEKDAY_VALUES = new Set(["Mo.", "Di.", "Mi.", "Do.", "Fr.", "Sa.", "So."]);
 
@@ -90,28 +24,6 @@ function coerceDate(value) {
     }
   }
   return null;
-}
-
-function normaliseLegend(entries) {
-  if (!Array.isArray(entries) || entries.length !== DEFAULT_LEGEND.length) {
-    return ensureLegend(DEFAULT_LEGEND);
-  }
-
-  for (let index = 0; index < DEFAULT_LEGEND.length; index += 1) {
-    const expected = DEFAULT_LEGEND[index];
-    const candidate = entries[index] ?? {};
-    if (
-      expected.farbe !== candidate.farbe ||
-      expected.wahrnehmung !== candidate.wahrnehmung ||
-      expected.rpe !== candidate.rpe ||
-      expected.tempo !== candidate.tempo ||
-      expected.hf10s !== candidate.hf10s
-    ) {
-      return ensureLegend(DEFAULT_LEGEND);
-    }
-  }
-
-  return ensureLegend(entries);
 }
 
 function validateSectionSummary(summary, label) {
@@ -235,7 +147,6 @@ function normaliseWeekData(week) {
   assertWeek(typeof week.title === "string" && week.title.trim().length > 0, "Dokumenttitel fehlt.");
   const startDate = coerceDate(week.start);
   const creationDate = startDate ?? coerceDate(week.end) ?? new Date(Date.UTC(2000, 0, 1));
-  const legend = normaliseLegend(week.legend);
   const sessions = Array.isArray(week.sessions)
     ? week.sessions.map((session, index) => validateSession(session, index))
     : [];
@@ -247,7 +158,6 @@ function normaliseWeekData(week) {
 
   return {
     ...week,
-    legend,
     sessions,
     overviewRows,
     creationDate,
@@ -272,13 +182,6 @@ function escapePdfText(value) {
     .replace(/\(/g, "\\(")
     .replace(/\)/g, "\\)")
     .replace(/\r?\n/g, " ");
-}
-
-function ensureLegend(entries) {
-  if (Array.isArray(entries) && entries.length > 0) {
-    return entries.map((entry) => ({ ...entry }));
-  }
-  return DEFAULT_LEGEND.map((entry) => ({ ...entry }));
 }
 
 function formatKmValue(value) {
@@ -332,40 +235,6 @@ function formatEquipmentList(equipment) {
   }
   return equipment.join(", ");
 }
-function renderLegendTableHtml(legend) {
-  const rows = legend
-    .map(
-      (entry) =>
-        `<tr><td>${escapeHtml(entry.farbe ?? "")}</td><td>${escapeHtml(entry.wahrnehmung ?? "")}</td><td>${escapeHtml(
-          entry.rpe ?? "",
-        )}</td><td>${escapeHtml(entry.tempo ?? "")}</td><td>${escapeHtml(entry.hf10s ?? "")}</td></tr>`,
-    )
-    .join("");
-  return `
-    <table class="legend-table">
-      <colgroup>
-        <col style="width:12%" />
-        <col style="width:32%" />
-        <col style="width:10%" />
-        <col style="width:26%" />
-        <col style="width:20%" />
-      </colgroup>
-      <thead>
-        <tr>
-          <th>Farbe</th>
-          <th>Subjektive Wahrnehmung</th>
-          <th>RPE</th>
-          <th>Tempo</th>
-          <th>Herzfrequenz für 10"</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows}
-      </tbody>
-    </table>
-  `;
-}
-
 function renderOverviewTableHtml(rows) {
   if (!Array.isArray(rows) || rows.length === 0) {
     return "";
@@ -444,15 +313,21 @@ function renderSessionBlocksHtml(session) {
     if (groupEntries.length === 0) {
       continue;
     }
-    parts.push(`<h3 class="block-heading">${escapeHtml(blockType)}</h3>`);
+    const blockParts = [
+      '<section class="training-block">',
+      '<div class="training-block__header">',
+      `<h3 class="block-heading">${escapeHtml(blockType)}</h3>`,
+      '</div>',
+      '<div class="training-block__body">',
+    ];
     for (const entry of groupEntries) {
       if (entry.label) {
-        parts.push(`<p class="group-heading">${escapeHtml(entry.label)}</p>`);
+        blockParts.push(`<p class="group-heading">${escapeHtml(entry.label)}</p>`);
       }
       for (const line of entry.block.lines) {
         const formatted = formatLineHtml(line);
         if (formatted) {
-          parts.push(`<p class="block-line">${formatted}</p>`);
+          blockParts.push(`<p class="block-line">${formatted}</p>`);
         }
       }
     }
@@ -460,8 +335,13 @@ function renderSessionBlocksHtml(session) {
       session?.sectionSummaries?.[blockType] ?? groupEntries[0]?.block?.section_sum,
     );
     if (summaryText) {
-      parts.push(`<p class="block-total">${escapeHtml(summaryText)}</p>`);
+      blockParts.push('</div>');
+      blockParts.push(`<footer class="training-block__footer"><p class="block-total">${escapeHtml(summaryText)}</p></footer>`);
+    } else {
+      blockParts.push('</div>');
     }
+    blockParts.push('</section>');
+    parts.push(blockParts.join(""));
   }
   return parts.join("");
 }
@@ -486,8 +366,7 @@ function formatSessionHeaderLine2(session) {
   return [weekdayPart, timePart, equipmentPart, totalPart].filter(Boolean).join(" ");
 }
 
-function renderSessionHtml(week, session, forcePageBreak, legend) {
-  const legendHtml = renderLegendTableHtml(legend);
+function renderSessionHtml(week, session, forcePageBreak) {
   const drylandHtml = renderDrylandHtml(session?.dryland ?? []);
   const blocksHtml = renderSessionBlocksHtml(session);
   const classes = ["session-page"];
@@ -499,20 +378,22 @@ function renderSessionHtml(week, session, forcePageBreak, legend) {
   const contentBody = blocksHtml || '<p class="session-empty">Keine Inhalte hinterlegt.</p>';
   return `
     <section class="${classes.join(" ")}">
-      <header class="session-header">
-        <p class="session-header-line1">${headerLine1}</p>
-        <p class="session-header-line2">${headerLine2}</p>
-      </header>
-      ${legendHtml}
-      ${drylandHtml}
-      ${contentBody}
+      <div class="session-card">
+        <header class="session-header">
+          <p class="session-header-line1">${headerLine1}</p>
+          <p class="session-header-line2">${headerLine2}</p>
+        </header>
+        <div class="session-body">
+          ${drylandHtml}
+          ${contentBody}
+        </div>
+      </div>
     </section>
   `;
 }
 
 export function createWeekWordDocument(week) {
   const safeWeek = normaliseWeekData(week);
-  const legend = safeWeek.legend;
   const sessions = safeWeek.sessions;
   const overviewRows = safeWeek.overviewRows;
   const hasOverview = overviewRows.length > 0;
@@ -520,7 +401,7 @@ export function createWeekWordDocument(week) {
   const subtitle = safeWeek.subtitle ? escapeHtml(safeWeek.subtitle) : "";
   const overviewHtml = hasOverview ? renderOverviewTableHtml(overviewRows) : "";
   const sessionHtml = sessions
-    .map((session, index) => renderSessionHtml(safeWeek, session, hasOverview && index === 0, legend))
+    .map((session, index) => renderSessionHtml(safeWeek, session, hasOverview && index === 0))
     .join("");
   return `<!DOCTYPE html>
   <html lang="de">
@@ -584,6 +465,7 @@ export function createWeekWordDocument(week) {
         }
         .session-page {
           page-break-after: always;
+          padding: 0;
         }
         .session-page:last-of-type {
           page-break-after: auto;
@@ -591,49 +473,75 @@ export function createWeekWordDocument(week) {
         .session-page--with-break {
           page-break-before: always;
         }
+        .session-card {
+          border: 1pt solid #d7dbe2;
+          border-radius: 8pt;
+          background: #ffffff;
+          overflow: hidden;
+          box-shadow: 0 2pt 6pt rgba(0, 0, 0, 0.05);
+        }
+        .session-header {
+          padding: 12pt 16pt 10pt;
+          background: linear-gradient(120deg, #f0f3ff, #ffffff);
+          border-bottom: 1pt solid #d7dbe2;
+        }
         .session-header-line1 {
           font-size: 14pt;
           font-weight: 700;
-          margin-bottom: 0;
+          letter-spacing: 0.3pt;
+          margin-bottom: 2pt;
         }
         .session-header-line2 {
           font-size: 12pt;
-          margin-bottom: 4pt;
+          color: #324154;
+          margin-bottom: 0;
         }
-        .legend-table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 9.5pt;
-          margin-bottom: 12pt;
-        }
-        .legend-table th,
-        .legend-table td {
-          border: 1pt solid #d0d0d0;
-          padding: 4pt;
-          text-align: left;
-          vertical-align: top;
-        }
-        .legend-table th {
-          background: #f7f7f7;
-          font-weight: 700;
+        .session-body {
+          padding: 14pt 16pt 18pt;
         }
         .dryland-block {
-          margin-bottom: 10pt;
+          margin-bottom: 12pt;
+          padding: 10pt 12pt;
+          border: 1pt dashed #b7bfd1;
+          border-radius: 6pt;
+          background: #fbfcff;
         }
         .dryland-line {
           font-style: italic;
           font-size: 10pt;
           margin: 2pt 0;
         }
+        .training-block {
+          border-left: 3pt solid #5c6bc0;
+          padding: 10pt 0 6pt 12pt;
+          margin-bottom: 12pt;
+          background: linear-gradient(90deg, rgba(92, 107, 192, 0.08), transparent);
+        }
+        .training-block__header {
+          margin-bottom: 6pt;
+        }
+        .training-block__body {
+          padding-right: 8pt;
+        }
+        .training-block__footer {
+          margin-top: 8pt;
+          padding-right: 8pt;
+          padding-left: 12pt;
+          text-align: right;
+          border-top: 1pt solid #d7dbe2;
+          padding-top: 6pt;
+        }
         .block-heading {
           font-size: 11pt;
           font-weight: 700;
-          margin: 8pt 0 4pt;
+          text-transform: uppercase;
+          letter-spacing: 0.4pt;
         }
         .group-heading {
           font-size: 10pt;
           font-style: italic;
-          margin: 6pt 0 4pt;
+          margin: 4pt 0;
+          color: #3b4a60;
         }
         .block-line {
           font-size: 10pt;
@@ -644,7 +552,7 @@ export function createWeekWordDocument(week) {
           font-size: 10pt;
           font-style: italic;
           text-align: right;
-          margin: 6pt 0 0;
+          margin: 0;
         }
         .session-empty {
           font-style: italic;
@@ -884,10 +792,11 @@ function renderOverviewPage(builder, week, rows) {
   return page;
 }
 
-function renderSessionPage(builder, week, session, legend) {
+function renderSessionPage(builder, week, session) {
   const page = builder.createPage();
   const contentWidth = builder.pageWidth - builder.margin * 2;
   let y = builder.pageHeight - builder.margin;
+  const leftColumn = builder.margin + 10;
 
   const headerLine1 = formatSessionHeaderLine1(week, session);
   builder.addText(page, { text: headerLine1, x: builder.margin, y, font: builder.fontBold, size: 14 });
@@ -896,26 +805,7 @@ function renderSessionPage(builder, week, session, legend) {
   const headerLine2 = formatSessionHeaderLine2(session);
   builder.addText(page, { text: headerLine2, x: builder.margin, y, size: 12 });
   y -= 16;
-
-  const legendColumns = [
-    { width: contentWidth * 0.12 },
-    { width: contentWidth * 0.32 },
-    { width: contentWidth * 0.1 },
-    { width: contentWidth * 0.26 },
-    { width: contentWidth * 0.2 },
-  ];
-  const legendRows = [
-    {
-      font: builder.fontBold,
-      fontSize: 9,
-      cells: ["Farbe", "Subjektive Wahrnehmung", "RPE", "Tempo", "Herzfrequenz für 10\""],
-    },
-    ...legend.map((entry) => ({
-      fontSize: 9,
-      cells: [entry.farbe ?? "", entry.wahrnehmung ?? "", entry.rpe ?? "", entry.tempo ?? "", entry.hf10s ?? ""],
-    })),
-  ];
-  y = builder.drawTable(page, builder.margin, y, legendColumns, legendRows, { padding: 4, lineGap: 1, minY: builder.margin });
+  builder.drawLine(page, builder.margin, y, builder.margin + contentWidth, y);
   y -= 12;
 
   if (Array.isArray(session?.dryland) && session.dryland.length > 0) {
@@ -925,7 +815,7 @@ function renderSessionPage(builder, week, session, legend) {
         if (y - 14 < builder.margin) {
           return page;
         }
-        builder.addText(page, { text: item, x: builder.margin, y, font: builder.fontItalic, size: 10 });
+        builder.addText(page, { text: item, x: leftColumn, y, font: builder.fontItalic, size: 10 });
         y -= 14;
       }
     }
@@ -952,6 +842,7 @@ function renderSessionPage(builder, week, session, legend) {
       return page;
     }
     builder.addText(page, { text: blockType, x: builder.margin, y, font: builder.fontBold, size: 11 });
+    builder.drawLine(page, builder.margin, y - 4, builder.margin + 24, y - 4);
     y -= 16;
 
     for (const entry of groups) {
@@ -961,7 +852,7 @@ function renderSessionPage(builder, week, session, legend) {
         }
         builder.addText(page, {
           text: entry.label,
-          x: builder.margin,
+          x: leftColumn,
           y,
           font: builder.fontItalic,
           size: 10,
@@ -974,7 +865,7 @@ function renderSessionPage(builder, week, session, legend) {
           if (y - 14 < builder.margin) {
             return page;
           }
-          builder.addText(page, { text: item, x: builder.margin, y, size: 10 });
+          builder.addText(page, { text: item, x: leftColumn, y, size: 10 });
           y -= 14;
         }
       }
@@ -988,7 +879,7 @@ function renderSessionPage(builder, week, session, legend) {
         return page;
       }
       const textWidth = builder.estimateTextWidth(summaryText, 10);
-      const summaryX = builder.margin + contentWidth - textWidth;
+      const summaryX = builder.margin + contentWidth - textWidth - 2;
       builder.addText(page, {
         text: summaryText,
         x: summaryX,
@@ -1101,14 +992,13 @@ function buildPdfDocument(pages, title, creationDate) {
 export function createWeekPdfDocument(week) {
   const safeWeek = normaliseWeekData(week);
   const builder = new PdfDocumentBuilder({ title: safeWeek.title ?? "Wochenplan", creationDate: safeWeek.creationDate });
-  const legend = safeWeek.legend;
   const sessions = safeWeek.sessions;
   const overviewRows = safeWeek.overviewRows;
 
   renderOverviewPage(builder, safeWeek, overviewRows);
 
   sessions.forEach((session) => {
-    renderSessionPage(builder, safeWeek, session, legend);
+    renderSessionPage(builder, safeWeek, session);
   });
 
   const totalPages = builder.pages.length;
