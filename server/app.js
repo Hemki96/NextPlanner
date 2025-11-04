@@ -1632,10 +1632,12 @@ export function createServer(options = {}) {
           return;
         }
         shuttingDown = true;
+        logger.warn("%s empfangen, Server wird beendet …", signal);
         try {
           await closeServer();
           await closeStoreSafely();
           removeSignalHandlers();
+          logger.info("Server wurde sauber beendet.");
           process.exit(0);
         } catch (error) {
           logger.error("Fehler beim geordneten Shutdown: %s", error);
