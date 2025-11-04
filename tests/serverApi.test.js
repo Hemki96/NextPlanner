@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { JsonPlanStore } from "../server/stores/json-plan-store.js";
 import { JsonSnippetStore } from "../server/stores/json-snippet-store.js";
 import { JsonTemplateStore } from "../server/stores/json-template-store.js";
+import { JsonCycleStore } from "../server/stores/json-cycle-store.js";
 import { JsonHighlightConfigStore } from "../server/stores/json-highlight-config-store.js";
 import { createServer } from "../server/app.js";
 import { sanitizeQuickSnippetGroups } from "../public/js/utils/snippet-storage.js";
@@ -22,11 +23,13 @@ function createTempStore() {
   const snippetFile = path.join(dir, "snippets.json");
   const templateFile = path.join(dir, "templates.json");
   const highlightFile = path.join(dir, "highlight.json");
+  const cycleFile = path.join(dir, "cycles.json");
   const store = new JsonPlanStore({ storageFile });
   const snippetStore = new JsonSnippetStore({ storageFile: snippetFile });
   const templateStore = new JsonTemplateStore({ storageFile: templateFile });
   const highlightStore = new JsonHighlightConfigStore({ storageFile: highlightFile });
-  return { dir, store, snippetStore, templateStore, highlightStore };
+  const cycleStore = new JsonCycleStore({ storageFile: cycleFile });
+  return { dir, store, snippetStore, templateStore, highlightStore, cycleStore };
 }
 
 describe("Plan API", () => {
@@ -37,6 +40,7 @@ describe("Plan API", () => {
   let baseUrl;
   let templateStore;
   let highlightStore;
+  let cycleStore;
 
   before(async () => {
     const temp = createTempStore();
@@ -45,11 +49,13 @@ describe("Plan API", () => {
     snippetStore = temp.snippetStore;
     templateStore = temp.templateStore;
     highlightStore = temp.highlightStore;
+    cycleStore = temp.cycleStore;
     server = createServer({
       store,
       templateStore,
       snippetStore,
       highlightConfigStore: highlightStore,
+      cycleStore,
       publicDir: path.join(repoRoot, "public"),
     });
     server.listen(0);
@@ -65,6 +71,7 @@ describe("Plan API", () => {
     await snippetStore?.close();
     await templateStore?.close();
     await highlightStore?.close();
+    await cycleStore?.close();
     rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -558,6 +565,85 @@ describe("Plan API", () => {
     assert.equal(invalid.status, 400);
     const body = await invalid.json();
     assert.equal(body.error.code, "invalid-snippet-payload");
+  });
+
+  it("legt Wochenzyklen an und aktualisiert Tageswerte", async () => {
+    const initialCycles = await cycleStore.listCycles();
+    const payload = {
+      name: "Sommerblock",
+      cycleType: "volume",
+      startDate: "2024-07-01",
+      weeks: [
+        {
+          weekNumber: 1,
+          focusLabel: "Grundlagen",
+          phase: "volume",
+        },
+      ],
+    };
+
+    const createResponse = await fetch(`${baseUrl}/api/cycles`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(createResponse.status, 201);
+    const created = await createResponse.json();
+    assert.ok(created.id > 0);
+    assert.equal(created.weeks.length, 1);
+
+    const listResponse = await fetch(`${baseUrl}/api/cycles`);
+    assert.equal(listResponse.status, 200);
+    const list = await listResponse.json();
+    assert.equal(list.length, initialCycles.length + 1);
+
+    const dayId = created.weeks[0].days[0].id;
+    const dayResponse = await fetch(`${baseUrl}/api/days/${dayId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ distance: 1500, volume: 1500, rpe: 4 }),
+    });
+    assert.equal(dayResponse.status, 200);
+
+    const detailResponse = await fetch(`${baseUrl}/api/cycles/${created.id}`);
+    assert.equal(detailResponse.status, 200);
+    const detail = await detailResponse.json();
+    assert.equal(detail.weeks[0].summary.totalDistance, 1500);
+    assert.equal(detail.weeks[0].summary.averageRpe, 4);
+  });
+
+  it("aktualisiert Wochenfokus und Reihenfolge", async () => {
+    const payload = {
+      name: "Herbstblock",
+      cycleType: "intensity",
+      startDate: "2024-09-02",
+    };
+    const createResponse = await fetch(`${baseUrl}/api/cycles`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(createResponse.status, 201);
+    const created = await createResponse.json();
+    assert.ok(created.weeks.length >= 1);
+    const targetWeek = created.weeks[0];
+
+    const updateResponse = await fetch(`${baseUrl}/api/weeks/${targetWeek.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ focusLabel: "Tempo", phase: "intensity", weekNumber: 3 }),
+    });
+    assert.equal(updateResponse.status, 200);
+    const updatedWeek = await updateResponse.json();
+    assert.equal(updatedWeek.focusLabel, "Tempo");
+    assert.equal(updatedWeek.phase, "intensity");
+    assert.equal(updatedWeek.weekNumber, 3);
+
+    const detailResponse = await fetch(`${baseUrl}/api/cycles/${created.id}`);
+    const detail = await detailResponse.json();
+    const persisted = detail.weeks.find((week) => week.id === targetWeek.id);
+    assert.equal(persisted.focusLabel, "Tempo");
+    assert.equal(persisted.weekNumber, 3);
   });
 
   it("liefert Health-Checks", async () => {

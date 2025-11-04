@@ -11,6 +11,16 @@ import {
   PlanValidationError,
   StorageIntegrityError,
 } from "./stores/json-plan-store.js";
+import {
+  JsonCycleStore,
+  CycleValidationError,
+  CycleNotFoundError,
+  WeekNotFoundError,
+  DayNotFoundError,
+  buildCycleEtag,
+  buildWeekEtag,
+  buildDayEtag,
+} from "./stores/json-cycle-store.js";
 import { JsonSnippetStore } from "./stores/json-snippet-store.js";
 import {
   JsonTemplateStore,
@@ -87,7 +97,7 @@ const HEALTH_ALLOWED_METHODS = "GET,HEAD,OPTIONS";
 
 const API_CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Content-Type,If-Match,If-None-Match",
-  "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,DELETE,OPTIONS",
+  "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
   "Access-Control-Max-Age": "600",
 };
 
@@ -399,6 +409,7 @@ async function handleHealthRequest(
   url,
   {
     planStore,
+    cycleStore,
     templateStore,
     teamSnippetStore,
     quickSnippetStore,
@@ -438,6 +449,7 @@ async function handleHealthRequest(
   const checks = [];
   for (const [name, store] of [
     ["planStore", planStore],
+    ["cycleStore", cycleStore],
     ["templateStore", templateStore],
     ["teamSnippetStore", teamSnippetStore],
     ["quickSnippetStore", quickSnippetStore],
@@ -461,7 +473,7 @@ async function readJsonBody(req, { limit = 1_000_000 } = {}) {
   let totalLength = 0;
 
   const method = req.method ?? "GET";
-  if (method === "POST" || method === "PUT") {
+  if (method === "POST" || method === "PUT" || method === "PATCH") {
     const contentType = req.headers["content-type"] ?? "";
     if (!/^application\/json(?:;|$)/i.test(contentType)) {
       throw new HttpError(415, "Content-Type muss application/json sein", {
@@ -756,6 +768,18 @@ function handleApiError(res, error, method = "GET", origin, options = {}) {
     );
     return;
   }
+  if (error instanceof CycleValidationError) {
+    logWith("warn", "Cycle validation failed for %s: %s", location, error.message);
+    sendError(
+      400,
+      "cycle-validation",
+      error.message,
+      undefined,
+      undefined,
+      "Bitte korrigieren Sie die Angaben zum Wochenplan und versuchen Sie es erneut.",
+    );
+    return;
+  }
   if (error instanceof StorageIntegrityError) {
     const details = error.backupFile ? { backupFile: error.backupFile } : undefined;
     const backupInfo = error.backupFile ? ` (Backup: ${error.backupFile})` : "";
@@ -802,6 +826,22 @@ function handleApiError(res, error, method = "GET", origin, options = {}) {
     );
     return;
   }
+  if (
+    error instanceof CycleNotFoundError ||
+    error instanceof WeekNotFoundError ||
+    error instanceof DayNotFoundError
+  ) {
+    logWith("debug", "Cycle resource missing for %s: %s", location, error.message);
+    sendError(
+      404,
+      "cycle-not-found",
+      error.message,
+      undefined,
+      undefined,
+      "Der angeforderte Zyklusbestandteil existiert nicht mehr.",
+    );
+    return;
+  }
   const rawMessage =
     error instanceof Error ? error.stack ?? error.message : String(error ?? "Unbekannter Fehler");
   logWith("error", "Unexpected API error for %s: %s", location, rawMessage);
@@ -826,6 +866,7 @@ async function handleApiRequest(
   res,
   url,
   planStore,
+  cycleStore,
   templateStore,
   teamSnippetStore,
   quickSnippetStore,
@@ -883,6 +924,384 @@ async function handleApiRequest(
       res,
       new HttpError(405, "Methode nicht erlaubt", {
         hint: "Für Sicherungen stehen GET/HEAD (Export) und POST (Import) zur Verfügung.",
+      }),
+      method,
+      requestOrigin,
+      logOptions,
+    );
+    return;
+  }
+
+  if (url.pathname === "/api/cycles") {
+    if (!cycleStore) {
+      handleApiError(
+        res,
+        new HttpError(503, "Wochenplanung nicht verfügbar", {
+          hint: "Der Server konnte den Speicher für Trainingszyklen nicht initialisieren.",
+        }),
+        method,
+        requestOrigin,
+        logOptions,
+      );
+      return;
+    }
+
+    if (method === "GET" || method === "HEAD") {
+      try {
+        const cycles = await cycleStore.listCycles();
+        sendApiJson(res, 200, cycles, { method, origin: requestOrigin });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    if (method === "POST") {
+      try {
+        const body = await readJsonBody(req, { limit: 1_000_000 });
+        const created = await cycleStore.createCycle(body);
+        sendApiJson(res, 201, created, {
+          method,
+          origin: requestOrigin,
+          headers: {
+            Location: `/api/cycles/${created.id}`,
+            ETag: buildCycleEtag(created),
+          },
+        });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    handleApiError(
+      res,
+      new HttpError(405, "Methode nicht erlaubt", {
+        hint: "Verwenden Sie GET/HEAD zum Abrufen oder POST zum Anlegen neuer Trainingszyklen.",
+      }),
+      method,
+      requestOrigin,
+      logOptions,
+    );
+    return;
+  }
+
+  const cycleMatch = /^\/api\/cycles\/(\d+)$/.exec(url.pathname);
+  if (cycleMatch) {
+    if (!cycleStore) {
+      handleApiError(
+        res,
+        new HttpError(503, "Wochenplanung nicht verfügbar", {
+          hint: "Der Server konnte den Speicher für Trainingszyklen nicht initialisieren.",
+        }),
+        method,
+        requestOrigin,
+        logOptions,
+      );
+      return;
+    }
+
+    const cycleId = Number.parseInt(cycleMatch[1], 10);
+
+    if (method === "GET" || method === "HEAD") {
+      try {
+        const cycle = await cycleStore.getCycle(cycleId);
+        const etag = buildCycleEtag(cycle);
+        sendApiJson(res, 200, cycle, {
+          method,
+          origin: requestOrigin,
+          headers: { ETag: etag },
+        });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    if (method === "PATCH") {
+      try {
+        const current = await cycleStore.getCycle(cycleId);
+        const currentEtag = buildCycleEtag(current);
+        const ifMatch = req.headers?.["if-match"];
+        if (ifMatch && !ifMatchSatisfied(ifMatch, currentEtag)) {
+          throw new HttpError(412, "Zyklus wurde bereits geändert.", {
+            code: "cycle-conflict",
+            hint: "Laden Sie den aktuellen Wochenplan und wenden Sie die Änderungen erneut an.",
+            expose: true,
+          });
+        }
+        const body = await readJsonBody(req, { limit: 500_000 });
+        const updated = await cycleStore.updateCycle(cycleId, body);
+        const updatedEtag = buildCycleEtag(updated);
+        sendApiJson(res, 200, updated, {
+          method,
+          origin: requestOrigin,
+          headers: { ETag: updatedEtag },
+        });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    handleApiError(
+      res,
+      new HttpError(405, "Methode nicht erlaubt", {
+        hint: "Erlaubte Methoden sind GET/HEAD (lesen) sowie PATCH (aktualisieren).",
+      }),
+      method,
+      requestOrigin,
+      logOptions,
+    );
+    return;
+  }
+
+  const cycleWeeksMatch = /^\/api\/cycles\/(\d+)\/weeks$/.exec(url.pathname);
+  if (cycleWeeksMatch) {
+    if (!cycleStore) {
+      handleApiError(
+        res,
+        new HttpError(503, "Wochenplanung nicht verfügbar", {
+          hint: "Der Server konnte den Speicher für Trainingszyklen nicht initialisieren.",
+        }),
+        method,
+        requestOrigin,
+        logOptions,
+      );
+      return;
+    }
+
+    const cycleId = Number.parseInt(cycleWeeksMatch[1], 10);
+
+    if (method === "GET" || method === "HEAD") {
+      try {
+        const cycle = await cycleStore.getCycle(cycleId);
+        sendApiJson(res, 200, cycle.weeks ?? [], { method, origin: requestOrigin });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    if (method === "POST") {
+      try {
+        const body = await readJsonBody(req, { limit: 500_000 });
+        const createdWeek = await cycleStore.addWeek(cycleId, body);
+        sendApiJson(res, 201, createdWeek, {
+          method,
+          origin: requestOrigin,
+          headers: {
+            Location: `/api/weeks/${createdWeek.id}`,
+            ETag: buildWeekEtag(createdWeek),
+          },
+        });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    handleApiError(
+      res,
+      new HttpError(405, "Methode nicht erlaubt", {
+        hint: "Nutzen Sie GET/HEAD zum Abrufen oder POST zum Anlegen weiterer Wochen.",
+      }),
+      method,
+      requestOrigin,
+      logOptions,
+    );
+    return;
+  }
+
+  const weekMatch = /^\/api\/weeks\/(\d+)$/.exec(url.pathname);
+  if (weekMatch) {
+    if (!cycleStore) {
+      handleApiError(
+        res,
+        new HttpError(503, "Wochenplanung nicht verfügbar", {
+          hint: "Der Server konnte den Speicher für Trainingszyklen nicht initialisieren.",
+        }),
+        method,
+        requestOrigin,
+        logOptions,
+      );
+      return;
+    }
+
+    const weekId = Number.parseInt(weekMatch[1], 10);
+
+    if (method === "GET" || method === "HEAD") {
+      try {
+        const week = await cycleStore.getWeek(weekId);
+        const etag = buildWeekEtag(week);
+        sendApiJson(res, 200, week, {
+          method,
+          origin: requestOrigin,
+          headers: { ETag: etag },
+        });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    if (method === "PATCH") {
+      try {
+        const currentWeek = await cycleStore.getWeek(weekId);
+        const currentEtag = buildWeekEtag(currentWeek);
+        const ifMatch = req.headers?.["if-match"];
+        if (ifMatch && !ifMatchSatisfied(ifMatch, currentEtag)) {
+          throw new HttpError(412, "Woche wurde bereits geändert.", {
+            code: "week-conflict",
+            hint: "Laden Sie die aktuelle Woche und übernehmen Sie Ihre Änderungen erneut.",
+            expose: true,
+          });
+        }
+        const body = await readJsonBody(req, { limit: 400_000 });
+        const updatedWeek = await cycleStore.updateWeek(weekId, body);
+        const updatedEtag = buildWeekEtag(updatedWeek);
+        sendApiJson(res, 200, updatedWeek, {
+          method,
+          origin: requestOrigin,
+          headers: { ETag: updatedEtag },
+        });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    handleApiError(
+      res,
+      new HttpError(405, "Methode nicht erlaubt", {
+        hint: "Erlaubte Methoden sind GET/HEAD (lesen) sowie PATCH (aktualisieren).",
+      }),
+      method,
+      requestOrigin,
+      logOptions,
+    );
+    return;
+  }
+
+  const weekDaysMatch = /^\/api\/weeks\/(\d+)\/days$/.exec(url.pathname);
+  if (weekDaysMatch) {
+    if (!cycleStore) {
+      handleApiError(
+        res,
+        new HttpError(503, "Wochenplanung nicht verfügbar", {
+          hint: "Der Server konnte den Speicher für Trainingszyklen nicht initialisieren.",
+        }),
+        method,
+        requestOrigin,
+        logOptions,
+      );
+      return;
+    }
+
+    const weekId = Number.parseInt(weekDaysMatch[1], 10);
+
+    if (method === "GET" || method === "HEAD") {
+      try {
+        const week = await cycleStore.getWeek(weekId);
+        sendApiJson(res, 200, week.days ?? [], { method, origin: requestOrigin });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    if (method === "POST") {
+      try {
+        const body = await readJsonBody(req, { limit: 400_000 });
+        const createdDay = await cycleStore.addDay(weekId, body);
+        sendApiJson(res, 201, createdDay, {
+          method,
+          origin: requestOrigin,
+          headers: {
+            Location: `/api/days/${createdDay.id}`,
+            ETag: buildDayEtag(createdDay),
+          },
+        });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    handleApiError(
+      res,
+      new HttpError(405, "Methode nicht erlaubt", {
+        hint: "Verwenden Sie GET/HEAD zum Abruf oder POST zum Anlegen weiterer Tage.",
+      }),
+      method,
+      requestOrigin,
+      logOptions,
+    );
+    return;
+  }
+
+  const dayMatch = /^\/api\/days\/(\d+)$/.exec(url.pathname);
+  if (dayMatch) {
+    if (!cycleStore) {
+      handleApiError(
+        res,
+        new HttpError(503, "Wochenplanung nicht verfügbar", {
+          hint: "Der Server konnte den Speicher für Trainingszyklen nicht initialisieren.",
+        }),
+        method,
+        requestOrigin,
+        logOptions,
+      );
+      return;
+    }
+
+    const dayId = Number.parseInt(dayMatch[1], 10);
+
+    if (method === "GET" || method === "HEAD") {
+      try {
+        const day = await cycleStore.getDay(dayId);
+        const etag = buildDayEtag(day);
+        sendApiJson(res, 200, day, {
+          method,
+          origin: requestOrigin,
+          headers: { ETag: etag },
+        });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    if (method === "PATCH") {
+      try {
+        const currentDay = await cycleStore.getDay(dayId);
+        const currentEtag = buildDayEtag(currentDay);
+        const ifMatch = req.headers?.["if-match"];
+        if (ifMatch && !ifMatchSatisfied(ifMatch, currentEtag)) {
+          throw new HttpError(412, "Tag wurde bereits geändert.", {
+            code: "day-conflict",
+            hint: "Laden Sie den aktuellen Tag und wiederholen Sie Ihre Änderungen.",
+            expose: true,
+          });
+        }
+        const body = await readJsonBody(req, { limit: 300_000 });
+        const updatedDay = await cycleStore.updateDay(dayId, body);
+        const updatedEtag = buildDayEtag(updatedDay);
+        sendApiJson(res, 200, updatedDay, {
+          method,
+          origin: requestOrigin,
+          headers: { ETag: updatedEtag },
+        });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    handleApiError(
+      res,
+      new HttpError(405, "Methode nicht erlaubt", {
+        hint: "Erlaubte Methoden sind GET/HEAD (lesen) sowie PATCH (aktualisieren).",
       }),
       method,
       requestOrigin,
@@ -1406,6 +1825,7 @@ async function handleApiRequest(
  */
 export function createRequestHandler({
   store,
+  cycleStore,
   templateStore,
   snippetStore,
   quickSnippetStore,
@@ -1413,6 +1833,7 @@ export function createRequestHandler({
   publicDir,
 } = {}) {
   const planStore = store ?? new JsonPlanStore();
+  const cycleStoreInstance = cycleStore ?? new JsonCycleStore();
   const templateStoreInstance = templateStore ?? new JsonTemplateStore();
   const teamSnippetStore = snippetStore ?? new JsonSnippetStore();
   const localQuickSnippetStore =
@@ -1487,6 +1908,7 @@ export function createRequestHandler({
           url,
           {
             planStore,
+            cycleStore: cycleStoreInstance,
             templateStore: templateStoreInstance,
             teamSnippetStore,
             quickSnippetStore: localQuickSnippetStore,
@@ -1503,6 +1925,7 @@ export function createRequestHandler({
           res,
           url,
           planStore,
+          cycleStoreInstance,
           templateStoreInstance,
           teamSnippetStore,
           localQuickSnippetStore,
@@ -1554,6 +1977,7 @@ export function createRequestHandler({
 export function createServer(options = {}) {
   const {
     store = new JsonPlanStore(),
+    cycleStore = new JsonCycleStore(),
     templateStore = new JsonTemplateStore(),
     snippetStore = new JsonSnippetStore(),
     quickSnippetStore = new JsonSnippetStore({ storageFile: DEFAULT_QUICK_SNIPPET_FILE }),
@@ -1565,6 +1989,7 @@ export function createServer(options = {}) {
   } = options;
   const handler = createRequestHandler({
     store,
+    cycleStore,
     templateStore,
     snippetStore,
     quickSnippetStore,
@@ -1584,6 +2009,7 @@ export function createServer(options = {}) {
     closePromise = (async () => {
       try {
         await store.close();
+        await cycleStore.close();
         await templateStore.close();
         if (snippetStore && typeof snippetStore.close === "function") {
           await snippetStore.close();

@@ -2406,6 +2406,355 @@ body.no-scroll {
   font-weight: 600;
 }
 
+.weekly-layout {
+  width: min(100%, 1120px);
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) 1fr;
+  gap: 1.75rem;
+  align-items: start;
+}
+
+.weekly-sidebar {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  box-shadow: 0 26px 48px -34px var(--shadow-color);
+}
+
+.weekly-sidebar-header h2 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.weekly-sidebar-header p {
+  margin: 0.35rem 0 0;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.weekly-feedback {
+  min-height: 1.4rem;
+  font-size: 0.92rem;
+  color: var(--text-secondary);
+}
+
+.weekly-feedback[data-state="error"] {
+  color: #8d1919;
+}
+
+.weekly-feedback[data-state="success"] {
+  color: #1b5e20;
+}
+
+.cycle-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.cycle-list-empty {
+  margin: 0;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.cycle-list-item {
+  margin: 0;
+}
+
+.cycle-list-button {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 0.85rem 1rem;
+  background: rgba(255, 255, 255, 0.65);
+  color: var(--text-primary);
+  display: grid;
+  gap: 0.35rem;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.cycle-list-button:hover,
+.cycle-list-button:focus-visible {
+  border-color: rgba(0, 119, 255, 0.35);
+  box-shadow: 0 0 0 3px rgba(0, 119, 255, 0.18);
+  outline: none;
+}
+
+.cycle-list-button.is-active {
+  background: rgba(0, 119, 255, 0.16);
+  border-color: rgba(0, 119, 255, 0.45);
+  box-shadow: 0 0 0 3px rgba(0, 119, 255, 0.22);
+}
+
+.cycle-list-title {
+  font-weight: 600;
+}
+
+.cycle-list-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.cycle-form-section {
+  margin-top: 1.25rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.cycle-form-section h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.cycle-form {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.weekly-detail {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.75rem;
+  display: grid;
+  gap: 1.75rem;
+  min-height: 620px;
+  box-shadow: 0 32px 60px -38px var(--shadow-color);
+}
+
+.weekly-empty {
+  text-align: center;
+  max-width: 420px;
+  margin: 3rem auto;
+  display: grid;
+  gap: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.weekly-empty h2 {
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.cycle-detail-header {
+  display: grid;
+  gap: 1.2rem;
+}
+
+.cycle-date-range {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+.cycle-update-form {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.cycle-update-form .form-field {
+  margin: 0;
+}
+
+.cycle-update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.cycle-summary {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.cycle-summary-item {
+  border: 1px solid rgba(9, 38, 63, 0.1);
+  border-radius: 14px;
+  padding: 0.9rem 1rem;
+  background: rgba(255, 255, 255, 0.55);
+  display: grid;
+  gap: 0.25rem;
+}
+
+.cycle-summary-item h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.cycle-summary-item p {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.week-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.week-grid {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.week-card {
+  border: 1px solid rgba(9, 38, 63, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 1.2rem 1.4rem;
+  display: grid;
+  gap: 1.25rem;
+  box-shadow: 0 24px 48px -34px var(--shadow-color);
+}
+
+.week-card-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem;
+  justify-content: space-between;
+}
+
+.week-form {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.week-form .form-field {
+  margin: 0;
+}
+
+.week-form button {
+  justify-self: flex-start;
+}
+
+.week-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.week-summary strong {
+  color: var(--text-primary);
+}
+
+.week-table-wrapper {
+  overflow-x: auto;
+  border-radius: 12px;
+}
+
+.week-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 760px;
+}
+
+.week-table th,
+.week-table td {
+  padding: 0.6rem 0.55rem;
+  border-bottom: 1px solid rgba(9, 38, 63, 0.08);
+  vertical-align: top;
+}
+
+.week-table th {
+  text-align: left;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  width: 190px;
+}
+
+.week-table td:last-child {
+  width: 120px;
+}
+
+.week-table tfoot td {
+  font-weight: 600;
+  background: rgba(9, 38, 63, 0.06);
+}
+
+.week-input {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  padding: 0.45rem 0.55rem;
+  font: inherit;
+  background: var(--input-bg);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.week-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(0, 119, 255, 0.18);
+  background: var(--input-bg-focus);
+}
+
+.week-save-button {
+  width: 100%;
+}
+
+.week-save-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.phase-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: rgba(0, 119, 255, 0.12);
+  color: var(--text-secondary);
+}
+
+@media (max-width: 1100px) {
+  .weekly-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .weekly-detail {
+    padding: 1.5rem;
+  }
+}
+
+@media (max-width: 720px) {
+  .week-table {
+    min-width: 640px;
+  }
+
+  .cycle-update-form {
+    grid-template-columns: 1fr;
+  }
+
+  .cycle-update-actions {
+    justify-content: flex-start;
+  }
+}
+
 @keyframes slide-up {
   from {
     transform: translateY(18px);
