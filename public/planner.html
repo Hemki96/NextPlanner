@@ -185,6 +185,30 @@
       <!-- Rechte Spalte fasst die Kennzahlen und Blockdetails live zusammen -->
       <aside class="summary-panel" aria-live="polite" data-feature="insightsPanel">
         <h2>Zusammenfassung</h2>
+        <section id="cycle-context" class="cycle-context" hidden>
+          <h3>Zyklusverknüpfung</h3>
+          <dl class="cycle-context-list">
+            <div>
+              <dt>Zyklus</dt>
+              <dd id="cycle-context-cycle">–</dd>
+            </div>
+            <div>
+              <dt>Woche</dt>
+              <dd id="cycle-context-week">–</dd>
+            </div>
+            <div>
+              <dt>Tag</dt>
+              <dd id="cycle-context-day">–</dd>
+            </div>
+            <div>
+              <dt>Fokus</dt>
+              <dd id="cycle-context-focus">–</dd>
+            </div>
+          </dl>
+          <div class="cycle-context-actions">
+            <a id="cycle-context-open-weekly" class="ghost-button compact" href="/weekly.html">Wochenplanung öffnen</a>
+          </div>
+        </section>
         <!-- Kennzahlen-Raster für Zeit, Distanz, Intensitäten und Equipment -->
         <div class="summary-grid">
           <div>

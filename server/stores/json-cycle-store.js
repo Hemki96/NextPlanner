@@ -67,6 +67,7 @@ function canonicalizeDay(day) {
     id: day.id,
     weekId: day.weekId,
     date: day.date,
+    planId: day.planId ?? null,
     mainSetFocus: day.mainSetFocus ?? null,
     skillFocus1: day.skillFocus1 ?? null,
     skillFocus2: day.skillFocus2 ?? null,
@@ -197,6 +198,20 @@ function normalizeNumber(value, label, { allowNull = true, min = 0, max = Number
   return number;
 }
 
+function normalizePlanId(value) {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null || value === "") {
+    return null;
+  }
+  const id = Number.parseInt(String(value), 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new CycleValidationError("planId muss eine positive Ganzzahl sein.");
+  }
+  return id;
+}
+
 function normalizeNotes(value) {
   if (value === undefined || value === null) {
     return {};
@@ -284,6 +299,7 @@ function cloneDay(day) {
     id: day.id,
     weekId: day.weekId,
     date: day.date,
+    planId: day.planId ?? null,
     mainSetFocus: day.mainSetFocus ?? null,
     skillFocus1: day.skillFocus1 ?? null,
     skillFocus2: day.skillFocus2 ?? null,
@@ -753,6 +769,7 @@ export class JsonCycleStore {
       id: this.#data.nextDayId++,
       weekId: week.id,
       date,
+      planId: normalizePlanId(payload?.planId) ?? null,
       mainSetFocus,
       skillFocus1,
       skillFocus2,
@@ -784,6 +801,13 @@ export class JsonCycleStore {
       const date = toIsoDate(patch.date, "date");
       if (date !== day.date) {
         day.date = date;
+        changed = true;
+      }
+    }
+    if (Object.hasOwn(patch, "planId")) {
+      const planId = normalizePlanId(patch.planId);
+      if (planId !== undefined && planId !== day.planId) {
+        day.planId = planId ?? null;
         changed = true;
       }
     }

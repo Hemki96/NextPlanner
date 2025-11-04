@@ -5,11 +5,18 @@ const detailEl = document.querySelector("[data-cycle-detail]");
 const createForm = document.querySelector("[data-create-cycle-form]");
 const feedbackEl = document.querySelector("[data-feedback]");
 
+const initialSelection = typeof window !== "undefined" ? parseInitialSelection() : null;
+
 const state = {
   cycles: [],
   activeCycleId: null,
   loading: false,
+  highlightDayId: initialSelection?.dayId ?? null,
 };
+
+let shouldAutoScrollHighlight = Boolean(state.highlightDayId);
+
+const planCache = new Map();
 
 const distanceFormatter = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0 });
 const decimalFormatter = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
@@ -27,7 +34,7 @@ function init() {
   if (createForm) {
     createForm.addEventListener("submit", onCreateCycleSubmit);
   }
-  refreshCycles();
+  refreshCycles({ selectId: initialSelection?.cycleId });
 }
 
 function setFeedback(message, stateName = "info") {
@@ -135,12 +142,20 @@ function renderCycleList() {
 }
 
 function applyCycleCollection(cycles, { selectId } = {}) {
+  planCache.clear();
   state.cycles = cycles.slice();
   const candidateId = selectId ?? state.activeCycleId;
   if (candidateId && state.cycles.some((cycle) => cycle.id === candidateId)) {
     state.activeCycleId = candidateId;
   } else {
     state.activeCycleId = state.cycles[0]?.id ?? null;
+  }
+  if (
+    state.highlightDayId &&
+    !state.cycles.some((cycle) => cycleContainsDay(cycle, state.highlightDayId))
+  ) {
+    state.highlightDayId = null;
+    shouldAutoScrollHighlight = false;
   }
   renderCycleList();
   renderCycleDetail();
@@ -150,6 +165,7 @@ function updateCycleState(cycle, { select = true } = {}) {
   if (!cycle || typeof cycle.id !== "number") {
     return;
   }
+  invalidateCyclePlanSummaries(cycle);
   const nextCycles = state.cycles.slice();
   const index = nextCycles.findIndex((entry) => entry.id === cycle.id);
   if (index >= 0) {
@@ -158,6 +174,13 @@ function updateCycleState(cycle, { select = true } = {}) {
     nextCycles.push(cycle);
   }
   state.cycles = nextCycles;
+  if (
+    state.highlightDayId &&
+    !state.cycles.some((entry) => cycleContainsDay(entry, state.highlightDayId))
+  ) {
+    state.highlightDayId = null;
+    shouldAutoScrollHighlight = false;
+  }
   if (select || state.activeCycleId === null) {
     state.activeCycleId = cycle.id;
   }
@@ -165,12 +188,181 @@ function updateCycleState(cycle, { select = true } = {}) {
   renderCycleDetail();
 }
 
+function invalidateCyclePlanSummaries(cycle) {
+  if (!cycle?.weeks) {
+    return;
+  }
+  for (const week of cycle.weeks) {
+    for (const day of week.days ?? []) {
+      if (typeof day.planId === "number") {
+        planCache.delete(day.planId);
+      }
+    }
+  }
+}
+
 async function reloadCycle(cycleId, { select = true } = {}) {
   const { data } = await apiRequest(`/api/cycles/${cycleId}`);
   if (data && typeof data === "object") {
+    invalidateCyclePlanSummaries(data);
     updateCycleState(data, { select });
   }
   return data ?? null;
+}
+
+function deriveDayFocus(cycle, week, day) {
+  const candidates = [
+    day.mainSetFocus,
+    week.focusLabel,
+    cycle.name,
+    phaseLabels[cycle.cycleType] ?? cycle.cycleType,
+  ];
+  for (const candidate of candidates) {
+    if (candidate && String(candidate).trim()) {
+      return String(candidate).trim();
+    }
+  }
+  return "";
+}
+
+function buildPlannerUrl({ cycle, week, day, planId }) {
+  const params = new URLSearchParams();
+  if (planId) {
+    params.set("planId", String(planId));
+  }
+  params.set("cycleId", String(cycle.id));
+  params.set("weekId", String(week.id));
+  params.set("dayId", String(day.id));
+  if (day.date) {
+    params.set("planDate", formatDateInput(day.date));
+  }
+  const focus = deriveDayFocus(cycle, week, day);
+  if (focus) {
+    params.set("planFocus", focus);
+  }
+  return `planner.html?${params.toString()}`;
+}
+
+async function fetchPlanSummary(planId) {
+  if (planCache.has(planId)) {
+    return planCache.get(planId);
+  }
+  try {
+    const { data } = await apiRequest(`/api/plans/${planId}`);
+    const summary = {
+      id: data.id,
+      title: data.title ?? `Plan #${planId}`,
+      focus: data.focus ?? "",
+      weeklyCycle: data.metadata?.weeklyCycle ?? null,
+    };
+    planCache.set(planId, summary);
+    return summary;
+  } catch (error) {
+    const summary = { id: planId, error: getErrorMessage(error) };
+    planCache.set(planId, summary);
+    return summary;
+  }
+}
+
+function applyPlanSummary(titleEl, metaEl, summary) {
+  if (!summary) {
+    titleEl.textContent = titleEl.dataset.planFallback ?? "Plan";
+    metaEl.textContent = "";
+    return;
+  }
+  if (summary.error) {
+    titleEl.textContent = `Plan #${summary.id}`;
+    metaEl.textContent = summary.error;
+    metaEl.dataset.state = "error";
+    return;
+  }
+  titleEl.textContent = summary.title;
+  delete metaEl.dataset.state;
+  const focusParts = [];
+  if (summary.weeklyCycle?.mainSetFocus) {
+    focusParts.push(summary.weeklyCycle.mainSetFocus);
+  }
+  if (summary.weeklyCycle?.skillFocus1) {
+    focusParts.push(summary.weeklyCycle.skillFocus1);
+  }
+  if (summary.weeklyCycle?.skillFocus2) {
+    focusParts.push(summary.weeklyCycle.skillFocus2);
+  }
+  if (summary.focus && !focusParts.includes(summary.focus)) {
+    focusParts.push(summary.focus);
+  }
+  metaEl.textContent = focusParts.filter(Boolean).join(" • ");
+}
+
+async function refreshPlanSummary(titleEl, metaEl, planId) {
+  const summary = await fetchPlanSummary(planId);
+  applyPlanSummary(titleEl, metaEl, summary);
+}
+
+function createPlanCell(cycle, week, day) {
+  const cell = document.createElement("td");
+  cell.className = "week-plan-cell";
+
+  const title = document.createElement("p");
+  title.className = "week-plan-title";
+  const meta = document.createElement("p");
+  meta.className = "week-plan-meta";
+  const actions = document.createElement("div");
+  actions.className = "week-plan-actions";
+
+  cell.append(title, meta, actions);
+
+  if (day.planId) {
+    title.dataset.planFallback = `Plan #${day.planId}`;
+    title.textContent = "Plan wird geladen …";
+    meta.textContent = "";
+    refreshPlanSummary(title, meta, day.planId);
+
+    const openLink = document.createElement("a");
+    openLink.className = "ghost-button compact";
+    openLink.textContent = "Plan öffnen";
+    openLink.href = buildPlannerUrl({ cycle, week, day, planId: day.planId });
+    actions.append(openLink);
+
+    const unlinkButton = document.createElement("button");
+    unlinkButton.type = "button";
+    unlinkButton.className = "ghost-button compact";
+    unlinkButton.textContent = "Verknüpfung lösen";
+    unlinkButton.addEventListener("click", () => {
+      unlinkDayPlan(cycle.id, day.id, unlinkButton);
+    });
+    actions.append(unlinkButton);
+  } else {
+    title.textContent = "Kein Plan verknüpft";
+    const focusHint = deriveDayFocus(cycle, week, day);
+    meta.textContent = focusHint ? `Fokus: ${focusHint}` : "";
+
+    const createLink = document.createElement("a");
+    createLink.className = "ghost-button compact";
+    createLink.textContent = "Plan erstellen";
+    createLink.href = buildPlannerUrl({ cycle, week, day });
+    actions.append(createLink);
+  }
+
+  return cell;
+}
+
+async function unlinkDayPlan(cycleId, dayId, button) {
+  try {
+    if (button) {
+      button.disabled = true;
+    }
+    planCache.clear();
+    await apiRequest(`/api/days/${dayId}`, { method: "PATCH", json: { planId: null } });
+    await reloadCycle(cycleId, { select: true });
+    setFeedback("Plan-Verknüpfung entfernt.", "success");
+  } catch (error) {
+    setFeedback(getErrorMessage(error), "error");
+  } finally {
+    if (button) {
+      button.disabled = false;
+    }
+  }
 }
 
 function renderCycleDetail() {
@@ -270,6 +462,17 @@ function renderCycleDetail() {
   }
 
   detailEl.append(header, summary, weekContainer);
+
+  if (state.highlightDayId) {
+    const highlightRow = detailEl.querySelector(`[data-day-id="${state.highlightDayId}"]`);
+    if (highlightRow) {
+      highlightRow.classList.add("week-day--highlight");
+      if (shouldAutoScrollHighlight) {
+        highlightRow.scrollIntoView({ block: "center", behavior: "smooth" });
+        shouldAutoScrollHighlight = false;
+      }
+    }
+  }
 }
 
 function createInputField({ label, type, name, value, required = false }) {
@@ -512,6 +715,7 @@ function createWeekCard(cycle, week) {
     "Kick %",
     "Pull %",
     "RPE",
+    "Plan",
     "Aktion",
   ];
   for (const label of headers) {
@@ -524,7 +728,7 @@ function createWeekCard(cycle, week) {
 
   const tbody = document.createElement("tbody");
   for (const day of week.days ?? []) {
-    const row = createDayRow(cycle.id, week, day);
+    const row = createDayRow(cycle, week, day);
     tbody.append(row);
   }
   table.append(tbody);
@@ -559,7 +763,7 @@ async function handleWeekUpdate(cycle, week, form) {
   }
 }
 
-function createDayRow(cycleId, week, day) {
+function createDayRow(cycle, week, day) {
   const row = document.createElement("tr");
   row.dataset.dayId = String(day.id);
 
@@ -602,18 +806,35 @@ function createDayRow(cycleId, week, day) {
     row.append(cell);
   }
 
+  const planCell = createPlanCell(cycle, week, day);
+  row.append(planCell);
+
   const actionCell = document.createElement("td");
   const saveButton = document.createElement("button");
   saveButton.type = "button";
   saveButton.className = "secondary-button week-save-button";
   saveButton.textContent = "Speichern";
   saveButton.addEventListener("click", async () => {
-    await handleDayUpdate(cycleId, week.id, day.id, row, saveButton);
+    await handleDayUpdate(cycle.id, week.id, day.id, row, saveButton);
   });
   actionCell.append(saveButton);
   row.append(actionCell);
 
   return row;
+}
+
+function cycleContainsDay(cycle, dayId) {
+  if (!cycle || !dayId) {
+    return false;
+  }
+  for (const week of cycle.weeks ?? []) {
+    for (const day of week.days ?? []) {
+      if (day.id === dayId) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 async function handleDayUpdate(cycleId, weekId, dayId, row, button) {
@@ -752,6 +973,33 @@ async function onCreateCycleSubmit(event) {
     }
   } catch (error) {
     setFeedback(getErrorMessage(error), "error");
+  }
+}
+
+function parseInitialSelection() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const toPositiveInt = (value) => {
+      const parsed = Number.parseInt(value, 10);
+      return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+    };
+    const cycleId = toPositiveInt(params.get("cycleId"));
+    const weekId = toPositiveInt(params.get("weekId"));
+    const dayId = toPositiveInt(params.get("dayId"));
+    if (!cycleId && !dayId) {
+      return null;
+    }
+    return {
+      cycleId: cycleId ?? null,
+      weekId: weekId ?? null,
+      dayId: dayId ?? null,
+    };
+  } catch (error) {
+    console.warn("Konnte Vorauswahl für Wochenplanung nicht auswerten", error);
+    return null;
   }
 }
 

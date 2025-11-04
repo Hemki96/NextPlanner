@@ -108,6 +108,16 @@ const API_BASE_HEADERS = Object.freeze({
   "X-Content-Type-Options": "nosniff",
 });
 
+const PLAN_WEEKDAY_FORMATTER = new Intl.DateTimeFormat("de-DE", { weekday: "short" });
+const PLAN_DATE_FORMATTER = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit" });
+
+const CYCLE_TYPE_LABELS = Object.freeze({
+  volume: "Volumen",
+  intensity: "Intensität",
+  deload: "Deload",
+  custom: "Individuell",
+});
+
 const STATIC_SECURITY_HEADERS = Object.freeze({
   "Content-Security-Policy":
     "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';",
@@ -722,6 +732,269 @@ function buildErrorPayload(code, message, details, hint) {
   return payload;
 }
 
+function parsePositiveInteger(value, label) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new HttpError(400, `${label} muss eine positive Ganzzahl sein`, {
+      code: "invalid-weekly-link",
+      hint: `Übermitteln Sie ${label} als positive Ganzzahl (z. B. 1, 2, 3).`,
+    });
+  }
+  return parsed;
+}
+
+function extractWeeklyCycleLink(metadata) {
+  if (!metadata || typeof metadata !== "object") {
+    return null;
+  }
+  const link = metadata.weeklyCycle;
+  if (!link || typeof link !== "object") {
+    return null;
+  }
+  if (!Object.hasOwn(link, "cycleId") || !Object.hasOwn(link, "dayId")) {
+    throw new HttpError(400, "metadata.weeklyCycle benötigt cycleId und dayId", {
+      code: "invalid-weekly-link",
+      hint: "Übermitteln Sie sowohl cycleId als auch dayId, um einen Plan mit einem Zyklus-Tag zu verknüpfen.",
+    });
+  }
+  const cycleId = parsePositiveInteger(link.cycleId, "cycleId");
+  const dayId = parsePositiveInteger(link.dayId, "dayId");
+  let weekId = null;
+  if (link.weekId !== undefined && link.weekId !== null && link.weekId !== "") {
+    weekId = parsePositiveInteger(link.weekId, "weekId");
+  }
+  return { cycleId, weekId, dayId };
+}
+
+async function resolveDayContext(cycleStore, dayId) {
+  const day = await cycleStore.getDay(dayId);
+  if (!day) {
+    throw new HttpError(404, "Trainingstag nicht gefunden", {
+      code: "weekly-day-missing",
+      hint: "Der angegebene Trainingstag ist nicht mehr vorhanden.",
+    });
+  }
+  const week = await cycleStore.getWeek(day.weekId);
+  if (!week) {
+    throw new HttpError(404, "Trainingswoche nicht gefunden", {
+      code: "weekly-week-missing",
+      hint: "Die Trainingswoche zu diesem Tag konnte nicht geladen werden.",
+    });
+  }
+  const cycle = await cycleStore.getCycle(week.cycleId);
+  const matchedWeek = cycle.weeks.find((entry) => entry.id === week.id) ?? week;
+  const matchedDay = matchedWeek.days.find((entry) => entry.id === day.id) ?? day;
+  return { cycle, week: matchedWeek, day: matchedDay };
+}
+
+async function resolveWeeklyContext(cycleStore, link) {
+  const context = await resolveDayContext(cycleStore, link.dayId);
+  if (link.weekId && context.week.id !== link.weekId) {
+    throw new HttpError(400, "weekId stimmt nicht mit dem Trainingstag überein", {
+      code: "weekly-link-mismatch",
+      hint: "Verwenden Sie die weekId des Tages, den Sie verknüpfen möchten.",
+    });
+  }
+  if (link.cycleId && context.cycle.id !== link.cycleId) {
+    throw new HttpError(400, "cycleId stimmt nicht mit dem Trainingstag überein", {
+      code: "weekly-link-mismatch",
+      hint: "Der angegebene Trainingstag gehört zu einem anderen Zyklus.",
+    });
+  }
+  return context;
+}
+
+function formatCycleDayLabel(day) {
+  try {
+    const date = new Date(day.date);
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+    return `${PLAN_WEEKDAY_FORMATTER.format(date)} ${PLAN_DATE_FORMATTER.format(date)}`;
+  } catch {
+    return null;
+  }
+}
+
+function buildPlanTitleFromContext(cycle, week, day) {
+  const parts = [];
+  if (cycle.name) {
+    parts.push(cycle.name);
+  }
+  const dateLabel = formatCycleDayLabel(day);
+  if (dateLabel) {
+    parts.push(dateLabel);
+  }
+  const focusParts = [day.mainSetFocus, day.skillFocus1, day.skillFocus2]
+    .map((value) => (value ? String(value).trim() : ""))
+    .filter(Boolean);
+  if (focusParts.length > 0) {
+    parts.push(focusParts.join(" • "));
+  } else if (week.focusLabel && String(week.focusLabel).trim()) {
+    parts.push(String(week.focusLabel).trim());
+  }
+  return parts.join(" • ") || `Zyklus ${cycle.id} • Tag ${day.id}`;
+}
+
+function derivePlanFocusValue(cycle, week, day) {
+  const candidates = [
+    day.mainSetFocus,
+    week.focusLabel,
+    cycle.metadata?.defaultFocus,
+    CYCLE_TYPE_LABELS[cycle.cycleType] ?? cycle.cycleType,
+    cycle.name,
+  ];
+  for (const candidate of candidates) {
+    if (candidate && String(candidate).trim()) {
+      return String(candidate).trim();
+    }
+  }
+  return "Allgemein";
+}
+
+function buildWeeklyCycleMetadata(cycle, week, day, planId) {
+  return {
+    cycleId: cycle.id,
+    cycleName: cycle.name,
+    cycleType: cycle.cycleType,
+    weekId: week.id,
+    weekNumber: week.weekNumber,
+    weekFocusLabel: week.focusLabel ?? null,
+    weekPhase: week.phase,
+    dayId: day.id,
+    date: day.date,
+    mainSetFocus: day.mainSetFocus ?? null,
+    skillFocus1: day.skillFocus1 ?? null,
+    skillFocus2: day.skillFocus2 ?? null,
+    volume: day.volume ?? null,
+    distance: day.distance ?? null,
+    kickPercent: day.kickPercent ?? null,
+    pullPercent: day.pullPercent ?? null,
+    rpe: day.rpe ?? null,
+    notes: { ...(day.notes ?? {}) },
+    planId: planId ?? null,
+  };
+}
+
+function mergeWeeklyCycleMetadata(metadata, weeklyCycle) {
+  const base = metadata && typeof metadata === "object" && !Array.isArray(metadata) ? { ...metadata } : {};
+  if (weeklyCycle) {
+    base.weeklyCycle = weeklyCycle;
+  } else {
+    delete base.weeklyCycle;
+  }
+  return base;
+}
+
+function alignPlanDate(planDate, dayDate) {
+  if (!dayDate) {
+    return planDate;
+  }
+  const day = new Date(dayDate);
+  if (Number.isNaN(day.getTime())) {
+    return planDate;
+  }
+  if (!planDate) {
+    return day.toISOString();
+  }
+  const current = new Date(planDate);
+  if (Number.isNaN(current.getTime())) {
+    return day.toISOString();
+  }
+  const aligned = new Date(day);
+  aligned.setHours(current.getHours(), current.getMinutes(), current.getSeconds(), current.getMilliseconds());
+  return aligned.toISOString();
+}
+
+async function synchronizePlanForContext(planStore, cycleStore, context) {
+  if (!planStore || !context?.day?.planId) {
+    return;
+  }
+  const plan = await planStore.getPlan(context.day.planId);
+  if (!plan) {
+    await cycleStore.updateDay(context.day.id, { planId: null });
+    return;
+  }
+  const metadata = mergeWeeklyCycleMetadata(
+    plan.metadata,
+    buildWeeklyCycleMetadata(context.cycle, context.week, context.day, plan.id),
+  );
+  const updates = {
+    title: buildPlanTitleFromContext(context.cycle, context.week, context.day),
+    focus: derivePlanFocusValue(context.cycle, context.week, context.day),
+    metadata,
+  };
+  const nextPlanDate = alignPlanDate(plan.planDate, context.day.date);
+  if (nextPlanDate && nextPlanDate !== plan.planDate) {
+    updates.planDate = nextPlanDate;
+  }
+  await planStore.updatePlan(plan.id, updates);
+}
+
+async function synchronizeCyclePlans(cycle, planStore, cycleStore) {
+  if (!planStore || !cycle) {
+    return;
+  }
+  for (const week of cycle.weeks ?? []) {
+    for (const day of week.days ?? []) {
+      if (day.planId) {
+        await synchronizePlanForContext(planStore, cycleStore, { cycle, week, day });
+      }
+    }
+  }
+}
+
+async function synchronizeWeekPlans(week, planStore, cycleStore) {
+  if (!planStore || !week) {
+    return;
+  }
+  const cycle = await cycleStore.getCycle(week.cycleId);
+  const matchedWeek = cycle.weeks.find((entry) => entry.id === week.id) ?? week;
+  await synchronizeCyclePlans({ ...cycle, weeks: [matchedWeek] }, planStore, cycleStore);
+}
+
+async function removeWeeklyCycleFromPlan(planStore, planId) {
+  if (!planStore || !planId) {
+    return;
+  }
+  const plan = await planStore.getPlan(planId);
+  if (!plan) {
+    return;
+  }
+  if (!plan.metadata?.weeklyCycle) {
+    return;
+  }
+  const metadata = mergeWeeklyCycleMetadata(plan.metadata, null);
+  await planStore.updatePlan(plan.id, { metadata });
+}
+
+async function unlinkPlanFromCycles(planId, cycleStore) {
+  if (!cycleStore || !planId) {
+    return;
+  }
+  const cycles = await cycleStore.listCycles();
+  for (const cycle of cycles) {
+    for (const week of cycle.weeks ?? []) {
+      for (const day of week.days ?? []) {
+        if (day.planId === planId) {
+          // eslint-disable-next-line no-await-in-loop
+          await cycleStore.updateDay(day.id, { planId: null });
+        }
+      }
+    }
+  }
+}
+
+function isSameWeeklyLink(a, b) {
+  if (!a && !b) {
+    return true;
+  }
+  if (!a || !b) {
+    return false;
+  }
+  return a.cycleId === b.cycleId && a.dayId === b.dayId;
+}
+
 function handleApiError(res, error, method = "GET", origin, options = {}) {
   const log = options?.logger ?? logger;
   const path = options?.path ?? "";
@@ -1032,8 +1305,10 @@ async function handleApiRequest(
         }
         const body = await readJsonBody(req, { limit: 500_000 });
         const updated = await cycleStore.updateCycle(cycleId, body);
-        const updatedEtag = buildCycleEtag(updated);
-        sendApiJson(res, 200, updated, {
+        await synchronizeCyclePlans(updated, planStore, cycleStore);
+        const finalCycle = await cycleStore.getCycle(cycleId);
+        const updatedEtag = buildCycleEtag(finalCycle);
+        sendApiJson(res, 200, finalCycle, {
           method,
           origin: requestOrigin,
           headers: { ETag: updatedEtag },
@@ -1159,8 +1434,10 @@ async function handleApiRequest(
         }
         const body = await readJsonBody(req, { limit: 400_000 });
         const updatedWeek = await cycleStore.updateWeek(weekId, body);
-        const updatedEtag = buildWeekEtag(updatedWeek);
-        sendApiJson(res, 200, updatedWeek, {
+        await synchronizeWeekPlans(updatedWeek, planStore, cycleStore);
+        const finalWeek = await cycleStore.getWeek(weekId);
+        const updatedEtag = buildWeekEtag(finalWeek);
+        sendApiJson(res, 200, finalWeek, {
           method,
           origin: requestOrigin,
           headers: { ETag: updatedEtag },
@@ -1285,9 +1562,22 @@ async function handleApiRequest(
           });
         }
         const body = await readJsonBody(req, { limit: 300_000 });
-        const updatedDay = await cycleStore.updateDay(dayId, body);
-        const updatedEtag = buildDayEtag(updatedDay);
-        sendApiJson(res, 200, updatedDay, {
+        let updatedDay = await cycleStore.updateDay(dayId, body);
+        if (planStore) {
+          const previousPlanId = currentDay.planId ?? null;
+          const currentPlanId = updatedDay.planId ?? null;
+          if (previousPlanId && previousPlanId !== currentPlanId) {
+            await removeWeeklyCycleFromPlan(planStore, previousPlanId);
+          }
+          if (currentPlanId) {
+            const context = await resolveDayContext(cycleStore, updatedDay.id);
+            await synchronizePlanForContext(planStore, cycleStore, context);
+            updatedDay = await cycleStore.getDay(dayId);
+          }
+        }
+        const finalDay = await cycleStore.getDay(dayId);
+        const updatedEtag = buildDayEtag(finalDay);
+        sendApiJson(res, 200, finalDay, {
           method,
           origin: requestOrigin,
           headers: { ETag: updatedEtag },
@@ -1642,13 +1932,47 @@ async function handleApiRequest(
       try {
         const body = await readJsonBody(req);
         const payload = validateCreatePayload(body);
+        const weeklyLink = extractWeeklyCycleLink(payload.metadata);
+        let weeklyContext = null;
+        let previousPlanId = null;
+        if (weeklyLink) {
+          if (!cycleStore) {
+            throw new HttpError(503, "Wochenplanung nicht verfügbar", {
+              hint: "Der Server konnte den Speicher für Trainingszyklen nicht initialisieren.",
+            });
+          }
+          weeklyContext = await resolveWeeklyContext(cycleStore, weeklyLink);
+          previousPlanId = weeklyContext.day.planId ?? null;
+          payload.title = buildPlanTitleFromContext(weeklyContext.cycle, weeklyContext.week, weeklyContext.day);
+          payload.focus = derivePlanFocusValue(weeklyContext.cycle, weeklyContext.week, weeklyContext.day);
+          payload.planDate = alignPlanDate(payload.planDate, weeklyContext.day.date) ?? payload.planDate;
+          payload.metadata = mergeWeeklyCycleMetadata(
+            payload.metadata,
+            buildWeeklyCycleMetadata(weeklyContext.cycle, weeklyContext.week, weeklyContext.day, null),
+          );
+        } else {
+          payload.metadata = mergeWeeklyCycleMetadata(payload.metadata, null);
+        }
+
         const plan = await planStore.createPlan(payload);
-        sendApiJson(res, 201, plan, {
+        let responsePlan = plan;
+
+        if (weeklyContext) {
+          await cycleStore.updateDay(weeklyContext.day.id, { planId: plan.id });
+          if (previousPlanId && previousPlanId !== plan.id) {
+            await removeWeeklyCycleFromPlan(planStore, previousPlanId);
+          }
+          const refreshedContext = await resolveDayContext(cycleStore, weeklyContext.day.id);
+          await synchronizePlanForContext(planStore, cycleStore, refreshedContext);
+          responsePlan = await planStore.getPlan(plan.id);
+        }
+
+        sendApiJson(res, 201, responsePlan, {
           method,
           origin: requestOrigin,
           headers: {
-            ETag: buildPlanEtag(plan),
-            Location: `/api/plans/${plan.id}`,
+            ETag: buildPlanEtag(responsePlan),
+            Location: `/api/plans/${responsePlan.id}`,
           },
         });
       } catch (error) {
@@ -1725,11 +2049,11 @@ async function handleApiRequest(
     return;
   }
 
-  if (method === "PUT") {
-    try {
-      const ifMatch = req.headers?.["if-match"];
-      if (!ifMatch) {
-        throw new HttpError(412, "If-Match Header ist erforderlich", {
+    if (method === "PUT") {
+      try {
+        const ifMatch = req.headers?.["if-match"];
+        if (!ifMatch) {
+          throw new HttpError(412, "If-Match Header ist erforderlich", {
           code: "missing-if-match",
           hint: "Senden Sie den aktuellen ETag des Plans im Header 'If-Match', um Konflikte zu vermeiden.",
         });
@@ -1746,6 +2070,29 @@ async function handleApiRequest(
       }
       const body = await readJsonBody(req);
       const replacement = validateCreatePayload(body);
+      const currentLink = extractWeeklyCycleLink(current.metadata);
+      const requestedLink = extractWeeklyCycleLink(replacement.metadata);
+      if ((currentLink || requestedLink) && !cycleStore) {
+        throw new HttpError(503, "Wochenplanung nicht verfügbar", {
+          hint: "Der Server konnte den Speicher für Trainingszyklen nicht initialisieren.",
+        });
+      }
+      let weeklyContext = null;
+      let previousPlanId = null;
+      if (requestedLink) {
+        weeklyContext = await resolveWeeklyContext(cycleStore, requestedLink);
+        previousPlanId = weeklyContext.day.planId ?? null;
+        replacement.title = buildPlanTitleFromContext(weeklyContext.cycle, weeklyContext.week, weeklyContext.day);
+        replacement.focus = derivePlanFocusValue(weeklyContext.cycle, weeklyContext.week, weeklyContext.day);
+        replacement.planDate = alignPlanDate(replacement.planDate, weeklyContext.day.date) ?? replacement.planDate;
+        replacement.metadata = mergeWeeklyCycleMetadata(
+          replacement.metadata,
+          buildWeeklyCycleMetadata(weeklyContext.cycle, weeklyContext.week, weeklyContext.day, planId),
+        );
+      } else {
+        replacement.metadata = mergeWeeklyCycleMetadata(replacement.metadata, null);
+      }
+
       const plan = await planStore.replacePlan(planId, replacement, {
         expectedUpdatedAt: current.updatedAt,
       });
@@ -1754,10 +2101,28 @@ async function handleApiRequest(
           hint: "Der Plan wurde eventuell gleichzeitig gelöscht. Laden Sie die Übersicht neu.",
         });
       }
-      sendApiJson(res, 200, plan, {
+      if (currentLink && (!requestedLink || !isSameWeeklyLink(currentLink, requestedLink))) {
+        await cycleStore.updateDay(currentLink.dayId, { planId: null });
+      }
+
+      let responsePlan = plan;
+
+      if (requestedLink && weeklyContext) {
+        await cycleStore.updateDay(weeklyContext.day.id, { planId });
+        if (previousPlanId && previousPlanId !== planId) {
+          await removeWeeklyCycleFromPlan(planStore, previousPlanId);
+        }
+        const refreshedContext = await resolveDayContext(cycleStore, weeklyContext.day.id);
+        await synchronizePlanForContext(planStore, cycleStore, refreshedContext);
+        responsePlan = await planStore.getPlan(planId);
+      } else if (!requestedLink) {
+        responsePlan = await planStore.getPlan(planId);
+      }
+
+      sendApiJson(res, 200, responsePlan, {
         method,
         origin: requestOrigin,
-        headers: { ETag: buildPlanEtag(plan) },
+        headers: { ETag: buildPlanEtag(responsePlan) },
       });
     } catch (error) {
       handleApiError(res, error, method, requestOrigin, logOptions);
@@ -1792,6 +2157,7 @@ async function handleApiRequest(
           hint: "Der Plan wurde möglicherweise parallel gelöscht. Aktualisieren Sie die Liste.",
         });
       }
+      await unlinkPlanFromCycles(planId, cycleStore);
       sendApiEmpty(res, 204, { origin: requestOrigin });
     } catch (error) {
       handleApiError(res, error, method, requestOrigin, logOptions);

@@ -1178,6 +1178,52 @@ body {
   gap: 1.5rem;
 }
 
+.cycle-context {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem 1.25rem;
+  background: rgba(9, 38, 63, 0.04);
+}
+
+.cycle-context[hidden] {
+  display: none;
+}
+
+.cycle-context h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1.1rem;
+}
+
+.cycle-context-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem 1rem;
+  margin: 0 0 0.75rem;
+  padding: 0;
+}
+
+.cycle-context-list div {
+  margin: 0;
+}
+
+.cycle-context-list dt {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  margin: 0 0 0.15rem;
+}
+
+.cycle-context-list dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.cycle-context-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .quick-snippet-title-row {
   display: flex;
   align-items: center;
@@ -2667,7 +2713,7 @@ body.no-scroll {
 .week-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 760px;
+  min-width: 900px;
 }
 
 .week-table th,
@@ -2686,6 +2732,45 @@ body.no-scroll {
 
 .week-table td:last-child {
   width: 120px;
+}
+
+.week-plan-cell {
+  min-width: 220px;
+}
+
+.week-plan-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.week-plan-meta {
+  margin: 0 0 0.5rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.week-plan-meta[data-state="error"] {
+  color: #ff1744;
+}
+
+.week-plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.week-table tr.week-day--highlight {
+  background: rgba(77, 163, 255, 0.16);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+:root[data-theme="dark"] .week-table tr.week-day--highlight {
+  background: rgba(77, 163, 255, 0.24);
+}
+
+.week-table tr.week-day--highlight th,
+.week-table tr.week-day--highlight td {
+  border-bottom-color: rgba(77, 163, 255, 0.35);
 }
 
 .week-table tfoot td {
@@ -2743,7 +2828,7 @@ body.no-scroll {
 
 @media (max-width: 720px) {
   .week-table {
-    min-width: 640px;
+    min-width: 760px;
   }
 
   .cycle-update-form {

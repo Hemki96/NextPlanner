@@ -250,6 +250,133 @@ describe("Plan API", () => {
     assert.equal(cleanup.status, 204);
   });
 
+  it("verknüpft Pläne mit Trainingszyklen", async () => {
+    const cyclePayload = {
+      name: "Vorbereitung Sommer",
+      cycleType: "volume",
+      startDate: "2024-07-01",
+      weeks: [
+        {
+          weekNumber: 1,
+          focusLabel: "Sprinttechnik",
+          phase: "volume",
+        },
+      ],
+    };
+
+    const cycleResponse = await fetch(`${baseUrl}/api/cycles`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(cyclePayload),
+    });
+
+    assert.equal(cycleResponse.status, 201);
+    const cycle = await cycleResponse.json();
+    const createdWeek = cycle.weeks[0];
+    const createdDay = createdWeek.days[0];
+
+    const dayUpdate = await fetch(`${baseUrl}/api/days/${createdDay.id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        mainSetFocus: "Sprint Starts",
+        skillFocus1: "Unterwasserphase",
+        skillFocus2: "Atmung",
+      }),
+    });
+    assert.equal(dayUpdate.status, 200);
+
+    const planPayload = {
+      title: "Freitagsplan",
+      content: "## Einschwimmen\n200m locker",
+      planDate: "2024-07-02",
+      focus: "Placeholder",
+      metadata: {
+        weeklyCycle: {
+          cycleId: cycle.id,
+          weekId: createdWeek.id,
+          dayId: createdDay.id,
+        },
+      },
+    };
+
+    const planResponse = await fetch(`${baseUrl}/api/plans`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(planPayload),
+    });
+
+    assert.equal(planResponse.status, 201);
+    const planEtag = planResponse.headers.get("etag");
+    assert.ok(planEtag);
+    const createdPlan = await planResponse.json();
+
+    assert.notEqual(createdPlan.title, planPayload.title);
+    assert.match(createdPlan.title, /Vorbereitung Sommer/);
+    assert.match(createdPlan.title, /Sprint Starts/);
+    assert.equal(createdPlan.focus, "Sprint Starts");
+
+    const link = createdPlan.metadata?.weeklyCycle;
+    assert.ok(link);
+    assert.equal(link.cycleId, cycle.id);
+    assert.equal(link.weekId, createdWeek.id);
+    assert.equal(link.dayId, createdDay.id);
+    assert.equal(link.planId, createdPlan.id);
+    assert.equal(link.mainSetFocus, "Sprint Starts");
+    assert.equal(link.skillFocus1, "Unterwasserphase");
+    assert.equal(link.skillFocus2, "Atmung");
+
+    const dayResponse = await fetch(`${baseUrl}/api/days/${createdDay.id}`);
+    assert.equal(dayResponse.status, 200);
+    const linkedDay = await dayResponse.json();
+    assert.equal(linkedDay.planId, createdPlan.id);
+    const expectedFirstDate = new Date(linkedDay.date).toISOString().slice(0, 10);
+    assert.equal(new Date(createdPlan.planDate).toISOString().slice(0, 10), expectedFirstDate);
+
+    const secondPlanResponse = await fetch(`${baseUrl}/api/plans`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        title: "Ersatzplan",
+        content: "## Technik\n4x50m",
+        planDate: "2024-07-03",
+        focus: "Other",
+        metadata: {
+          weeklyCycle: {
+            cycleId: cycle.id,
+            weekId: createdWeek.id,
+            dayId: createdDay.id,
+          },
+        },
+      }),
+    });
+
+    assert.equal(secondPlanResponse.status, 201);
+    assert.ok(secondPlanResponse.headers.get("etag"));
+    const secondPlan = await secondPlanResponse.json();
+    assert.equal(secondPlan.metadata?.weeklyCycle?.planId, secondPlan.id);
+    assert.equal(secondPlan.focus, "Sprint Starts");
+
+    const refreshedDay = await fetch(`${baseUrl}/api/days/${createdDay.id}`);
+    assert.equal(refreshedDay.status, 200);
+    const refreshedDayPayload = await refreshedDay.json();
+    assert.equal(refreshedDayPayload.planId, secondPlan.id);
+    const expectedSecondDate = new Date(refreshedDayPayload.date).toISOString().slice(0, 10);
+    assert.equal(new Date(secondPlan.planDate).toISOString().slice(0, 10), expectedSecondDate);
+
+    const originalStored = await store.getPlan(createdPlan.id);
+    assert.ok(originalStored);
+    assert.equal(originalStored.metadata?.weeklyCycle, undefined);
+  });
+
   it("verwaltet Vorlagen über die API", async () => {
     const createPayload = {
       type: "Block",

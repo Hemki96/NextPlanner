@@ -160,6 +160,11 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
   const preferences = readPreferences();
   let queryDefaults = readQueryDefaults();
   let queryDefaultsConsumed = false;
+  let linkedCycle = null;
+
+  if (queryDefaults?.weeklyCycle) {
+    linkedCycle = queryDefaults.weeklyCycle;
+  }
 
   function readQueryDefaults() {
     if (typeof window === "undefined") {
@@ -171,16 +176,36 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
       const rawDate = params.get("planDate");
       const rawTime = params.get("planTime");
       const rawFocus = params.get("planFocus");
+      const rawCycleId = params.get("cycleId");
+      const rawWeekId = params.get("weekId");
+      const rawDayId = params.get("dayId");
 
       const date = rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : null;
       const time = rawTime && /^\d{2}:\d{2}$/.test(rawTime) ? rawTime : null;
       const focus = rawFocus ? rawFocus.trim() : null;
 
-      if (!date && !time && !focus) {
+      const parsePositiveInt = (value) => {
+        const parsed = Number.parseInt(value, 10);
+        return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+      };
+
+      const dayId = parsePositiveInt(rawDayId);
+      const cycleId = parsePositiveInt(rawCycleId);
+      const weekId = parsePositiveInt(rawWeekId);
+
+      const weeklyCycle = dayId && cycleId
+        ? {
+            cycleId,
+            weekId: weekId ?? null,
+            dayId,
+          }
+        : null;
+
+      if (!date && !time && !focus && !weeklyCycle) {
         return null;
       }
 
-      return { date, time, focus };
+      return { date, time, focus, weeklyCycle };
     } catch (error) {
       console.warn("Konnte URL-Parameter für den Plan-Dialog nicht auswerten", error);
       return null;
@@ -201,6 +226,9 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
         params.delete("planDate");
         params.delete("planTime");
         params.delete("planFocus");
+        params.delete("cycleId");
+        params.delete("weekId");
+        params.delete("dayId");
         const search = params.toString();
         const nextUrl = `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash ?? ""}`;
         window.history.replaceState({}, document.title, nextUrl);
@@ -235,6 +263,9 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
     const queryDate = !queryDefaultsConsumed ? queryDefaults?.date : null;
     const queryTime = !queryDefaultsConsumed ? queryDefaults?.time : null;
     const queryFocus = !queryDefaultsConsumed ? queryDefaults?.focus : null;
+    if (!linkedCycle && !queryDefaultsConsumed && queryDefaults?.weeklyCycle) {
+      linkedCycle = queryDefaults.weeklyCycle;
+    }
 
     const prefDate = preferences.lastDate ?? null;
     const prefTime = preferences.lastTime ?? null;
@@ -330,6 +361,15 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
     if (notes) {
       metadata.notes = notes;
     }
+    if (linkedCycle && linkedCycle.cycleId && linkedCycle.dayId) {
+      metadata.weeklyCycle = {
+        cycleId: linkedCycle.cycleId,
+        dayId: linkedCycle.dayId,
+      };
+      if (linkedCycle.weekId) {
+        metadata.weeklyCycle.weekId = linkedCycle.weekId;
+      }
+    }
 
     if (currentPlan) {
       metadata.summary = {
@@ -415,6 +455,24 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
   return {
     update(plan) {
       currentPlan = plan;
+    },
+    setLinkedCycle(link) {
+      if (!link) {
+        linkedCycle = null;
+        return;
+      }
+      const toPositiveInt = (value) => {
+        const parsed = Number.parseInt(value, 10);
+        return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+      };
+      const cycleId = toPositiveInt(link.cycleId);
+      const dayId = toPositiveInt(link.dayId);
+      const weekId = toPositiveInt(link.weekId);
+      if (cycleId && dayId) {
+        linkedCycle = { cycleId, dayId, weekId: weekId ?? null };
+      } else {
+        linkedCycle = null;
+      }
     },
   };
 }

@@ -41,6 +41,7 @@ describe("JsonCycleStore", () => {
     assert.equal(week.days.length, 7);
     const firstDay = week.days[0];
     assert.equal(firstDay.mainSetFocus, null);
+    assert.equal(firstDay.planId, null);
     assert.ok(firstDay.date.startsWith("2024-05"));
 
     await store.updateDay(firstDay.id, { distance: 2400, volume: 2400, rpe: 5 });
@@ -49,6 +50,10 @@ describe("JsonCycleStore", () => {
     assert.equal(refreshedWeek.summary.totalDistance, 2400);
     assert.equal(refreshedWeek.summary.totalVolume, 2400);
     assert.equal(refreshedWeek.summary.averageRpe, 5);
+
+    await store.updateDay(firstDay.id, { planId: 42 });
+    const updatedDay = await store.getDay(firstDay.id);
+    assert.equal(updatedDay.planId, 42);
   });
 
   it("aktualisiert Startdaten und hält Tagesdaten synchron", async () => {
