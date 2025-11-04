@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Swim Planner – Wochenplanung</title>
+    <script>
+      (function () {
+        try {
+          var storedTheme = localStorage.getItem("nextplanner-theme");
+          if (storedTheme === "dark") {
+            document.documentElement.dataset.theme = "dark";
+          } else if (storedTheme === "light") {
+            delete document.documentElement.dataset.theme;
+          }
+        } catch (error) {
+          /* ignore errors */
+        }
+      })();
+    </script>
+    <link rel="stylesheet" href="/css/main.css" />
+    <script type="module" src="/js/theme.js"></script>
+  </head>
+  <body>
+    <header class="page-header">
+      <h1>Wochenplanung &amp; Trainingszyklen</h1>
+      <p>
+        Plane mehrwöchige Trainingszyklen, verknüpfe sie mit täglichen Schwerpunkten und behalte Volumen, Intensitäten sowie
+        Skill-Fokus in einer strukturierten Wochenansicht im Blick.
+      </p>
+      <nav class="page-nav" aria-label="Hauptnavigation">
+        <a href="/index.html" class="nav-link" data-feature="calendarView">Plan-Kalender</a>
+        <a href="/planner.html" class="nav-link">Planner</a>
+        <a href="/weekly.html" class="nav-link is-active" aria-current="page" data-feature="weeklyPlanning"
+          >Wochenplanung</a
+        >
+        <a href="/templates.html" class="nav-link" data-feature="templateLibrary">Vorlagen</a>
+        <a href="/settings.html" class="nav-link" data-feature="quickSnippets">Einstellungen</a>
+        <a href="/backup.html" class="nav-link">Backups</a>
+      </nav>
+    </header>
+
+    <main class="weekly-layout" data-feature="weeklyPlanning" data-feature-keep-space="true">
+      <section class="weekly-sidebar">
+        <header class="weekly-sidebar-header">
+          <h2>Trainingzyklen</h2>
+          <p>Wähle einen Zyklus aus der Liste oder lege mit wenigen Angaben einen neuen Zeitraum an.</p>
+        </header>
+        <div class="weekly-feedback" data-feedback role="status" aria-live="polite"></div>
+        <ul class="cycle-list" data-cycle-list aria-label="Vorhandene Trainingszyklen"></ul>
+        <section class="cycle-form-section">
+          <h3>Neuen Zyklus anlegen</h3>
+          <form class="cycle-form" data-create-cycle-form>
+            <label class="form-field">
+              <span>Name</span>
+              <input type="text" name="name" required placeholder="z. B. Frühjahrsvorbereitung" />
+            </label>
+            <label class="form-field">
+              <span>Typ</span>
+              <select name="cycleType">
+                <option value="volume">Volumenphase</option>
+                <option value="intensity">Intensitätsphase</option>
+                <option value="deload">Deload</option>
+                <option value="custom" selected>Individuell</option>
+              </select>
+            </label>
+            <label class="form-field">
+              <span>Startdatum</span>
+              <input type="date" name="startDate" required />
+            </label>
+            <label class="form-field">
+              <span>Enddatum (optional)</span>
+              <input type="date" name="endDate" />
+            </label>
+            <label class="form-field">
+              <span>Anzahl Wochen</span>
+              <input type="number" name="initialWeeks" min="1" max="16" value="4" />
+              <span class="field-hint">Es werden automatisch vollständige Wochen mit Montag bis Sonntag angelegt.</span>
+            </label>
+            <label class="form-field">
+              <span>Notiz (optional)</span>
+              <textarea name="notes" rows="2" placeholder="z. B. Fokus auf Grundlagenausdauer"></textarea>
+            </label>
+            <button type="submit" class="primary-button">Zyklus erstellen</button>
+          </form>
+        </section>
+      </section>
+
+      <section class="weekly-detail" data-cycle-detail>
+        <div class="weekly-empty">
+          <h2>Kein Zyklus ausgewählt</h2>
+          <p>Wähle links einen bestehenden Trainingszyklus aus oder erstelle einen neuen Zeitraum mit dem Formular.</p>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/js/weekly.js" defer></script>
+  </body>
+</html>

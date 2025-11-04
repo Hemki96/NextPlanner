@@ -11,6 +11,16 @@ import {
   PlanValidationError,
   StorageIntegrityError,
 } from "./stores/json-plan-store.js";
+import {
+  JsonCycleStore,
+  CycleValidationError,
+  CycleNotFoundError,
+  WeekNotFoundError,
+  DayNotFoundError,
+  buildCycleEtag,
+  buildWeekEtag,
+  buildDayEtag,
+} from "./stores/json-cycle-store.js";
 import { JsonSnippetStore } from "./stores/json-snippet-store.js";
 import {
   JsonTemplateStore,
@@ -87,7 +97,7 @@ const HEALTH_ALLOWED_METHODS = "GET,HEAD,OPTIONS";
 
 const API_CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Content-Type,If-Match,If-None-Match",
-  "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,DELETE,OPTIONS",
+  "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
   "Access-Control-Max-Age": "600",
 };
 
@@ -96,6 +106,16 @@ const API_BASE_HEADERS = Object.freeze({
   "Content-Security-Policy":
     "default-src 'none'; script-src 'self'; base-uri 'self'; frame-ancestors 'none';", // tightened for API responses
   "X-Content-Type-Options": "nosniff",
+});
+
+const PLAN_WEEKDAY_FORMATTER = new Intl.DateTimeFormat("de-DE", { weekday: "short" });
+const PLAN_DATE_FORMATTER = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit" });
+
+const CYCLE_TYPE_LABELS = Object.freeze({
+  volume: "Volumen",
+  intensity: "Intensität",
+  deload: "Deload",
+  custom: "Individuell",
 });
 
 const STATIC_SECURITY_HEADERS = Object.freeze({
@@ -399,6 +419,7 @@ async function handleHealthRequest(
   url,
   {
     planStore,
+    cycleStore,
     templateStore,
     teamSnippetStore,
     quickSnippetStore,
@@ -438,6 +459,7 @@ async function handleHealthRequest(
   const checks = [];
   for (const [name, store] of [
     ["planStore", planStore],
+    ["cycleStore", cycleStore],
     ["templateStore", templateStore],
     ["teamSnippetStore", teamSnippetStore],
     ["quickSnippetStore", quickSnippetStore],
@@ -461,7 +483,7 @@ async function readJsonBody(req, { limit = 1_000_000 } = {}) {
   let totalLength = 0;
 
   const method = req.method ?? "GET";
-  if (method === "POST" || method === "PUT") {
+  if (method === "POST" || method === "PUT" || method === "PATCH") {
     const contentType = req.headers["content-type"] ?? "";
     if (!/^application\/json(?:;|$)/i.test(contentType)) {
       throw new HttpError(415, "Content-Type muss application/json sein", {
@@ -710,6 +732,269 @@ function buildErrorPayload(code, message, details, hint) {
   return payload;
 }
 
+function parsePositiveInteger(value, label) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new HttpError(400, `${label} muss eine positive Ganzzahl sein`, {
+      code: "invalid-weekly-link",
+      hint: `Übermitteln Sie ${label} als positive Ganzzahl (z. B. 1, 2, 3).`,
+    });
+  }
+  return parsed;
+}
+
+function extractWeeklyCycleLink(metadata) {
+  if (!metadata || typeof metadata !== "object") {
+    return null;
+  }
+  const link = metadata.weeklyCycle;
+  if (!link || typeof link !== "object") {
+    return null;
+  }
+  if (!Object.hasOwn(link, "cycleId") || !Object.hasOwn(link, "dayId")) {
+    throw new HttpError(400, "metadata.weeklyCycle benötigt cycleId und dayId", {
+      code: "invalid-weekly-link",
+      hint: "Übermitteln Sie sowohl cycleId als auch dayId, um einen Plan mit einem Zyklus-Tag zu verknüpfen.",
+    });
+  }
+  const cycleId = parsePositiveInteger(link.cycleId, "cycleId");
+  const dayId = parsePositiveInteger(link.dayId, "dayId");
+  let weekId = null;
+  if (link.weekId !== undefined && link.weekId !== null && link.weekId !== "") {
+    weekId = parsePositiveInteger(link.weekId, "weekId");
+  }
+  return { cycleId, weekId, dayId };
+}
+
+async function resolveDayContext(cycleStore, dayId) {
+  const day = await cycleStore.getDay(dayId);
+  if (!day) {
+    throw new HttpError(404, "Trainingstag nicht gefunden", {
+      code: "weekly-day-missing",
+      hint: "Der angegebene Trainingstag ist nicht mehr vorhanden.",
+    });
+  }
+  const week = await cycleStore.getWeek(day.weekId);
+  if (!week) {
+    throw new HttpError(404, "Trainingswoche nicht gefunden", {
+      code: "weekly-week-missing",
+      hint: "Die Trainingswoche zu diesem Tag konnte nicht geladen werden.",
+    });
+  }
+  const cycle = await cycleStore.getCycle(week.cycleId);
+  const matchedWeek = cycle.weeks.find((entry) => entry.id === week.id) ?? week;
+  const matchedDay = matchedWeek.days.find((entry) => entry.id === day.id) ?? day;
+  return { cycle, week: matchedWeek, day: matchedDay };
+}
+
+async function resolveWeeklyContext(cycleStore, link) {
+  const context = await resolveDayContext(cycleStore, link.dayId);
+  if (link.weekId && context.week.id !== link.weekId) {
+    throw new HttpError(400, "weekId stimmt nicht mit dem Trainingstag überein", {
+      code: "weekly-link-mismatch",
+      hint: "Verwenden Sie die weekId des Tages, den Sie verknüpfen möchten.",
+    });
+  }
+  if (link.cycleId && context.cycle.id !== link.cycleId) {
+    throw new HttpError(400, "cycleId stimmt nicht mit dem Trainingstag überein", {
+      code: "weekly-link-mismatch",
+      hint: "Der angegebene Trainingstag gehört zu einem anderen Zyklus.",
+    });
+  }
+  return context;
+}
+
+function formatCycleDayLabel(day) {
+  try {
+    const date = new Date(day.date);
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+    return `${PLAN_WEEKDAY_FORMATTER.format(date)} ${PLAN_DATE_FORMATTER.format(date)}`;
+  } catch {
+    return null;
+  }
+}
+
+function buildPlanTitleFromContext(cycle, week, day) {
+  const parts = [];
+  if (cycle.name) {
+    parts.push(cycle.name);
+  }
+  const dateLabel = formatCycleDayLabel(day);
+  if (dateLabel) {
+    parts.push(dateLabel);
+  }
+  const focusParts = [day.mainSetFocus, day.skillFocus1, day.skillFocus2]
+    .map((value) => (value ? String(value).trim() : ""))
+    .filter(Boolean);
+  if (focusParts.length > 0) {
+    parts.push(focusParts.join(" • "));
+  } else if (week.focusLabel && String(week.focusLabel).trim()) {
+    parts.push(String(week.focusLabel).trim());
+  }
+  return parts.join(" • ") || `Zyklus ${cycle.id} • Tag ${day.id}`;
+}
+
+function derivePlanFocusValue(cycle, week, day) {
+  const candidates = [
+    day.mainSetFocus,
+    week.focusLabel,
+    cycle.metadata?.defaultFocus,
+    CYCLE_TYPE_LABELS[cycle.cycleType] ?? cycle.cycleType,
+    cycle.name,
+  ];
+  for (const candidate of candidates) {
+    if (candidate && String(candidate).trim()) {
+      return String(candidate).trim();
+    }
+  }
+  return "Allgemein";
+}
+
+function buildWeeklyCycleMetadata(cycle, week, day, planId) {
+  return {
+    cycleId: cycle.id,
+    cycleName: cycle.name,
+    cycleType: cycle.cycleType,
+    weekId: week.id,
+    weekNumber: week.weekNumber,
+    weekFocusLabel: week.focusLabel ?? null,
+    weekPhase: week.phase,
+    dayId: day.id,
+    date: day.date,
+    mainSetFocus: day.mainSetFocus ?? null,
+    skillFocus1: day.skillFocus1 ?? null,
+    skillFocus2: day.skillFocus2 ?? null,
+    volume: day.volume ?? null,
+    distance: day.distance ?? null,
+    kickPercent: day.kickPercent ?? null,
+    pullPercent: day.pullPercent ?? null,
+    rpe: day.rpe ?? null,
+    notes: { ...(day.notes ?? {}) },
+    planId: planId ?? null,
+  };
+}
+
+function mergeWeeklyCycleMetadata(metadata, weeklyCycle) {
+  const base = metadata && typeof metadata === "object" && !Array.isArray(metadata) ? { ...metadata } : {};
+  if (weeklyCycle) {
+    base.weeklyCycle = weeklyCycle;
+  } else {
+    delete base.weeklyCycle;
+  }
+  return base;
+}
+
+function alignPlanDate(planDate, dayDate) {
+  if (!dayDate) {
+    return planDate;
+  }
+  const day = new Date(dayDate);
+  if (Number.isNaN(day.getTime())) {
+    return planDate;
+  }
+  if (!planDate) {
+    return day.toISOString();
+  }
+  const current = new Date(planDate);
+  if (Number.isNaN(current.getTime())) {
+    return day.toISOString();
+  }
+  const aligned = new Date(day);
+  aligned.setHours(current.getHours(), current.getMinutes(), current.getSeconds(), current.getMilliseconds());
+  return aligned.toISOString();
+}
+
+async function synchronizePlanForContext(planStore, cycleStore, context) {
+  if (!planStore || !context?.day?.planId) {
+    return;
+  }
+  const plan = await planStore.getPlan(context.day.planId);
+  if (!plan) {
+    await cycleStore.updateDay(context.day.id, { planId: null });
+    return;
+  }
+  const metadata = mergeWeeklyCycleMetadata(
+    plan.metadata,
+    buildWeeklyCycleMetadata(context.cycle, context.week, context.day, plan.id),
+  );
+  const updates = {
+    title: buildPlanTitleFromContext(context.cycle, context.week, context.day),
+    focus: derivePlanFocusValue(context.cycle, context.week, context.day),
+    metadata,
+  };
+  const nextPlanDate = alignPlanDate(plan.planDate, context.day.date);
+  if (nextPlanDate && nextPlanDate !== plan.planDate) {
+    updates.planDate = nextPlanDate;
+  }
+  await planStore.updatePlan(plan.id, updates);
+}
+
+async function synchronizeCyclePlans(cycle, planStore, cycleStore) {
+  if (!planStore || !cycle) {
+    return;
+  }
+  for (const week of cycle.weeks ?? []) {
+    for (const day of week.days ?? []) {
+      if (day.planId) {
+        await synchronizePlanForContext(planStore, cycleStore, { cycle, week, day });
+      }
+    }
+  }
+}
+
+async function synchronizeWeekPlans(week, planStore, cycleStore) {
+  if (!planStore || !week) {
+    return;
+  }
+  const cycle = await cycleStore.getCycle(week.cycleId);
+  const matchedWeek = cycle.weeks.find((entry) => entry.id === week.id) ?? week;
+  await synchronizeCyclePlans({ ...cycle, weeks: [matchedWeek] }, planStore, cycleStore);
+}
+
+async function removeWeeklyCycleFromPlan(planStore, planId) {
+  if (!planStore || !planId) {
+    return;
+  }
+  const plan = await planStore.getPlan(planId);
+  if (!plan) {
+    return;
+  }
+  if (!plan.metadata?.weeklyCycle) {
+    return;
+  }
+  const metadata = mergeWeeklyCycleMetadata(plan.metadata, null);
+  await planStore.updatePlan(plan.id, { metadata });
+}
+
+async function unlinkPlanFromCycles(planId, cycleStore) {
+  if (!cycleStore || !planId) {
+    return;
+  }
+  const cycles = await cycleStore.listCycles();
+  for (const cycle of cycles) {
+    for (const week of cycle.weeks ?? []) {
+      for (const day of week.days ?? []) {
+        if (day.planId === planId) {
+          // eslint-disable-next-line no-await-in-loop
+          await cycleStore.updateDay(day.id, { planId: null });
+        }
+      }
+    }
+  }
+}
+
+function isSameWeeklyLink(a, b) {
+  if (!a && !b) {
+    return true;
+  }
+  if (!a || !b) {
+    return false;
+  }
+  return a.cycleId === b.cycleId && a.dayId === b.dayId;
+}
+
 function handleApiError(res, error, method = "GET", origin, options = {}) {
   const log = options?.logger ?? logger;
   const path = options?.path ?? "";
@@ -753,6 +1038,18 @@ function handleApiError(res, error, method = "GET", origin, options = {}) {
       undefined,
       undefined,
       "Bitte prüfen Sie die angegebenen Felder und korrigieren Sie ungültige Werte.",
+    );
+    return;
+  }
+  if (error instanceof CycleValidationError) {
+    logWith("warn", "Cycle validation failed for %s: %s", location, error.message);
+    sendError(
+      400,
+      "cycle-validation",
+      error.message,
+      undefined,
+      undefined,
+      "Bitte korrigieren Sie die Angaben zum Wochenplan und versuchen Sie es erneut.",
     );
     return;
   }
@@ -802,6 +1099,22 @@ function handleApiError(res, error, method = "GET", origin, options = {}) {
     );
     return;
   }
+  if (
+    error instanceof CycleNotFoundError ||
+    error instanceof WeekNotFoundError ||
+    error instanceof DayNotFoundError
+  ) {
+    logWith("debug", "Cycle resource missing for %s: %s", location, error.message);
+    sendError(
+      404,
+      "cycle-not-found",
+      error.message,
+      undefined,
+      undefined,
+      "Der angeforderte Zyklusbestandteil existiert nicht mehr.",
+    );
+    return;
+  }
   const rawMessage =
     error instanceof Error ? error.stack ?? error.message : String(error ?? "Unbekannter Fehler");
   logWith("error", "Unexpected API error for %s: %s", location, rawMessage);
@@ -826,6 +1139,7 @@ async function handleApiRequest(
   res,
   url,
   planStore,
+  cycleStore,
   templateStore,
   teamSnippetStore,
   quickSnippetStore,
@@ -883,6 +1197,401 @@ async function handleApiRequest(
       res,
       new HttpError(405, "Methode nicht erlaubt", {
         hint: "Für Sicherungen stehen GET/HEAD (Export) und POST (Import) zur Verfügung.",
+      }),
+      method,
+      requestOrigin,
+      logOptions,
+    );
+    return;
+  }
+
+  if (url.pathname === "/api/cycles") {
+    if (!cycleStore) {
+      handleApiError(
+        res,
+        new HttpError(503, "Wochenplanung nicht verfügbar", {
+          hint: "Der Server konnte den Speicher für Trainingszyklen nicht initialisieren.",
+        }),
+        method,
+        requestOrigin,
+        logOptions,
+      );
+      return;
+    }
+
+    if (method === "GET" || method === "HEAD") {
+      try {
+        const cycles = await cycleStore.listCycles();
+        sendApiJson(res, 200, cycles, { method, origin: requestOrigin });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    if (method === "POST") {
+      try {
+        const body = await readJsonBody(req, { limit: 1_000_000 });
+        const created = await cycleStore.createCycle(body);
+        sendApiJson(res, 201, created, {
+          method,
+          origin: requestOrigin,
+          headers: {
+            Location: `/api/cycles/${created.id}`,
+            ETag: buildCycleEtag(created),
+          },
+        });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    handleApiError(
+      res,
+      new HttpError(405, "Methode nicht erlaubt", {
+        hint: "Verwenden Sie GET/HEAD zum Abrufen oder POST zum Anlegen neuer Trainingszyklen.",
+      }),
+      method,
+      requestOrigin,
+      logOptions,
+    );
+    return;
+  }
+
+  const cycleMatch = /^\/api\/cycles\/(\d+)$/.exec(url.pathname);
+  if (cycleMatch) {
+    if (!cycleStore) {
+      handleApiError(
+        res,
+        new HttpError(503, "Wochenplanung nicht verfügbar", {
+          hint: "Der Server konnte den Speicher für Trainingszyklen nicht initialisieren.",
+        }),
+        method,
+        requestOrigin,
+        logOptions,
+      );
+      return;
+    }
+
+    const cycleId = Number.parseInt(cycleMatch[1], 10);
+
+    if (method === "GET" || method === "HEAD") {
+      try {
+        const cycle = await cycleStore.getCycle(cycleId);
+        const etag = buildCycleEtag(cycle);
+        sendApiJson(res, 200, cycle, {
+          method,
+          origin: requestOrigin,
+          headers: { ETag: etag },
+        });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    if (method === "PATCH") {
+      try {
+        const current = await cycleStore.getCycle(cycleId);
+        const currentEtag = buildCycleEtag(current);
+        const ifMatch = req.headers?.["if-match"];
+        if (ifMatch && !ifMatchSatisfied(ifMatch, currentEtag)) {
+          throw new HttpError(412, "Zyklus wurde bereits geändert.", {
+            code: "cycle-conflict",
+            hint: "Laden Sie den aktuellen Wochenplan und wenden Sie die Änderungen erneut an.",
+            expose: true,
+          });
+        }
+        const body = await readJsonBody(req, { limit: 500_000 });
+        const updated = await cycleStore.updateCycle(cycleId, body);
+        await synchronizeCyclePlans(updated, planStore, cycleStore);
+        const finalCycle = await cycleStore.getCycle(cycleId);
+        const updatedEtag = buildCycleEtag(finalCycle);
+        sendApiJson(res, 200, finalCycle, {
+          method,
+          origin: requestOrigin,
+          headers: { ETag: updatedEtag },
+        });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    handleApiError(
+      res,
+      new HttpError(405, "Methode nicht erlaubt", {
+        hint: "Erlaubte Methoden sind GET/HEAD (lesen) sowie PATCH (aktualisieren).",
+      }),
+      method,
+      requestOrigin,
+      logOptions,
+    );
+    return;
+  }
+
+  const cycleWeeksMatch = /^\/api\/cycles\/(\d+)\/weeks$/.exec(url.pathname);
+  if (cycleWeeksMatch) {
+    if (!cycleStore) {
+      handleApiError(
+        res,
+        new HttpError(503, "Wochenplanung nicht verfügbar", {
+          hint: "Der Server konnte den Speicher für Trainingszyklen nicht initialisieren.",
+        }),
+        method,
+        requestOrigin,
+        logOptions,
+      );
+      return;
+    }
+
+    const cycleId = Number.parseInt(cycleWeeksMatch[1], 10);
+
+    if (method === "GET" || method === "HEAD") {
+      try {
+        const cycle = await cycleStore.getCycle(cycleId);
+        sendApiJson(res, 200, cycle.weeks ?? [], { method, origin: requestOrigin });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    if (method === "POST") {
+      try {
+        const body = await readJsonBody(req, { limit: 500_000 });
+        const createdWeek = await cycleStore.addWeek(cycleId, body);
+        sendApiJson(res, 201, createdWeek, {
+          method,
+          origin: requestOrigin,
+          headers: {
+            Location: `/api/weeks/${createdWeek.id}`,
+            ETag: buildWeekEtag(createdWeek),
+          },
+        });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    handleApiError(
+      res,
+      new HttpError(405, "Methode nicht erlaubt", {
+        hint: "Nutzen Sie GET/HEAD zum Abrufen oder POST zum Anlegen weiterer Wochen.",
+      }),
+      method,
+      requestOrigin,
+      logOptions,
+    );
+    return;
+  }
+
+  const weekMatch = /^\/api\/weeks\/(\d+)$/.exec(url.pathname);
+  if (weekMatch) {
+    if (!cycleStore) {
+      handleApiError(
+        res,
+        new HttpError(503, "Wochenplanung nicht verfügbar", {
+          hint: "Der Server konnte den Speicher für Trainingszyklen nicht initialisieren.",
+        }),
+        method,
+        requestOrigin,
+        logOptions,
+      );
+      return;
+    }
+
+    const weekId = Number.parseInt(weekMatch[1], 10);
+
+    if (method === "GET" || method === "HEAD") {
+      try {
+        const week = await cycleStore.getWeek(weekId);
+        const etag = buildWeekEtag(week);
+        sendApiJson(res, 200, week, {
+          method,
+          origin: requestOrigin,
+          headers: { ETag: etag },
+        });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    if (method === "PATCH") {
+      try {
+        const currentWeek = await cycleStore.getWeek(weekId);
+        const currentEtag = buildWeekEtag(currentWeek);
+        const ifMatch = req.headers?.["if-match"];
+        if (ifMatch && !ifMatchSatisfied(ifMatch, currentEtag)) {
+          throw new HttpError(412, "Woche wurde bereits geändert.", {
+            code: "week-conflict",
+            hint: "Laden Sie die aktuelle Woche und übernehmen Sie Ihre Änderungen erneut.",
+            expose: true,
+          });
+        }
+        const body = await readJsonBody(req, { limit: 400_000 });
+        const updatedWeek = await cycleStore.updateWeek(weekId, body);
+        await synchronizeWeekPlans(updatedWeek, planStore, cycleStore);
+        const finalWeek = await cycleStore.getWeek(weekId);
+        const updatedEtag = buildWeekEtag(finalWeek);
+        sendApiJson(res, 200, finalWeek, {
+          method,
+          origin: requestOrigin,
+          headers: { ETag: updatedEtag },
+        });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    handleApiError(
+      res,
+      new HttpError(405, "Methode nicht erlaubt", {
+        hint: "Erlaubte Methoden sind GET/HEAD (lesen) sowie PATCH (aktualisieren).",
+      }),
+      method,
+      requestOrigin,
+      logOptions,
+    );
+    return;
+  }
+
+  const weekDaysMatch = /^\/api\/weeks\/(\d+)\/days$/.exec(url.pathname);
+  if (weekDaysMatch) {
+    if (!cycleStore) {
+      handleApiError(
+        res,
+        new HttpError(503, "Wochenplanung nicht verfügbar", {
+          hint: "Der Server konnte den Speicher für Trainingszyklen nicht initialisieren.",
+        }),
+        method,
+        requestOrigin,
+        logOptions,
+      );
+      return;
+    }
+
+    const weekId = Number.parseInt(weekDaysMatch[1], 10);
+
+    if (method === "GET" || method === "HEAD") {
+      try {
+        const week = await cycleStore.getWeek(weekId);
+        sendApiJson(res, 200, week.days ?? [], { method, origin: requestOrigin });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    if (method === "POST") {
+      try {
+        const body = await readJsonBody(req, { limit: 400_000 });
+        const createdDay = await cycleStore.addDay(weekId, body);
+        sendApiJson(res, 201, createdDay, {
+          method,
+          origin: requestOrigin,
+          headers: {
+            Location: `/api/days/${createdDay.id}`,
+            ETag: buildDayEtag(createdDay),
+          },
+        });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    handleApiError(
+      res,
+      new HttpError(405, "Methode nicht erlaubt", {
+        hint: "Verwenden Sie GET/HEAD zum Abruf oder POST zum Anlegen weiterer Tage.",
+      }),
+      method,
+      requestOrigin,
+      logOptions,
+    );
+    return;
+  }
+
+  const dayMatch = /^\/api\/days\/(\d+)$/.exec(url.pathname);
+  if (dayMatch) {
+    if (!cycleStore) {
+      handleApiError(
+        res,
+        new HttpError(503, "Wochenplanung nicht verfügbar", {
+          hint: "Der Server konnte den Speicher für Trainingszyklen nicht initialisieren.",
+        }),
+        method,
+        requestOrigin,
+        logOptions,
+      );
+      return;
+    }
+
+    const dayId = Number.parseInt(dayMatch[1], 10);
+
+    if (method === "GET" || method === "HEAD") {
+      try {
+        const day = await cycleStore.getDay(dayId);
+        const etag = buildDayEtag(day);
+        sendApiJson(res, 200, day, {
+          method,
+          origin: requestOrigin,
+          headers: { ETag: etag },
+        });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    if (method === "PATCH") {
+      try {
+        const currentDay = await cycleStore.getDay(dayId);
+        const currentEtag = buildDayEtag(currentDay);
+        const ifMatch = req.headers?.["if-match"];
+        if (ifMatch && !ifMatchSatisfied(ifMatch, currentEtag)) {
+          throw new HttpError(412, "Tag wurde bereits geändert.", {
+            code: "day-conflict",
+            hint: "Laden Sie den aktuellen Tag und wiederholen Sie Ihre Änderungen.",
+            expose: true,
+          });
+        }
+        const body = await readJsonBody(req, { limit: 300_000 });
+        let updatedDay = await cycleStore.updateDay(dayId, body);
+        if (planStore) {
+          const previousPlanId = currentDay.planId ?? null;
+          const currentPlanId = updatedDay.planId ?? null;
+          if (previousPlanId && previousPlanId !== currentPlanId) {
+            await removeWeeklyCycleFromPlan(planStore, previousPlanId);
+          }
+          if (currentPlanId) {
+            const context = await resolveDayContext(cycleStore, updatedDay.id);
+            await synchronizePlanForContext(planStore, cycleStore, context);
+            updatedDay = await cycleStore.getDay(dayId);
+          }
+        }
+        const finalDay = await cycleStore.getDay(dayId);
+        const updatedEtag = buildDayEtag(finalDay);
+        sendApiJson(res, 200, finalDay, {
+          method,
+          origin: requestOrigin,
+          headers: { ETag: updatedEtag },
+        });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    handleApiError(
+      res,
+      new HttpError(405, "Methode nicht erlaubt", {
+        hint: "Erlaubte Methoden sind GET/HEAD (lesen) sowie PATCH (aktualisieren).",
       }),
       method,
       requestOrigin,
@@ -1223,13 +1932,47 @@ async function handleApiRequest(
       try {
         const body = await readJsonBody(req);
         const payload = validateCreatePayload(body);
+        const weeklyLink = extractWeeklyCycleLink(payload.metadata);
+        let weeklyContext = null;
+        let previousPlanId = null;
+        if (weeklyLink) {
+          if (!cycleStore) {
+            throw new HttpError(503, "Wochenplanung nicht verfügbar", {
+              hint: "Der Server konnte den Speicher für Trainingszyklen nicht initialisieren.",
+            });
+          }
+          weeklyContext = await resolveWeeklyContext(cycleStore, weeklyLink);
+          previousPlanId = weeklyContext.day.planId ?? null;
+          payload.title = buildPlanTitleFromContext(weeklyContext.cycle, weeklyContext.week, weeklyContext.day);
+          payload.focus = derivePlanFocusValue(weeklyContext.cycle, weeklyContext.week, weeklyContext.day);
+          payload.planDate = alignPlanDate(payload.planDate, weeklyContext.day.date) ?? payload.planDate;
+          payload.metadata = mergeWeeklyCycleMetadata(
+            payload.metadata,
+            buildWeeklyCycleMetadata(weeklyContext.cycle, weeklyContext.week, weeklyContext.day, null),
+          );
+        } else {
+          payload.metadata = mergeWeeklyCycleMetadata(payload.metadata, null);
+        }
+
         const plan = await planStore.createPlan(payload);
-        sendApiJson(res, 201, plan, {
+        let responsePlan = plan;
+
+        if (weeklyContext) {
+          await cycleStore.updateDay(weeklyContext.day.id, { planId: plan.id });
+          if (previousPlanId && previousPlanId !== plan.id) {
+            await removeWeeklyCycleFromPlan(planStore, previousPlanId);
+          }
+          const refreshedContext = await resolveDayContext(cycleStore, weeklyContext.day.id);
+          await synchronizePlanForContext(planStore, cycleStore, refreshedContext);
+          responsePlan = await planStore.getPlan(plan.id);
+        }
+
+        sendApiJson(res, 201, responsePlan, {
           method,
           origin: requestOrigin,
           headers: {
-            ETag: buildPlanEtag(plan),
-            Location: `/api/plans/${plan.id}`,
+            ETag: buildPlanEtag(responsePlan),
+            Location: `/api/plans/${responsePlan.id}`,
           },
         });
       } catch (error) {
@@ -1306,11 +2049,11 @@ async function handleApiRequest(
     return;
   }
 
-  if (method === "PUT") {
-    try {
-      const ifMatch = req.headers?.["if-match"];
-      if (!ifMatch) {
-        throw new HttpError(412, "If-Match Header ist erforderlich", {
+    if (method === "PUT") {
+      try {
+        const ifMatch = req.headers?.["if-match"];
+        if (!ifMatch) {
+          throw new HttpError(412, "If-Match Header ist erforderlich", {
           code: "missing-if-match",
           hint: "Senden Sie den aktuellen ETag des Plans im Header 'If-Match', um Konflikte zu vermeiden.",
         });
@@ -1327,6 +2070,29 @@ async function handleApiRequest(
       }
       const body = await readJsonBody(req);
       const replacement = validateCreatePayload(body);
+      const currentLink = extractWeeklyCycleLink(current.metadata);
+      const requestedLink = extractWeeklyCycleLink(replacement.metadata);
+      if ((currentLink || requestedLink) && !cycleStore) {
+        throw new HttpError(503, "Wochenplanung nicht verfügbar", {
+          hint: "Der Server konnte den Speicher für Trainingszyklen nicht initialisieren.",
+        });
+      }
+      let weeklyContext = null;
+      let previousPlanId = null;
+      if (requestedLink) {
+        weeklyContext = await resolveWeeklyContext(cycleStore, requestedLink);
+        previousPlanId = weeklyContext.day.planId ?? null;
+        replacement.title = buildPlanTitleFromContext(weeklyContext.cycle, weeklyContext.week, weeklyContext.day);
+        replacement.focus = derivePlanFocusValue(weeklyContext.cycle, weeklyContext.week, weeklyContext.day);
+        replacement.planDate = alignPlanDate(replacement.planDate, weeklyContext.day.date) ?? replacement.planDate;
+        replacement.metadata = mergeWeeklyCycleMetadata(
+          replacement.metadata,
+          buildWeeklyCycleMetadata(weeklyContext.cycle, weeklyContext.week, weeklyContext.day, planId),
+        );
+      } else {
+        replacement.metadata = mergeWeeklyCycleMetadata(replacement.metadata, null);
+      }
+
       const plan = await planStore.replacePlan(planId, replacement, {
         expectedUpdatedAt: current.updatedAt,
       });
@@ -1335,10 +2101,28 @@ async function handleApiRequest(
           hint: "Der Plan wurde eventuell gleichzeitig gelöscht. Laden Sie die Übersicht neu.",
         });
       }
-      sendApiJson(res, 200, plan, {
+      if (currentLink && (!requestedLink || !isSameWeeklyLink(currentLink, requestedLink))) {
+        await cycleStore.updateDay(currentLink.dayId, { planId: null });
+      }
+
+      let responsePlan = plan;
+
+      if (requestedLink && weeklyContext) {
+        await cycleStore.updateDay(weeklyContext.day.id, { planId });
+        if (previousPlanId && previousPlanId !== planId) {
+          await removeWeeklyCycleFromPlan(planStore, previousPlanId);
+        }
+        const refreshedContext = await resolveDayContext(cycleStore, weeklyContext.day.id);
+        await synchronizePlanForContext(planStore, cycleStore, refreshedContext);
+        responsePlan = await planStore.getPlan(planId);
+      } else if (!requestedLink) {
+        responsePlan = await planStore.getPlan(planId);
+      }
+
+      sendApiJson(res, 200, responsePlan, {
         method,
         origin: requestOrigin,
-        headers: { ETag: buildPlanEtag(plan) },
+        headers: { ETag: buildPlanEtag(responsePlan) },
       });
     } catch (error) {
       handleApiError(res, error, method, requestOrigin, logOptions);
@@ -1373,6 +2157,7 @@ async function handleApiRequest(
           hint: "Der Plan wurde möglicherweise parallel gelöscht. Aktualisieren Sie die Liste.",
         });
       }
+      await unlinkPlanFromCycles(planId, cycleStore);
       sendApiEmpty(res, 204, { origin: requestOrigin });
     } catch (error) {
       handleApiError(res, error, method, requestOrigin, logOptions);
@@ -1406,6 +2191,7 @@ async function handleApiRequest(
  */
 export function createRequestHandler({
   store,
+  cycleStore,
   templateStore,
   snippetStore,
   quickSnippetStore,
@@ -1413,6 +2199,7 @@ export function createRequestHandler({
   publicDir,
 } = {}) {
   const planStore = store ?? new JsonPlanStore();
+  const cycleStoreInstance = cycleStore ?? new JsonCycleStore();
   const templateStoreInstance = templateStore ?? new JsonTemplateStore();
   const teamSnippetStore = snippetStore ?? new JsonSnippetStore();
   const localQuickSnippetStore =
@@ -1487,6 +2274,7 @@ export function createRequestHandler({
           url,
           {
             planStore,
+            cycleStore: cycleStoreInstance,
             templateStore: templateStoreInstance,
             teamSnippetStore,
             quickSnippetStore: localQuickSnippetStore,
@@ -1503,6 +2291,7 @@ export function createRequestHandler({
           res,
           url,
           planStore,
+          cycleStoreInstance,
           templateStoreInstance,
           teamSnippetStore,
           localQuickSnippetStore,
@@ -1554,6 +2343,7 @@ export function createRequestHandler({
 export function createServer(options = {}) {
   const {
     store = new JsonPlanStore(),
+    cycleStore = new JsonCycleStore(),
     templateStore = new JsonTemplateStore(),
     snippetStore = new JsonSnippetStore(),
     quickSnippetStore = new JsonSnippetStore({ storageFile: DEFAULT_QUICK_SNIPPET_FILE }),
@@ -1565,6 +2355,7 @@ export function createServer(options = {}) {
   } = options;
   const handler = createRequestHandler({
     store,
+    cycleStore,
     templateStore,
     snippetStore,
     quickSnippetStore,
@@ -1584,6 +2375,7 @@ export function createServer(options = {}) {
     closePromise = (async () => {
       try {
         await store.close();
+        await cycleStore.close();
         await templateStore.close();
         if (snippetStore && typeof snippetStore.close === "function") {
           await snippetStore.close();
