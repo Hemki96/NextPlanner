@@ -35,6 +35,9 @@ async function fetchUserDirectory() {
     if (Array.isArray(data)) {
       return data;
     }
+    if (data && Array.isArray(data.users)) {
+      return data.users;
+    }
   } catch (error) {
     if (error instanceof ApiError && [401, 403, 404].includes(error.status)) {
       return null;

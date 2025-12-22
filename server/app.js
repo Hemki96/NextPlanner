@@ -55,7 +55,7 @@ const JSON_SPACING = process.env.NODE_ENV === "development" ? 2 : 0;
 const DEFAULT_SESSION_TTL_MS = 1000 * 60 * 60 * 12; // 12h
 const SESSION_COOKIE_NAME = "nextplanner_session";
 const DEFAULT_ADMIN_USERNAME = process.env.NEXTPLANNER_ADMIN_USER ?? "admin";
-const DEFAULT_ADMIN_PASSWORD = process.env.NEXTPLANNER_ADMIN_PASSWORD ?? "admin123";
+const DEFAULT_ADMIN_PASSWORD = process.env.NEXTPLANNER_ADMIN_PASSWORD ?? "Admin1234!";
 const LOGIN_RATE_LIMIT_DEFAULTS = Object.freeze({
   windowMs: 1000 * 60 * 5,
   maxAttempts: 5,
@@ -481,6 +481,126 @@ function normalizeUserRole(role) {
   return role.trim().toLowerCase() === "admin" ? "admin" : "user";
 }
 
+function hasAdminRole(roles, role) {
+  if (Array.isArray(roles)) {
+    if (roles.some((entry) => typeof entry === "string" && entry.trim().toLowerCase() === "admin")) {
+      return true;
+    }
+  }
+  if (typeof role === "string" && role.trim().toLowerCase() === "admin") {
+    return true;
+  }
+  return false;
+}
+
+function buildAuthUserFromSession(session) {
+  if (!session) {
+    return null;
+  }
+  const roles = Array.isArray(session.roles)
+    ? session.roles.filter((entry) => typeof entry === "string" && entry.trim())
+    : [];
+  const role = hasAdminRole(roles, session.role) ? "admin" : normalizeUserRole(roles[0]);
+  const username = session.username ?? null;
+  const id = session.userId ?? username ?? null;
+  const displayName = typeof session.name === "string" && session.name.trim() ? session.name : username ?? id;
+  return {
+    id,
+    name: displayName,
+    username,
+    role,
+    roles,
+  };
+}
+
+function resolveEffectiveRole(user) {
+  if (!user) {
+    return "user";
+  }
+  if (hasAdminRole(user.roles, user.role)) {
+    return "admin";
+  }
+  if (Array.isArray(user.roles)) {
+    if (user.roles.some((role) => typeof role === "string" && role.trim().toLowerCase() === "editor")) {
+      return "editor";
+    }
+    if (user.roles.some((role) => typeof role === "string" && role.trim().toLowerCase() === "viewer")) {
+      return "viewer";
+    }
+  }
+  return user.role ?? "user";
+}
+
+function resolveAccess(user, isAdminRequest = false) {
+  const effectiveRole = resolveEffectiveRole(user);
+  const isAdmin = isAdminRequest || effectiveRole === "admin";
+  const canWrite = isAdmin || effectiveRole === "editor" || effectiveRole === "user";
+  const isReadOnly = effectiveRole === "viewer";
+  return { isAdmin, canWrite, isReadOnly, role: effectiveRole };
+}
+
+function mergeKnownUsers(primary = [], secondary = []) {
+  const merged = new Map();
+  const add = (user) => {
+    if (!user) {
+      return;
+    }
+    const id = user.id ?? user.userId ?? user.username;
+    if (id === undefined || id === null) {
+      return;
+    }
+    const normalizedId = String(id).trim();
+    if (!normalizedId || merged.has(normalizedId)) {
+      return;
+    }
+    const roles = Array.isArray(user.roles) ? user.roles : [];
+    const role = user.role ?? (hasAdminRole(roles, roles[0]) ? "admin" : "user");
+    const name =
+      user.name ??
+      user.username ??
+      (typeof user.userId === "string" ? user.userId : normalizedId);
+    merged.set(normalizedId, {
+      ...user,
+      id: normalizedId,
+      name,
+      role,
+      roles,
+    });
+  };
+  primary.forEach(add);
+  secondary.forEach(add);
+  return Array.from(merged.values());
+}
+
+async function verifyLoginCredentials(userStore, userRegistry, username, password) {
+  const trimmedUsername = typeof username === "string" ? username.trim() : "";
+  if (!trimmedUsername || typeof password !== "string") {
+    return null;
+  }
+  if (userStore && typeof userStore.verifyCredentials === "function") {
+    const user = await userStore.verifyCredentials(trimmedUsername, password);
+    if (user) {
+      const roles = Array.isArray(user.roles) ? user.roles : [];
+      return {
+        id: user.id ?? user.username,
+        username: user.username,
+        roles,
+        isAdmin: hasAdminRole(roles, roles[0]),
+      };
+    }
+  }
+  const verifiedUser = verifyUserCredentials(userRegistry ?? new Map(), trimmedUsername, password);
+  if (verifiedUser) {
+    return {
+      id: verifiedUser.username,
+      username: verifiedUser.username,
+      roles: verifiedUser.isAdmin ? ["admin"] : ["user"],
+      isAdmin: Boolean(verifiedUser.isAdmin),
+    };
+  }
+  return null;
+}
+
 function extractRequestUser(req) {
   const id = normalizeUserId(getHeaderValue(req.headers, USER_ID_HEADER));
   if (!id) {
@@ -498,7 +618,7 @@ function rememberKnownUser(user) {
   }
   KNOWN_USERS.set(user.id, {
     id: user.id,
-    name: user.name ?? user.id,
+    name: user.name ?? user.username ?? user.id,
     role: user.role ?? "user",
   });
 }
@@ -651,7 +771,10 @@ function buildHealthPayload(checks) {
 
 async function ensureInitialAdminUser(
   userStore,
-  { adminUsername = process.env.ADMIN_USER, adminPassword = process.env.ADMIN_PASSWORD } = {},
+  {
+    adminUsername = process.env.ADMIN_USER ?? DEFAULT_ADMIN_USERNAME,
+    adminPassword = process.env.ADMIN_PASSWORD ?? DEFAULT_ADMIN_PASSWORD,
+  } = {},
 ) {
   if (
     !userStore ||
@@ -669,15 +792,14 @@ async function ensureInitialAdminUser(
     const password = (adminPassword ?? "").trim();
     if (!username || !password) {
       logger.warn(
-        "User-Store ist leer, aber ADMIN_USER oder ADMIN_PASSWORD ist nicht gesetzt. Kein Admin angelegt.",
+        "User-Store ist leer, ADMIN_USER/ADMIN_PASSWORD fehlen. Lege Fallback-Admin aus Defaults an.",
       );
-      return;
     }
     await userStore.createUser({
       username,
       password,
-      role: "admin",
-      isActive: true,
+      roles: ["admin"],
+      active: true,
     });
     logger.info("Initialer Admin-Benutzer '%s' wurde angelegt.", username);
   } catch (error) {
@@ -1152,9 +1274,20 @@ async function resolveAuthContext(req, sessionStoreInstance, requestLogger) {
     if (!session || !session.username) {
       return { user: null, isAdmin: false, token };
     }
+    const user = buildAuthUserFromSession(session);
+    if (!user) {
+      return { user: null, isAdmin: false, token: null };
+    }
+    const access = resolveAccess(user, session.isAdmin);
     return {
-      user: { username: session.username },
-      isAdmin: Boolean(session.isAdmin),
+      user: {
+        id: user.id,
+        name: user.name,
+        username: user.username,
+        role: user.role,
+        roles: user.roles,
+      },
+      isAdmin: access.isAdmin,
       token,
     };
   } catch (error) {
@@ -1189,6 +1322,25 @@ async function handleApiRequest(
   const method = (providedMethod ?? req.method ?? "GET").toUpperCase();
   const logOptions = { logger: requestLogger ?? logger, path: url.pathname };
   const authContext = auth ?? { user: null, isAdmin: false, token: null };
+  const requestUser = authContext.user ?? req.user ?? null;
+  const access = resolveAccess(requestUser, authContext.isAdmin || req.isAdmin);
+  const isAdminRequest = access.isAdmin;
+  const isSafeMethod = method === "GET" || method === "HEAD" || method === "OPTIONS";
+  const hasSessionCookie = Boolean(authContext.token);
+
+  if (req.user && req.user.role !== access.role) {
+    req.user.role = access.role;
+    if (Array.isArray(req.user.roles)) {
+      req.user.roles = req.user.roles;
+    }
+  }
+
+  if (requestUser && !req.user) {
+    req.user = requestUser;
+  }
+  if (isAdminRequest && !req.isAdmin) {
+    req.isAdmin = true;
+  }
 
   if (method === "OPTIONS") {
     sendApiEmpty(res, 204, {
@@ -1200,6 +1352,37 @@ async function handleApiRequest(
     });
     return;
   }
+
+  if (!isSafeMethod && hasSessionCookie && requestOrigin && !ALLOWED_ORIGINS.includes(requestOrigin)) {
+    handleApiError(
+      res,
+      new HttpError(403, "CSRF-Schutz: Ursprung nicht erlaubt", {
+        code: "csrf-origin",
+        hint: "Anfragen müssen vom konfigurierten Ursprung kommen.",
+      }),
+      method,
+      requestOrigin,
+      logOptions,
+    );
+    return;
+  }
+
+  const requireWriteAccess = () => {
+    if (access.canWrite) {
+      return true;
+    }
+    handleApiError(
+      res,
+      new HttpError(403, "Schreibberechtigung erforderlich", {
+        code: "write-required",
+        hint: "Ihr Konto ist nur für Lesezugriffe freigeschaltet.",
+      }),
+      method,
+      requestOrigin,
+      logOptions,
+    );
+    return false;
+  };
 
   if (url.pathname === "/api/auth/login") {
     if (method !== "POST") {
@@ -1239,7 +1422,7 @@ async function handleApiRequest(
         });
       }
 
-      const verifiedUser = verifyUserCredentials(userRegistry ?? new Map(), username, password);
+      const verifiedUser = await verifyLoginCredentials(userStore, userRegistry, username, password);
       if (!verifiedUser) {
         const blockedUntil = loginRateLimiter?.recordFailure(clientIp, username);
         const hint =
@@ -1254,7 +1437,9 @@ async function handleApiRequest(
 
       loginRateLimiter?.recordSuccess(clientIp, verifiedUser.username);
       const session = await sessionStore.createSession({
+        userId: verifiedUser.id,
         username: verifiedUser.username,
+        roles: verifiedUser.roles,
         isAdmin: verifiedUser.isAdmin,
         ttlMs: sessionTtlMs,
       });
@@ -1264,7 +1449,12 @@ async function handleApiRequest(
         200,
         {
           success: true,
-          user: { username: verifiedUser.username, isAdmin: verifiedUser.isAdmin },
+          user: {
+            id: verifiedUser.id,
+            username: verifiedUser.username,
+            roles: verifiedUser.roles,
+            isAdmin: verifiedUser.isAdmin,
+          },
           expiresAt: session.expiresAt,
         },
         {
@@ -1306,7 +1496,7 @@ async function handleApiRequest(
     return;
   }
 
-  if (!authContext.user) {
+  if (!requestUser) {
     handleApiError(
       res,
       new HttpError(401, "Authentifizierung erforderlich", {
@@ -1336,6 +1526,9 @@ async function handleApiRequest(
       return;
     }
     if (method === "POST") {
+      if (!requireWriteAccess()) {
+        return;
+      }
       try {
         const body = await readJsonBody(req, { limit: 5_000_000 });
         const payload = ensureJsonObject(body);
@@ -1393,8 +1586,9 @@ async function handleApiRequest(
 
     if (method === "GET" || method === "HEAD") {
       try {
-        const users = await userStore.listUsers();
-        sendApiJson(res, 200, { users }, { method, origin: requestOrigin });
+        const storedUsers = await userStore.listUsers();
+        const users = mergeKnownUsers(storedUsers, Array.from(KNOWN_USERS.values()));
+        sendApiJson(res, 200, users, { method, origin: requestOrigin });
       } catch (error) {
         handleApiError(res, error, method, requestOrigin, logOptions);
       }
@@ -1567,6 +1761,9 @@ async function handleApiRequest(
     }
 
     if (method === "PUT") {
+      if (!requireWriteAccess()) {
+        return;
+      }
       try {
         const body = await readJsonBody(req, { limit: 1_000_000 });
         const payload = Array.isArray(body) ? body : ensureJsonObject(body).groups ?? body;
@@ -1621,6 +1818,9 @@ async function handleApiRequest(
     }
 
     if (method === "PUT") {
+      if (!requireWriteAccess()) {
+        return;
+      }
       try {
         const body = await readJsonBody(req, { limit: 200_000 });
         const payload = ensureJsonObject(body);
@@ -1669,6 +1869,9 @@ async function handleApiRequest(
     }
 
     if (method === "POST") {
+      if (!requireWriteAccess()) {
+        return;
+      }
       try {
         const body = await readJsonBody(req, { limit: 500_000 });
         const template = await templateStore.createTemplate(body);
@@ -1741,6 +1944,9 @@ async function handleApiRequest(
     }
 
     if (method === "PUT") {
+      if (!requireWriteAccess()) {
+        return;
+      }
       try {
         const ifMatch = req.headers?.["if-match"];
         const current = await templateStore.getTemplate(templateId);
@@ -1776,6 +1982,9 @@ async function handleApiRequest(
     }
 
     if (method === "DELETE") {
+      if (!requireWriteAccess()) {
+        return;
+      }
       try {
         const ifMatch = req.headers?.["if-match"];
         const current = await templateStore.getTemplate(templateId);
@@ -1840,6 +2049,9 @@ async function handleApiRequest(
     }
 
     if (method === "PUT") {
+      if (!requireWriteAccess()) {
+        return;
+      }
       try {
         const body = await readJsonBody(req, { limit: 1_000_000 });
         const payload = Array.isArray(body) ? body : ensureJsonObject(body).groups ?? body;
@@ -1886,7 +2098,7 @@ async function handleApiRequest(
       handleApiError(
         res,
         new HttpError(401, "Authentifizierung erforderlich", {
-          hint: "Senden Sie die Benutzer-ID im Header 'X-User-Id', um das Profil abzurufen.",
+          hint: "Melden Sie sich an, um das aktuelle Profil abzurufen.",
         }),
         method,
         requestOrigin,
@@ -1899,8 +2111,13 @@ async function handleApiRequest(
       200,
       {
         id: req.user.id,
-        name: req.user.name ?? req.user.id,
+        username: req.user.username ?? req.user.name ?? req.user.id,
+        name: req.user.name ?? req.user.username ?? req.user.id,
         role: req.user.role ?? "user",
+        roles: Array.isArray(req.user.roles) ? req.user.roles : [],
+        isAdmin: Boolean(req.isAdmin ?? hasAdminRole(req.user.roles, req.user.role)),
+        permissions: resolveAccess(req.user, req.isAdmin),
+        authenticated: true,
       },
       { method, origin: requestOrigin },
     );
@@ -1932,13 +2149,18 @@ async function handleApiRequest(
       );
       return;
     }
-    const users = Array.from(KNOWN_USERS.values());
-    sendApiJson(res, 200, users, { method, origin: requestOrigin });
+    const knownUsers = Array.from(KNOWN_USERS.values());
+    const storedUsers = userStore && typeof userStore.listUsers === "function" ? await userStore.listUsers() : [];
+    const merged = mergeKnownUsers(storedUsers, knownUsers);
+    sendApiJson(res, 200, merged, { method, origin: requestOrigin });
     return;
   }
 
   if (url.pathname === "/api/plans") {
     if (method === "POST") {
+      if (!requireWriteAccess()) {
+        return;
+      }
       try {
         const body = await readJsonBody(req);
         const payload = validateCreatePayload(body);
@@ -2027,6 +2249,9 @@ async function handleApiRequest(
   }
 
   if (method === "PUT") {
+    if (!requireWriteAccess()) {
+      return;
+    }
     try {
       const ifMatch = req.headers?.["if-match"];
       if (!ifMatch) {
@@ -2069,6 +2294,9 @@ async function handleApiRequest(
   }
 
   if (method === "DELETE") {
+    if (!requireWriteAccess()) {
+      return;
+    }
     try {
       const ifMatch = req.headers?.["if-match"];
       if (!ifMatch) {
@@ -2163,9 +2391,10 @@ export function createRequestHandler({
   return async (req, res) => {
     const start = process.hrtime.bigint();
     const method = (req.method ?? "GET").toUpperCase();
-  const requestId = ++requestCounter;
-  const requestLogger = createRequestLogger({ req: requestId });
-  let pathForLogging = req.url ?? "<unknown>";
+    let authContext = { user: req.user ?? null, isAdmin: Boolean(req.isAdmin), token: null };
+    const requestId = ++requestCounter;
+    const requestLogger = createRequestLogger({ req: requestId });
+    let pathForLogging = req.url ?? "<unknown>";
 
   attachRequestUser(req);
 
@@ -2222,8 +2451,14 @@ export function createRequestHandler({
         await sessionStore.pruneExpired();
       }
       authContext = await resolveAuthContext(req, sessionStore, requestLogger);
-      req.user = authContext.user;
-      req.isAdmin = authContext.isAdmin;
+      if (authContext.user) {
+        req.user = authContext.user;
+        rememberKnownUser(authContext.user);
+      }
+      if (authContext.isAdmin !== undefined) {
+        req.isAdmin = authContext.isAdmin;
+      }
+      req.access = resolveAccess(req.user, req.isAdmin);
 
       if (isHealthCheckRequest(url.pathname)) {
         await handleHealthRequest(
