@@ -1510,6 +1510,8 @@ async function handleApiRequest(
     return;
   }
 
+  const isAdminRequest = Boolean(authContext.isAdmin || req.user?.role === "admin" || req.isAdmin);
+
   const isBackupsRoute =
     url.pathname === "/api/backups" ||
     url.pathname === "/api/storage/backup" ||
@@ -1589,6 +1591,15 @@ async function handleApiRequest(
         const storedUsers = await userStore.listUsers();
         const users = mergeKnownUsers(storedUsers, Array.from(KNOWN_USERS.values()));
         sendApiJson(res, 200, users, { method, origin: requestOrigin });
+        const users = await userStore.listUsers();
+        const known = Array.from(KNOWN_USERS.values());
+        const merged = [...users];
+        for (const user of known) {
+          if (!merged.some((entry) => entry.id === user.id)) {
+            merged.push(user);
+          }
+        }
+        sendApiJson(res, 200, merged, { method, origin: requestOrigin });
       } catch (error) {
         handleApiError(res, error, method, requestOrigin, logOptions);
       }
