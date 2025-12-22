@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
@@ -20,6 +20,7 @@ import { JsonHighlightConfigStore } from "./stores/json-highlight-config-store.j
 import { JsonUserStore, UserValidationError } from "./stores/json-user-store.js";
 import { DATA_DIR } from "./config.js";
 import { logger, createRequestLogger } from "./logger.js";
+import { SessionStore } from "./sessions/session-store.js";
 
 const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_QUICK_SNIPPET_FILE = path.join(DATA_DIR, "quick-snippets.json");
@@ -51,6 +52,15 @@ const MIME_TYPES = {
 
 const DEFAULT_ALLOWED_ORIGINS = Object.freeze(["http://localhost:3000"]);
 const JSON_SPACING = process.env.NODE_ENV === "development" ? 2 : 0;
+const DEFAULT_SESSION_TTL_MS = 1000 * 60 * 60 * 12; // 12h
+const SESSION_COOKIE_NAME = "nextplanner_session";
+const DEFAULT_ADMIN_USERNAME = process.env.NEXTPLANNER_ADMIN_USER ?? "admin";
+const DEFAULT_ADMIN_PASSWORD = process.env.NEXTPLANNER_ADMIN_PASSWORD ?? "admin123";
+const LOGIN_RATE_LIMIT_DEFAULTS = Object.freeze({
+  windowMs: 1000 * 60 * 5,
+  maxAttempts: 5,
+  blockDurationMs: 1000 * 60 * 5,
+});
 
 /**
  * Serialises JSON responses using pretty-printing only in development mode.
@@ -78,6 +88,185 @@ function parseAllowedOrigins(value) {
 
 const ALLOWED_ORIGINS = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
 
+function hashPassword(password) {
+  return createHash("sha256").update(String(password ?? "")).digest();
+}
+
+function normalizeUserRecord(user) {
+  if (!user || typeof user.username !== "string" || !user.username.trim()) {
+    return null;
+  }
+  const username = user.username.trim();
+  let passwordHash = null;
+  if (user.passwordHash) {
+    passwordHash = Buffer.isBuffer(user.passwordHash)
+      ? user.passwordHash
+      : Buffer.from(String(user.passwordHash), "hex");
+  } else if (typeof user.password === "string" && user.password.trim()) {
+    passwordHash = hashPassword(user.password);
+  }
+  if (!passwordHash) {
+    return null;
+  }
+  return {
+    username,
+    passwordHash,
+    isAdmin: Boolean(user.isAdmin),
+  };
+}
+
+function buildUserRegistry(users) {
+  const registry = new Map();
+  const normalizedUsers =
+    Array.isArray(users) && users.length > 0
+      ? users
+      : [
+          {
+            username: DEFAULT_ADMIN_USERNAME,
+            password: DEFAULT_ADMIN_PASSWORD,
+            isAdmin: true,
+          },
+        ];
+  for (const entry of normalizedUsers) {
+    const normalized = normalizeUserRecord(entry);
+    if (normalized) {
+      registry.set(normalized.username, normalized);
+    }
+  }
+  return registry;
+}
+
+function verifyUserCredentials(registry, username, password) {
+  if (!username || !password) {
+    return null;
+  }
+  const record = registry.get(username.trim());
+  if (!record) {
+    return null;
+  }
+  const attempted = hashPassword(password);
+  if (record.passwordHash.length !== attempted.length) {
+    return null;
+  }
+  if (!timingSafeEqual(record.passwordHash, attempted)) {
+    return null;
+  }
+  return { username: record.username, isAdmin: Boolean(record.isAdmin) };
+}
+
+function parseCookies(header = "") {
+  return (header ?? "")
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .reduce((acc, part) => {
+      const [name, ...rest] = part.split("=");
+      if (!name) {
+        return acc;
+      }
+      acc[name] = rest.join("=");
+      return acc;
+    }, {});
+}
+
+function buildSessionCookie(token, expiresAt) {
+  const parts = [`${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`, "HttpOnly", "Secure", "SameSite=Lax", "Path=/"];
+  const expiresDate = new Date(expiresAt);
+  if (!Number.isNaN(expiresDate.getTime())) {
+    const maxAgeSeconds = Math.max(0, Math.floor((expiresDate.getTime() - Date.now()) / 1000));
+    parts.push(`Expires=${expiresDate.toUTCString()}`);
+    parts.push(`Max-Age=${maxAgeSeconds}`);
+  }
+  return parts.join("; ");
+}
+
+function buildExpiredSessionCookie() {
+  return `${SESSION_COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
+}
+
+function getClientIp(req) {
+  const forwarded = req.headers?.["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    const [first] = forwarded.split(",");
+    if (first && first.trim()) {
+      return first.trim();
+    }
+  }
+  return req.socket?.remoteAddress ?? "unknown";
+}
+
+class LoginRateLimiter {
+  constructor(options = {}) {
+    this.windowMs = options.windowMs ?? LOGIN_RATE_LIMIT_DEFAULTS.windowMs;
+    this.maxAttempts = options.maxAttempts ?? LOGIN_RATE_LIMIT_DEFAULTS.maxAttempts;
+    this.blockDurationMs = options.blockDurationMs ?? LOGIN_RATE_LIMIT_DEFAULTS.blockDurationMs;
+    this.buckets = new Map();
+  }
+
+  buildKeys(ip, username) {
+    const keys = [];
+    if (ip) {
+      keys.push(`ip:${ip}`);
+    }
+    if (username) {
+      keys.push(`user:${username}`);
+    }
+    if (ip && username) {
+      keys.push(`combo:${username}@${ip}`);
+    }
+    return keys;
+  }
+
+  check(ip, username) {
+    const now = Date.now();
+    const keys = this.buildKeys(ip, username);
+    let blockedUntil = null;
+    for (const key of keys) {
+      const entry = this.buckets.get(key);
+      if (!entry) {
+        continue;
+      }
+      const isBlocked = entry.blockedUntil && entry.blockedUntil > now;
+      const windowExpired = entry.firstAttempt + this.windowMs < now;
+      if (isBlocked) {
+        blockedUntil = Math.max(blockedUntil ?? 0, entry.blockedUntil);
+      } else if (windowExpired) {
+        this.buckets.delete(key);
+      }
+    }
+    return { allowed: blockedUntil === null, blockedUntil, keys, now };
+  }
+
+  recordFailure(ip, username) {
+    const { keys, now } = this.check(ip, username);
+    let blockedUntil = null;
+    for (const key of keys) {
+      const existing = this.buckets.get(key);
+      const withinWindow = existing ? now - existing.firstAttempt <= this.windowMs : false;
+      const nextCount = withinWindow ? (existing?.count ?? 0) + 1 : 1;
+      const firstAttempt = withinWindow && existing ? existing.firstAttempt : now;
+      const newEntry = {
+        count: nextCount,
+        firstAttempt,
+        blockedUntil:
+          nextCount >= this.maxAttempts ? now + this.blockDurationMs : existing?.blockedUntil ?? null,
+      };
+      this.buckets.set(key, newEntry);
+      if (newEntry.blockedUntil && (!blockedUntil || newEntry.blockedUntil > blockedUntil)) {
+        blockedUntil = newEntry.blockedUntil;
+      }
+    }
+    return blockedUntil;
+  }
+
+  recordSuccess(ip, username) {
+    const { keys } = this.check(ip, username);
+    for (const key of keys) {
+      this.buckets.delete(key);
+    }
+  }
+}
+
 const HEALTH_ENDPOINTS = Object.freeze({
   readiness: "/readyz",
   liveness: "/livez",
@@ -90,6 +279,7 @@ const HEALTH_ALLOWED_METHODS = "GET,HEAD,OPTIONS";
 const API_CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Content-Type,If-Match,If-None-Match",
   "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,DELETE,OPTIONS",
+  "Access-Control-Allow-Credentials": "true",
   "Access-Control-Max-Age": "600",
 };
 
@@ -884,6 +1074,32 @@ function handleApiError(res, error, method = "GET", origin, options = {}) {
   );
 }
 
+async function resolveAuthContext(req, sessionStoreInstance, requestLogger) {
+  if (!sessionStoreInstance) {
+    return { user: null, isAdmin: false, token: null };
+  }
+  try {
+    const cookies = parseCookies(req.headers?.cookie ?? "");
+    const token = cookies[SESSION_COOKIE_NAME];
+    if (!token) {
+      return { user: null, isAdmin: false, token: null };
+    }
+    const session = await sessionStoreInstance.getSession(token);
+    if (!session || !session.username) {
+      return { user: null, isAdmin: false, token };
+    }
+    return {
+      user: { username: session.username },
+      isAdmin: Boolean(session.isAdmin),
+      token,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    requestLogger?.warn?.("Session konnte nicht geladen werden: %s", message);
+    return { user: null, isAdmin: false, token: null };
+  }
+}
+
 async function handleApiRequest(
   req,
   res,
@@ -895,12 +1111,20 @@ async function handleApiRequest(
   highlightConfigStore,
   userStore,
   origin,
-  { method: providedMethod, logger: requestLogger } = {},
+  {
+    method: providedMethod,
+    logger: requestLogger,
+    auth,
+    sessionStore,
+    userRegistry,
+    loginRateLimiter,
+    sessionTtlMs = DEFAULT_SESSION_TTL_MS,
+  } = {},
 ) {
   const requestOrigin = origin ?? req.headers?.origin ?? "";
   const method = (providedMethod ?? req.method ?? "GET").toUpperCase();
   const logOptions = { logger: requestLogger ?? logger, path: url.pathname };
-  const isAdminRequest = req?.isAdmin === true;
+  const authContext = auth ?? { user: null, isAdmin: false, token: null };
 
   if (method === "OPTIONS") {
     sendApiEmpty(res, 204, {
@@ -913,13 +1137,122 @@ async function handleApiRequest(
     return;
   }
 
-  if (url.pathname === "/api/auth/me") {
-    const payload = {
-      isAdmin: isAdminRequest,
-      authenticated: Boolean(req?.user) || isAdminRequest,
-      username: req?.user?.username ?? null,
-    };
-    sendApiJson(res, 200, payload, { method, origin: requestOrigin });
+  if (url.pathname === "/api/auth/login") {
+    if (method !== "POST") {
+      handleApiError(
+        res,
+        new HttpError(405, "Methode nicht erlaubt", {
+          hint: "Verwenden Sie POST mit { username, password }, um sich anzumelden.",
+        }),
+        method,
+        requestOrigin,
+        logOptions,
+      );
+      return;
+    }
+    try {
+      const body = await readJsonBody(req, { limit: 50_000 });
+      const payload = ensureJsonObject(body);
+      const { username, password } = payload;
+      if (typeof username !== "string" || typeof password !== "string" || !username.trim()) {
+        throw new HttpError(400, "username und password sind erforderlich", {
+          code: "invalid-credentials-input",
+          hint: "Senden Sie beide Felder als Strings, z. B. { \"username\": \"coach\", \"password\": \"secret\" }.",
+        });
+      }
+
+      const clientIp = getClientIp(req);
+      const rateStatus = loginRateLimiter?.check(clientIp, username);
+      if (rateStatus && rateStatus.allowed === false) {
+        const retryAfterMs = Math.max(0, (rateStatus?.blockedUntil ?? Date.now()) - Date.now());
+        const retryAfterSeconds = Math.max(
+          1,
+          Math.ceil(retryAfterMs / 1000),
+        );
+        throw new HttpError(429, "Zu viele fehlgeschlagene Anmeldeversuche", {
+          code: "login-rate-limit",
+          hint: `Warten Sie ${retryAfterSeconds} Sekunden, bevor Sie es erneut versuchen.`,
+        });
+      }
+
+      const verifiedUser = verifyUserCredentials(userRegistry ?? new Map(), username, password);
+      if (!verifiedUser) {
+        const blockedUntil = loginRateLimiter?.recordFailure(clientIp, username);
+        const hint =
+          blockedUntil && blockedUntil > Date.now()
+            ? `Zu viele Fehlversuche. Bitte warten Sie ${Math.max(1, Math.floor((blockedUntil - Date.now()) / 1000))} Sekunden.`
+            : "Bitte prüfen Sie Benutzername oder Passwort.";
+        throw new HttpError(401, "Ungültige Zugangsdaten", {
+          code: "invalid-credentials",
+          hint,
+        });
+      }
+
+      loginRateLimiter?.recordSuccess(clientIp, verifiedUser.username);
+      const session = await sessionStore.createSession({
+        username: verifiedUser.username,
+        isAdmin: verifiedUser.isAdmin,
+        ttlMs: sessionTtlMs,
+      });
+      const cookie = buildSessionCookie(session.token, session.expiresAt);
+      sendApiJson(
+        res,
+        200,
+        {
+          success: true,
+          user: { username: verifiedUser.username, isAdmin: verifiedUser.isAdmin },
+          expiresAt: session.expiresAt,
+        },
+        {
+          method,
+          origin: requestOrigin,
+          headers: { "Set-Cookie": cookie },
+        },
+      );
+    } catch (error) {
+      handleApiError(res, error, method, requestOrigin, logOptions);
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/auth/logout") {
+    if (method !== "POST") {
+      handleApiError(
+        res,
+        new HttpError(405, "Methode nicht erlaubt", {
+          hint: "Verwenden Sie POST, um die Sitzung zu beenden.",
+        }),
+        method,
+        requestOrigin,
+        logOptions,
+      );
+      return;
+    }
+    try {
+      if (authContext.token) {
+        await sessionStore.deleteSession(authContext.token);
+      }
+      sendApiEmpty(res, 204, {
+        origin: requestOrigin,
+        headers: { "Set-Cookie": buildExpiredSessionCookie() },
+      });
+    } catch (error) {
+      handleApiError(res, error, method, requestOrigin, logOptions);
+    }
+    return;
+  }
+
+  if (!authContext.user) {
+    handleApiError(
+      res,
+      new HttpError(401, "Authentifizierung erforderlich", {
+        code: "unauthenticated",
+        hint: "Melden Sie sich an, um auf diese API zuzugreifen.",
+      }),
+      method,
+      requestOrigin,
+      logOptions,
+    );
     return;
   }
 
@@ -1657,6 +1990,10 @@ async function handleApiRequest(
  * @param {import("./stores/json-highlight-config-store.js").JsonHighlightConfigStore} [options.highlightConfigStore]
  * @param {import("./stores/json-user-store.js").JsonUserStore} [options.userStore]
  * @param {string} [options.publicDir]
+ * @param {import("./sessions/session-store.js").SessionStore} [options.sessionStore]
+ * @param {Array<{ username: string, password?: string, passwordHash?: string, isAdmin?: boolean }>} [options.users]
+ * @param {number} [options.sessionTtlMs]
+ * @param {{ windowMs?: number, maxAttempts?: number, blockDurationMs?: number }} [options.loginRateLimit]
  * @returns {(req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => Promise<void>}
  */
 export function createRequestHandler({
@@ -1667,6 +2004,10 @@ export function createRequestHandler({
   highlightConfigStore,
   userStore,
   publicDir,
+  sessionStore: providedSessionStore,
+  users,
+  sessionTtlMs = DEFAULT_SESSION_TTL_MS,
+  loginRateLimit,
 } = {}) {
   const planStore = store ?? new JsonPlanStore();
   const templateStoreInstance = templateStore ?? new JsonTemplateStore();
@@ -1678,6 +2019,9 @@ export function createRequestHandler({
   const localUserStore = userStore ?? new JsonUserStore();
   const defaultDir = path.join(CURRENT_DIR, "..", "public");
   const rootDir = path.resolve(publicDir ?? defaultDir);
+  const sessionStore = providedSessionStore ?? new SessionStore({ defaultTtlMs: sessionTtlMs });
+  const userRegistry = buildUserRegistry(users);
+  const loginRateLimiter = new LoginRateLimiter(loginRateLimit);
 
   let requestCounter = 0;
 
@@ -1687,6 +2031,7 @@ export function createRequestHandler({
     const requestId = ++requestCounter;
     const requestLogger = createRequestLogger({ req: requestId });
     let pathForLogging = req.url ?? "<unknown>";
+    let authContext = { user: null, isAdmin: false, token: null };
 
     res.once("finish", () => {
       const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
@@ -1737,6 +2082,13 @@ export function createRequestHandler({
     }
 
     try {
+      if (sessionStore) {
+        await sessionStore.pruneExpired();
+      }
+      authContext = await resolveAuthContext(req, sessionStore, requestLogger);
+      req.user = authContext.user;
+      req.isAdmin = authContext.isAdmin;
+
       if (isHealthCheckRequest(url.pathname)) {
         await handleHealthRequest(
           req,
@@ -1767,7 +2119,15 @@ export function createRequestHandler({
           localHighlightConfigStore,
           localUserStore,
           req.headers?.origin ?? "",
-          { method, logger: requestLogger },
+          {
+            method,
+            logger: requestLogger,
+            auth: authContext,
+            sessionStore,
+            userRegistry,
+            loginRateLimiter,
+            sessionTtlMs,
+          },
         );
         return;
       }
@@ -1822,8 +2182,14 @@ export function createServer(options = {}) {
     }),
     userStore = new JsonUserStore(),
     publicDir,
+    sessionStore,
+    users,
+    sessionTtlMs = DEFAULT_SESSION_TTL_MS,
+    loginRateLimit,
     gracefulShutdownSignals = ["SIGINT", "SIGTERM"],
   } = options;
+  const activeSessionStore =
+    sessionStore ?? new SessionStore({ defaultTtlMs: sessionTtlMs });
   const handler = createRequestHandler({
     store,
     templateStore,
@@ -1832,6 +2198,10 @@ export function createServer(options = {}) {
     highlightConfigStore,
     userStore,
     publicDir,
+    sessionStore: activeSessionStore,
+    users,
+    sessionTtlMs,
+    loginRateLimit,
   });
 
   ensureInitialAdminUser(userStore).catch((error) => {
@@ -1864,8 +2234,8 @@ export function createServer(options = {}) {
         if (highlightConfigStore && typeof highlightConfigStore.close === "function") {
           await highlightConfigStore.close();
         }
-        if (userStore && typeof userStore.close === "function") {
-          await userStore.close();
+        if (activeSessionStore && typeof activeSessionStore.close === "function") {
+          await activeSessionStore.close();
         }
       } catch (error) {
         logger.error("Fehler beim Schließen der Stores: %s", error);
