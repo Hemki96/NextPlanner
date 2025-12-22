@@ -2417,6 +2417,72 @@ body.no-scroll {
   }
 }
 
+.admin-user-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.admin-user-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem;
+  background: var(--bg-panel);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.06);
+}
+
+.admin-user-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.admin-user-name {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.admin-user-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+  color: var(--text-secondary);
+}
+
+.admin-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.03);
+  font-size: 0.9rem;
+}
+
+.admin-badge--ok {
+  background: rgba(13, 155, 13, 0.1);
+  border-color: rgba(13, 155, 13, 0.4);
+  color: #0d7a0d;
+}
+
+.admin-badge--muted {
+  background: rgba(200, 80, 80, 0.12);
+  border-color: rgba(200, 80, 80, 0.4);
+  color: #8c1e1e;
+}
+
+.admin-user-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.admin-user-form {
+  margin-top: 0.75rem;
+}
+
 /* Mobile Optimierung: Spaltenstacking und geringere Abstände */
 @media (max-width: 960px) {
   body {

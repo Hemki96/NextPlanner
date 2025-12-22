@@ -11,6 +11,7 @@ import { JsonSnippetStore } from "../server/stores/json-snippet-store.js";
 import { JsonTemplateStore } from "../server/stores/json-template-store.js";
 import { JsonHighlightConfigStore } from "../server/stores/json-highlight-config-store.js";
 import { createServer } from "../server/app.js";
+import { SessionStore } from "../server/sessions/session-store.js";
 import { sanitizeQuickSnippetGroups } from "../public/js/utils/snippet-storage.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -37,6 +38,35 @@ describe("Plan API", () => {
   let baseUrl;
   let templateStore;
   let highlightStore;
+  let sessionStore;
+  let authCookie;
+  const adminCredentials = { username: "test-admin", password: "passw0rd", isAdmin: true };
+
+  function authHeaders(headers = {}) {
+    if (!authCookie) {
+      return headers;
+    }
+    return { ...headers, Cookie: authCookie };
+  }
+
+  async function login() {
+    const response = await fetch(`${baseUrl}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: adminCredentials.username,
+        password: adminCredentials.password,
+      }),
+    });
+    const cookie = response.headers.get("set-cookie");
+    authCookie = cookie ?? "";
+    return response;
+  }
+
+  function authFetch(url, options = {}) {
+    const headers = authHeaders(options.headers ?? {});
+    return fetch(url, { ...options, headers });
+  }
 
   before(async () => {
     const temp = createTempStore();
@@ -45,18 +75,24 @@ describe("Plan API", () => {
     snippetStore = temp.snippetStore;
     templateStore = temp.templateStore;
     highlightStore = temp.highlightStore;
+    sessionStore = new SessionStore({ storageFile: path.join(tempDir, "sessions.json") });
     server = createServer({
       store,
       templateStore,
       snippetStore,
       highlightConfigStore: highlightStore,
       publicDir: path.join(repoRoot, "public"),
+      users: [adminCredentials],
+      sessionStore,
     });
     server.listen(0);
     await once(server, "listening");
     const address = server.address();
     const port = typeof address === "object" && address ? address.port : 0;
     baseUrl = `http://127.0.0.1:${port}`;
+
+    const loginResponse = await login();
+    assert.equal(loginResponse.status, 200);
   });
 
   after(async () => {
@@ -65,7 +101,25 @@ describe("Plan API", () => {
     await snippetStore?.close();
     await templateStore?.close();
     await highlightStore?.close();
+    await sessionStore?.close();
     rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("verweigert API-Aufrufe ohne Sitzung", async () => {
+    const response = await fetch(`${baseUrl}/api/plans`);
+    assert.equal(response.status, 401);
+  });
+
+  it("ermöglicht Logout und erneutes Login", async () => {
+    const logoutResponse = await authFetch(`${baseUrl}/api/auth/logout`, { method: "POST" });
+    assert.equal(logoutResponse.status, 204);
+    authCookie = "";
+
+    const afterLogout = await fetch(`${baseUrl}/api/plans`);
+    assert.equal(afterLogout.status, 401);
+
+    const loginResponse = await login();
+    assert.equal(loginResponse.status, 200);
   });
 
   it("legt neue Pläne an und listet sie", async () => {
@@ -77,7 +131,7 @@ describe("Plan API", () => {
       metadata: { coach: "Kim" },
     };
 
-    const response = await fetch(`${baseUrl}/api/plans`, {
+    const response = await authFetch(`${baseUrl}/api/plans`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -93,7 +147,7 @@ describe("Plan API", () => {
     assert.ok(created.id > 0);
     assert.equal(created.title, "Testplan");
 
-    const listResponse = await fetch(`${baseUrl}/api/plans`);
+    const listResponse = await authFetch(`${baseUrl}/api/plans`);
     assert.equal(listResponse.status, 200);
     assert.equal(listResponse.headers.get("cache-control"), "no-store");
     const plans = await listResponse.json();
@@ -184,7 +238,7 @@ describe("Plan API", () => {
       focus: "SP",
     });
 
-    const initialResponse = await fetch(`${baseUrl}/api/plans/${created.id}`);
+    const initialResponse = await authFetch(`${baseUrl}/api/plans/${created.id}`);
     assert.equal(initialResponse.status, 200);
     assert.equal(initialResponse.headers.get("cache-control"), "no-store");
     const initialEtag = initialResponse.headers.get("etag");
@@ -199,7 +253,7 @@ describe("Plan API", () => {
       metadata: originalPlan.metadata ?? {},
     };
 
-    const updateResponse = await fetch(`${baseUrl}/api/plans/${created.id}`, {
+    const updateResponse = await authFetch(`${baseUrl}/api/plans/${created.id}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -216,7 +270,7 @@ describe("Plan API", () => {
     const updated = await updateResponse.json();
     assert.equal(updated.focus, "TE");
 
-    const deleteResponse = await fetch(`${baseUrl}/api/plans/${created.id}`, {
+    const deleteResponse = await authFetch(`${baseUrl}/api/plans/${created.id}`, {
       method: "DELETE",
       headers: {
         "If-Match": updateEtag,
@@ -228,7 +282,7 @@ describe("Plan API", () => {
   });
 
   it("validiert Content-Type und Nutzlast", async () => {
-    const badContentType = await fetch(`${baseUrl}/api/plans`, {
+    const badContentType = await authFetch(`${baseUrl}/api/plans`, {
       method: "POST",
       headers: {
         "Content-Type": "text/plain",
@@ -237,7 +291,7 @@ describe("Plan API", () => {
     });
     assert.equal(badContentType.status, 415);
 
-    const missingFields = await fetch(`${baseUrl}/api/plans`, {
+    const missingFields = await authFetch(`${baseUrl}/api/plans`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -257,7 +311,7 @@ describe("Plan API", () => {
       focus: "AR",
     });
 
-    const initial = await fetch(`${baseUrl}/api/plans/${plan.id}`);
+    const initial = await authFetch(`${baseUrl}/api/plans/${plan.id}`);
     const initialEtag = initial.headers.get("etag");
     assert.ok(initialEtag);
 
@@ -269,7 +323,7 @@ describe("Plan API", () => {
       focus: "TE",
       metadata: initialBody.metadata ?? {},
     };
-    const firstUpdate = await fetch(`${baseUrl}/api/plans/${plan.id}`, {
+    const firstUpdate = await authFetch(`${baseUrl}/api/plans/${plan.id}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -282,7 +336,7 @@ describe("Plan API", () => {
     assert.ok(freshEtag);
 
     const conflictPayload = { ...firstPayload, focus: "SP" };
-    const conflict = await fetch(`${baseUrl}/api/plans/${plan.id}`, {
+    const conflict = await authFetch(`${baseUrl}/api/plans/${plan.id}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -295,7 +349,7 @@ describe("Plan API", () => {
     const conflictBody = await conflict.json();
     assert.equal(conflictBody.error.details?.currentPlan?.focus, "TE");
 
-    const deleteConflict = await fetch(`${baseUrl}/api/plans/${plan.id}`, {
+    const deleteConflict = await authFetch(`${baseUrl}/api/plans/${plan.id}`, {
       method: "DELETE",
       headers: {
         "If-Match": initialEtag,
@@ -306,7 +360,7 @@ describe("Plan API", () => {
     const deleteBody = await deleteConflict.json();
     assert.equal(deleteBody.error.details?.currentPlan?.focus, "TE");
 
-    const cleanup = await fetch(`${baseUrl}/api/plans/${plan.id}`, {
+    const cleanup = await authFetch(`${baseUrl}/api/plans/${plan.id}`, {
       method: "DELETE",
       headers: {
         "If-Match": freshEtag,
@@ -324,7 +378,7 @@ describe("Plan API", () => {
       tags: ["Sprint", "Kurz"],
     };
 
-    const createResponse = await fetch(`${baseUrl}/api/templates`, {
+    const createResponse = await authFetch(`${baseUrl}/api/templates`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -338,14 +392,14 @@ describe("Plan API", () => {
     assert.equal(created.type, "Block");
     assert.equal(createResponse.headers.get("cache-control"), "no-store");
 
-    const listResponse = await fetch(`${baseUrl}/api/templates`);
+    const listResponse = await authFetch(`${baseUrl}/api/templates`);
     assert.equal(listResponse.status, 200);
     const templates = await listResponse.json();
     assert.equal(templates.length, 1);
     assert.equal(templates[0].title, "Sprintblock");
 
     const updatePayload = { ...createPayload, title: "Sprintblock #1" };
-    const updateResponse = await fetch(`${baseUrl}/api/templates/${encodeURIComponent(created.id)}`, {
+    const updateResponse = await authFetch(`${baseUrl}/api/templates/${encodeURIComponent(created.id)}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -357,7 +411,7 @@ describe("Plan API", () => {
     const updated = await updateResponse.json();
     assert.equal(updated.title, "Sprintblock #1");
 
-    const deleteResponse = await fetch(`${baseUrl}/api/templates/${encodeURIComponent(created.id)}`, {
+    const deleteResponse = await authFetch(`${baseUrl}/api/templates/${encodeURIComponent(created.id)}`, {
       method: "DELETE",
     });
     assert.equal(deleteResponse.status, 204);
@@ -381,7 +435,7 @@ describe("Plan API", () => {
       focus: "AR",
     });
 
-    const backupResponse = await fetch(`${baseUrl}/api/backups`);
+    const backupResponse = await authFetch(`${baseUrl}/api/backups`);
     assert.equal(backupResponse.status, 200);
     assert.equal(backupResponse.headers.get("cache-control"), "no-store");
     const backup = await backupResponse.json();
@@ -397,7 +451,7 @@ describe("Plan API", () => {
     const interimPlans = await store.listPlans();
     assert.equal(interimPlans.length, 2);
 
-    const restoreResponse = await fetch(`${baseUrl}/api/backups`, {
+    const restoreResponse = await authFetch(`${baseUrl}/api/backups`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -414,7 +468,7 @@ describe("Plan API", () => {
     assert.equal(restoredPlans.length, 1);
     assert.equal(restoredPlans[0].title, basePlan.title);
 
-    const invalidRestore = await fetch(`${baseUrl}/api/backups`, {
+    const invalidRestore = await authFetch(`${baseUrl}/api/backups`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -425,7 +479,7 @@ describe("Plan API", () => {
   });
 
   it("unterstützt HEAD und OPTIONS mit CORS-Headern", async () => {
-    const optionsResponse = await fetch(`${baseUrl}/api/plans`, {
+    const optionsResponse = await authFetch(`${baseUrl}/api/plans`, {
       method: "OPTIONS",
     });
     assert.equal(optionsResponse.status, 204);
@@ -441,7 +495,7 @@ describe("Plan API", () => {
       focus: "TE",
     });
 
-    const headResponse = await fetch(`${baseUrl}/api/plans/${created.id}`, {
+    const headResponse = await authFetch(`${baseUrl}/api/plans/${created.id}`, {
       method: "HEAD",
     });
     assert.equal(headResponse.status, 200);
@@ -462,19 +516,19 @@ describe("Plan API", () => {
       focus: "AR",
     });
 
-    const first = await fetch(`${baseUrl}/api/plans/${plan.id}`);
+    const first = await authFetch(`${baseUrl}/api/plans/${plan.id}`);
     assert.equal(first.status, 200);
     const etag = first.headers.get("etag");
     assert.ok(etag);
 
-    const conditional = await fetch(`${baseUrl}/api/plans/${plan.id}`, {
+    const conditional = await authFetch(`${baseUrl}/api/plans/${plan.id}`, {
       headers: { "If-None-Match": etag },
     });
     assert.equal(conditional.status, 304);
     assert.equal(conditional.headers.get("etag"), etag);
     assert.equal(await conditional.text(), "");
 
-    const headConditional = await fetch(`${baseUrl}/api/plans/${plan.id}`, {
+    const headConditional = await authFetch(`${baseUrl}/api/plans/${plan.id}`, {
       method: "HEAD",
       headers: { "If-None-Match": etag },
     });
@@ -482,7 +536,7 @@ describe("Plan API", () => {
     assert.equal(headConditional.headers.get("etag"), etag);
     assert.equal(await headConditional.text(), "");
 
-    const cleanup = await fetch(`${baseUrl}/api/plans/${plan.id}`, {
+    const cleanup = await authFetch(`${baseUrl}/api/plans/${plan.id}`, {
       method: "DELETE",
       headers: { "If-Match": etag },
     });
@@ -490,14 +544,14 @@ describe("Plan API", () => {
   });
 
   it("verwaltet die Highlight-Konfiguration über die API", async () => {
-    const initialResponse = await fetch(`${baseUrl}/api/highlight-config`);
+    const initialResponse = await authFetch(`${baseUrl}/api/highlight-config`);
     assert.equal(initialResponse.status, 200);
     const initial = await initialResponse.json();
     assert.ok(Array.isArray(initial.intensities));
     assert.ok(initial.intensities.length > 0);
     assert.ok(Array.isArray(initial.equipment));
 
-    const updateResponse = await fetch(`${baseUrl}/api/highlight-config`, {
+    const updateResponse = await authFetch(`${baseUrl}/api/highlight-config`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -512,7 +566,7 @@ describe("Plan API", () => {
     assert.deepEqual(updated.intensities, ["en1", "Sprint"]);
     assert.deepEqual(updated.equipment, ["Brett", "Paddles"]);
 
-    const reloadResponse = await fetch(`${baseUrl}/api/highlight-config`);
+    const reloadResponse = await authFetch(`${baseUrl}/api/highlight-config`);
     assert.equal(reloadResponse.status, 200);
     const reloaded = await reloadResponse.json();
     assert.deepEqual(reloaded.intensities, ["en1", "Sprint"]);
@@ -569,11 +623,13 @@ describe("Plan API", () => {
   it("schließt den Store beim Server-Shutdown", async () => {
     const temp = createTempStore();
     const localStore = temp.store;
+    const localSessionStore = new SessionStore({ storageFile: path.join(temp.dir, "sessions.json") });
     const closeMock = mock.method(localStore, "close", async () => {});
     const localServer = createServer({
       store: localStore,
       publicDir: path.join(repoRoot, "public"),
       gracefulShutdownSignals: [],
+      sessionStore: localSessionStore,
     });
     localServer.listen(0);
     await once(localServer, "listening");
@@ -584,11 +640,12 @@ describe("Plan API", () => {
 
     closeMock.mock.restore();
     await localStore.close();
+    await localSessionStore.close();
     rmSync(temp.dir, { recursive: true, force: true });
   });
 
   it("liefert und ersetzt Team-Snippets", async () => {
-    const initial = await fetch(`${baseUrl}/api/snippets`);
+    const initial = await authFetch(`${baseUrl}/api/snippets`);
     assert.equal(initial.status, 200);
     const initialBody = await initial.json();
     assert.ok(Array.isArray(initialBody.groups));
@@ -604,7 +661,7 @@ describe("Plan API", () => {
       },
     ];
 
-    const putResponse = await fetch(`${baseUrl}/api/snippets`, {
+    const putResponse = await authFetch(`${baseUrl}/api/snippets`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ groups: newGroups }),
@@ -621,7 +678,7 @@ describe("Plan API", () => {
   });
 
   it("validiert Snippet-Payloads", async () => {
-    const invalid = await fetch(`${baseUrl}/api/snippets`, {
+    const invalid = await authFetch(`${baseUrl}/api/snippets`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ groups: { broken: true } }),
@@ -644,5 +701,25 @@ describe("Plan API", () => {
     const headResponse = await fetch(`${baseUrl}/readyz`, { method: "HEAD" });
     assert.equal(headResponse.status, 200);
     assert.equal(headResponse.headers.get("cache-control"), "no-store");
+  });
+
+  it("blockiert wiederholte Login-Fehlversuche", async () => {
+    authCookie = "";
+    let lastStatus = 0;
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const response = await fetch(`${baseUrl}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: adminCredentials.username,
+          password: "wrong-password",
+        }),
+      });
+      if (attempt < 5) {
+        assert.equal(response.status, 401);
+      }
+      lastStatus = response.status;
+    }
+    assert.equal(lastStatus, 429);
   });
 });
