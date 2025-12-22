@@ -159,7 +159,7 @@ async function loadUsers() {
   setStatus(dom.status, "Lade Benutzer...", "info");
   try {
     const { data } = await get("/api/users");
-    state.users = Array.isArray(data?.users) ? data.users : [];
+    state.users = Array.isArray(data) ? data : Array.isArray(data?.users) ? data.users : [];
     renderUserList(state.users);
     setStatus(dom.status, "Benutzerliste aktualisiert.", "success");
   } catch (error) {

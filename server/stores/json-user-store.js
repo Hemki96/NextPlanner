@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -6,6 +6,7 @@ import { DATA_DIR } from "../config.js";
 import { logger } from "../logger.js";
 
 const DEFAULT_FILE_NAME = "users.json";
+const ALLOWED_ROLES = new Set(["admin", "editor", "user", "viewer"]);
 
 function resolveDefaultFile() {
   return join(DATA_DIR, DEFAULT_FILE_NAME);
@@ -66,8 +67,8 @@ function sanitizeRoles(roles) {
   }
   const source = Array.isArray(roles) ? roles : [roles];
   const cleaned = source
-    .map((role) => (typeof role === "string" ? role.trim() : ""))
-    .filter((role) => !!role);
+    .map((role) => (typeof role === "string" ? role.trim().toLowerCase() : ""))
+    .filter((role) => !!role && ALLOWED_ROLES.has(role));
   if (cleaned.length === 0) {
     return ["user"];
   }
@@ -82,6 +83,15 @@ function cloneUser(user) {
 
 function hashPassword(password, salt) {
   return createHash("sha256").update(`${salt}:${password}`).digest("hex");
+}
+
+function safeCompare(expected, actual) {
+  const expectedBuffer = Buffer.from(expected, "hex");
+  const actualBuffer = Buffer.from(actual, "hex");
+  if (expectedBuffer.length !== actualBuffer.length) {
+    return false;
+  }
+  return timingSafeEqual(expectedBuffer, actualBuffer);
 }
 
 export class JsonUserStore {
@@ -193,6 +203,11 @@ export class JsonUserStore {
     return this.#data.users.map((user) => cloneUser(user));
   }
 
+  async getUserCount() {
+    await this.#ready;
+    return this.#data.users.length;
+  }
+
   async getUser(id) {
     await this.#ready;
     const user = this.#data.users.find((entry) => entry.id === id);
@@ -241,6 +256,18 @@ export class JsonUserStore {
     return cloneUser(user);
   }
 
+  async #findStoredUserByUsername(username) {
+    await this.#ready;
+    const normalized = normalizeUsername(username);
+    const lower = normalized.toLowerCase();
+    return this.#data.users.find((entry) => entry.username.toLowerCase() === lower) ?? null;
+  }
+
+  async findByUsername(username) {
+    const stored = await this.#findStoredUserByUsername(username);
+    return stored ? cloneUser(stored) : null;
+  }
+
   async updateUser(id, changes) {
     await this.#assertOpen();
     await this.#ready;
@@ -286,6 +313,23 @@ export class JsonUserStore {
     }
     user.updatedAt = new Date().toISOString();
     await this.#enqueueWrite();
+    return cloneUser(user);
+  }
+
+  async verifyCredentials(username, password) {
+    await this.#ready;
+    const user = await this.#findStoredUserByUsername(username);
+    if (!user || user.active === false) {
+      return null;
+    }
+    const passwordValue = String(password ?? "");
+    if (!passwordValue) {
+      return null;
+    }
+    const candidateHash = hashPassword(passwordValue, user.passwordSalt);
+    if (!safeCompare(user.passwordHash, candidateHash)) {
+      return null;
+    }
     return cloneUser(user);
   }
 
