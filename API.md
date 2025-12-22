@@ -4,11 +4,25 @@ Alle Endpunkte werden über den integrierten HTTP-Server unter `http://localhost
 
 ## Gemeinsame Regeln
 
-- **Authentifizierung**: nicht erforderlich (rein lokal).
+- **Authentifizierung**: Alle API-Aufrufe (außer Health-Checks sowie `/api/auth/login` und `/api/auth/logout`) erfordern eine gültige Session. Das Login setzt ein `HttpOnly`, `Secure`, `SameSite=Lax`-Cookie (`nextplanner_session`), das bei jedem API-Call mitgesendet werden muss.
 - **Content Negotiation**: Clients senden standardmäßig `Accept: application/json`; bei Request-Bodys ist `Content-Type: application/json` Pflicht.
 - **Caching & ETag**: Ressourcen liefern starke SHA-256-ETags. Mutierende Requests (`PUT`, `DELETE`) **müssen** `If-Match` enthalten. Der Client speichert den letzten ETag je Ressource.
 - **CORS**: `Access-Control-Allow-Origin` wird auf den erlaubten Ursprung gesetzt (Standard: `http://localhost:3000`).
 - **Fehlercodes**: 400 (Validierung), 404 (nicht gefunden), 409 (semantischer Konflikt), 412 (ETag-Mismatch), 422 (Schemafehler), 500 (unerwartet).
+- **Brute-Force-Schutz**: Login-Fehlversuche werden pro IP/Benutzer mit einem kurzen Zeitfenster gedrosselt und können temporär `429 Too Many Requests` auslösen.
+
+## Authentifizierung
+
+### `POST /api/auth/login`
+
+Meldet einen Benutzer an. Erwartet `{ "username": "…", "password": "…" }` und setzt ein Session-Cookie (`nextplanner_session`, `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`). Der Response-Body enthält die User-Metadaten (`username`, `isAdmin`) und das Ablaufdatum der Session.
+
+- `401 Unauthorized` bei ungültigen Credentials.
+- `429 Too Many Requests` bei zu vielen Fehlversuchen innerhalb des Rate-Limit-Fensters.
+
+### `POST /api/auth/logout`
+
+Beendet die aktuelle Sitzung und löscht das Session-Cookie (`Max-Age=0`). Liefert `204 No Content`.
 
 ## `GET /api/plans`
 
