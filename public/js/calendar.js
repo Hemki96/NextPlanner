@@ -7,6 +7,7 @@ import {
   getFeatureSettings,
   subscribeToFeatureSettings,
 } from "./utils/feature-settings.js";
+import { resolveUserDirectory } from "./utils/user-directory.js";
 
 const weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 const monthFormatter = new Intl.DateTimeFormat("de-DE", {
@@ -27,6 +28,10 @@ const shortDateFormatter = new Intl.DateTimeFormat("de-DE", {
 const timeFormatter = new Intl.DateTimeFormat("de-DE", {
   hour: "2-digit",
   minute: "2-digit",
+});
+const dateTimeFormatter = new Intl.DateTimeFormat("de-DE", {
+  dateStyle: "short",
+  timeStyle: "short",
 });
 
 const calendarGrid = document.getElementById("calendar-grid");
@@ -56,6 +61,7 @@ let selectedDateKey = dateToKey(new Date());
 let plans = [];
 let plansByDate = new Map();
 let mostRecentPlan = null;
+let userDirectory = new Map();
 
 function describePlanForMessages(plan, dateKey) {
   const parts = [];
@@ -197,6 +203,43 @@ function parsePlanDate(value) {
   }
 
   return null;
+}
+
+function formatDateTimeLabel(value) {
+  const parsed = parsePlanDate(value);
+  if (!parsed) {
+    return "unbekannt";
+  }
+  return dateTimeFormatter.format(parsed);
+}
+
+function describeUserName(userId) {
+  if (!userId) {
+    return "Unbekannt";
+  }
+  const entry = userDirectory.get(userId);
+  if (entry?.name) {
+    return entry.name;
+  }
+  return typeof userId === "string" && userId.trim() ? userId : String(userId);
+}
+
+async function refreshUserDirectory(planList) {
+  const identifiers = new Set();
+  for (const plan of planList ?? []) {
+    if (plan?.createdByUserId) {
+      identifiers.add(plan.createdByUserId);
+    }
+    if (plan?.updatedByUserId) {
+      identifiers.add(plan.updatedByUserId);
+    }
+  }
+  try {
+    userDirectory = await resolveUserDirectory(Array.from(identifiers));
+  } catch (error) {
+    console.warn("Benutzernamen konnten nicht geladen werden", error);
+    userDirectory = new Map();
+  }
 }
 
 function isoToDateKey(isoString) {
@@ -918,6 +961,15 @@ function renderPlanList(dateKey) {
     meta.textContent = focus;
     entry.append(meta);
 
+    const audit = document.createElement("p");
+    audit.className = "plan-entry-meta plan-entry-audit";
+    const createdByLabel = describeUserName(plan.createdByUserId);
+    const updatedByLabel = describeUserName(plan.updatedByUserId);
+    const createdAtLabel = formatDateTimeLabel(plan.createdAt);
+    const updatedAtLabel = formatDateTimeLabel(plan.updatedAt);
+    audit.textContent = `Erstellt von ${createdByLabel} (${createdAtLabel}), zuletzt bearbeitet von ${updatedByLabel} (${updatedAtLabel}).`;
+    entry.append(audit);
+
     if (plan.metadata?.notes) {
       const notes = document.createElement("p");
       notes.className = "plan-entry-notes";
@@ -1008,6 +1060,7 @@ async function loadPlans() {
   try {
     const { data } = await apiRequest("/api/plans");
     plans = Array.isArray(data) ? data : [];
+    await refreshUserDirectory(plans);
     buildIndex();
     mostRecentPlan = plans
       .slice()

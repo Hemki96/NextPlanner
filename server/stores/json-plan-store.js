@@ -105,6 +105,36 @@ function coerceMetadataObject(metadata) {
     : {};
 }
 
+function coerceUserId(value) {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return null;
+  }
+  if (typeof value === "string" || typeof value === "number") {
+    const normalized = String(value).trim();
+    return normalized || null;
+  }
+  return null;
+}
+
+function coerceIsoTimestamp(value, fallback = null) {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  }
+  if (fallback) {
+    return coerceIsoTimestamp(fallback);
+  }
+  return new Date().toISOString();
+}
+
 function clonePlan(plan) {
   return { ...plan, metadata: { ...coerceMetadataObject(plan.metadata) } };
 }
@@ -130,7 +160,7 @@ function normalizePlanInput(source, { requireAll }) {
   return normalized;
 }
 
-function applyPlanChanges(plan, normalized) {
+function applyPlanChanges(plan, normalized, { auditUserId, hasAuditUser = false, timestamp = null } = {}) {
   let changed = false;
   for (const [field, value] of Object.entries(normalized)) {
     if (!isDeepStrictEqual(plan[field], value)) {
@@ -138,8 +168,13 @@ function applyPlanChanges(plan, normalized) {
       changed = true;
     }
   }
-  if (changed) {
-    plan.updatedAt = new Date().toISOString();
+  const auditChanged = hasAuditUser && auditUserId !== plan.updatedByUserId;
+  if (changed || auditChanged) {
+    plan.updatedAt = timestamp ?? new Date().toISOString();
+    if (hasAuditUser) {
+      plan.updatedByUserId = auditUserId ?? null;
+    }
+    changed = true;
   }
   return changed;
 }
@@ -168,6 +203,8 @@ function normalizeBackupPlan(rawPlan) {
   const metadata = normalizeMetadata(plan.metadata);
   const createdAt = normalizeTimestamp(plan.createdAt, "createdAt");
   const updatedAt = normalizeTimestamp(plan.updatedAt, "updatedAt");
+  const createdByUserId = coerceUserId(plan.createdByUserId) ?? null;
+  const updatedByUserId = coerceUserId(plan.updatedByUserId) ?? createdByUserId ?? null;
   return {
     id,
     title,
@@ -177,6 +214,8 @@ function normalizeBackupPlan(rawPlan) {
     metadata,
     createdAt,
     updatedAt,
+    createdByUserId,
+    updatedByUserId,
   };
 }
 
@@ -251,6 +290,11 @@ export class JsonPlanStore {
     this.#plansById.clear();
     for (const plan of this.#data.plans) {
       plan.metadata = coerceMetadataObject(plan.metadata);
+      plan.createdByUserId = coerceUserId(plan.createdByUserId) ?? null;
+      plan.updatedByUserId =
+        coerceUserId(plan.updatedByUserId) ?? plan.createdByUserId ?? null;
+      plan.createdAt = coerceIsoTimestamp(plan.createdAt);
+      plan.updatedAt = coerceIsoTimestamp(plan.updatedAt ?? plan.createdAt, plan.createdAt);
       this.#plansById.set(plan.id, plan);
     }
     this.#sortedPlans = null;
@@ -274,7 +318,11 @@ export class JsonPlanStore {
       if (typeof parsed.nextId !== "number" || !Array.isArray(parsed.plans)) {
         throw new Error("Invalid storage structure");
       }
-      return parsed;
+      const normalized = this.#normalizeLoadedData(parsed);
+      if (normalized.migrated) {
+        await this.#writeFileAtomically(normalized.data);
+      }
+      return normalized.data;
     } catch (error) {
       if (error instanceof SyntaxError || error.message.includes("Invalid storage structure")) {
         const backupFile = await this.#isolateCorruptFile();
@@ -422,6 +470,44 @@ export class JsonPlanStore {
     return this.#writeQueue;
   }
 
+  #normalizeLoadedData(data) {
+    const normalizedPlans = [];
+    let migrated = false;
+    for (const plan of data.plans) {
+      const normalized = {
+        ...plan,
+        metadata: coerceMetadataObject(plan.metadata),
+      };
+      const createdAt = coerceIsoTimestamp(plan.createdAt);
+      const updatedAt = coerceIsoTimestamp(plan.updatedAt ?? createdAt, createdAt);
+      const createdByUserId = coerceUserId(plan.createdByUserId) ?? null;
+      const updatedByUserId = coerceUserId(plan.updatedByUserId) ?? createdByUserId ?? null;
+
+      if (
+        normalized.metadata !== plan.metadata ||
+        createdAt !== plan.createdAt ||
+        updatedAt !== plan.updatedAt ||
+        createdByUserId !== (plan.createdByUserId ?? null) ||
+        updatedByUserId !== (plan.updatedByUserId ?? null)
+      ) {
+        migrated = true;
+      }
+
+      normalized.createdAt = createdAt;
+      normalized.updatedAt = updatedAt;
+      normalized.createdByUserId = createdByUserId;
+      normalized.updatedByUserId = updatedByUserId;
+      normalizedPlans.push(normalized);
+    }
+    return {
+      migrated,
+      data: {
+        nextId: data.nextId,
+        plans: normalizedPlans,
+      },
+    };
+  }
+
   #invalidatePlanOrder() {
     this.#sortedPlans = null;
   }
@@ -457,18 +543,21 @@ export class JsonPlanStore {
     return this.#integrityIssue;
   }
 
-  async createPlan({ title, content, planDate, focus, metadata }) {
+  async createPlan({ title, content, planDate, focus, metadata }, options = {}) {
     await this.#ensureReady();
     const normalized = normalizePlanInput(
       { title, content, planDate, focus, metadata },
       { requireAll: true }
     );
     const timestamp = new Date().toISOString();
+    const auditUserId = coerceUserId(options.userId ?? options.createdByUserId) ?? null;
     const plan = {
       id: this.#data.nextId++,
       ...normalized,
       createdAt: timestamp,
       updatedAt: timestamp,
+      createdByUserId: auditUserId,
+      updatedByUserId: auditUserId,
     };
     plan.metadata = coerceMetadataObject(plan.metadata);
     this.#data.plans.push(plan);
@@ -493,15 +582,18 @@ export class JsonPlanStore {
       });
     }
     const normalized = normalizePlanInput(updates, { requireAll: false });
-    if (Object.keys(normalized).length > 0) {
-      const previousDate = plan.planDate;
-      const changed = applyPlanChanges(plan, normalized);
-      if (changed) {
-        if (plan.planDate !== previousDate) {
-          this.#invalidatePlanOrder();
-        }
-        await this.#writeToDisk();
+    const hasAuditUser = Object.hasOwn(options, "userId") && options.userId !== undefined;
+    const auditUserId = hasAuditUser ? coerceUserId(options.userId) ?? null : undefined;
+    const previousDate = plan.planDate;
+    const changed = applyPlanChanges(plan, normalized, {
+      auditUserId,
+      hasAuditUser,
+    });
+    if (changed) {
+      if (plan.planDate !== previousDate) {
+        this.#invalidatePlanOrder();
       }
+      await this.#writeToDisk();
     }
     return clonePlan(plan);
   }
@@ -521,8 +613,17 @@ export class JsonPlanStore {
       });
     }
     const normalized = normalizePlanInput(replacement, { requireAll: true });
+    const hasAuditUser = Object.hasOwn(options, "userId") && options.userId !== undefined;
+    const auditUserId = hasAuditUser ? coerceUserId(options.userId) ?? null : undefined;
+    const timestamp = new Date().toISOString();
     const previousDate = plan.planDate;
-    if (applyPlanChanges(plan, normalized)) {
+    if (
+      applyPlanChanges(plan, normalized, {
+        auditUserId,
+        hasAuditUser,
+        timestamp,
+      })
+    ) {
       if (plan.planDate !== previousDate) {
         this.#invalidatePlanOrder();
       }
