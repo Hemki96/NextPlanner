@@ -1324,7 +1324,7 @@ async function handleApiRequest(
   const authContext = auth ?? { user: null, isAdmin: false, token: null };
   const requestUser = authContext.user ?? req.user ?? null;
   const access = resolveAccess(requestUser, authContext.isAdmin || req.isAdmin);
-  const isAdminRequest = access.isAdmin;
+  let isAdminRequest = access.isAdmin;
   const isSafeMethod = method === "GET" || method === "HEAD" || method === "OPTIONS";
   const hasSessionCookie = Boolean(authContext.token);
 
@@ -1510,7 +1510,7 @@ async function handleApiRequest(
     return;
   }
 
-  const isAdminRequest = Boolean(authContext.isAdmin || req.user?.role === "admin" || req.isAdmin);
+  isAdminRequest = Boolean(authContext.isAdmin || req.user?.role === "admin" || req.isAdmin);
 
   const isBackupsRoute =
     url.pathname === "/api/backups" ||
