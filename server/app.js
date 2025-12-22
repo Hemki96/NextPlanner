@@ -1320,6 +1320,8 @@ async function handleApiRequest(
     return;
   }
 
+  const isAdminRequest = Boolean(authContext.isAdmin || req.user?.role === "admin" || req.isAdmin);
+
   const isBackupsRoute =
     url.pathname === "/api/backups" ||
     url.pathname === "/api/storage/backup" ||
@@ -1394,7 +1396,14 @@ async function handleApiRequest(
     if (method === "GET" || method === "HEAD") {
       try {
         const users = await userStore.listUsers();
-        sendApiJson(res, 200, { users }, { method, origin: requestOrigin });
+        const known = Array.from(KNOWN_USERS.values());
+        const merged = [...users];
+        for (const user of known) {
+          if (!merged.some((entry) => entry.id === user.id)) {
+            merged.push(user);
+          }
+        }
+        sendApiJson(res, 200, merged, { method, origin: requestOrigin });
       } catch (error) {
         handleApiError(res, error, method, requestOrigin, logOptions);
       }
@@ -2166,6 +2175,7 @@ export function createRequestHandler({
   const requestId = ++requestCounter;
   const requestLogger = createRequestLogger({ req: requestId });
   let pathForLogging = req.url ?? "<unknown>";
+  let authContext = { user: null, isAdmin: false, token: null };
 
   attachRequestUser(req);
 
@@ -2222,7 +2232,14 @@ export function createRequestHandler({
         await sessionStore.pruneExpired();
       }
       authContext = await resolveAuthContext(req, sessionStore, requestLogger);
-      req.user = authContext.user;
+      if (!authContext.user && req.user) {
+        authContext = {
+          ...authContext,
+          user: req.user,
+          isAdmin: req.user.role === "admin" ? true : authContext.isAdmin,
+        };
+      }
+      req.user = authContext.user ?? req.user;
       req.isAdmin = authContext.isAdmin;
 
       if (isHealthCheckRequest(url.pathname)) {
