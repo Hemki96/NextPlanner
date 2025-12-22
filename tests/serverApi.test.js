@@ -158,6 +158,78 @@ describe("Plan API", () => {
     assert.equal(stored.metadata.coach, "Kim");
   });
 
+  it("setzt Audit-Felder bei authentifizierten Requests und liefert Benutzerinfos", async () => {
+    const payload = {
+      title: "Audit-Plan",
+      content: "Aufwärmen",
+      planDate: "2024-07-01",
+      focus: "AR",
+    };
+
+    const createResponse = await fetch(`${baseUrl}/api/plans`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-User-Id": "coach-1",
+        "X-User-Name": "Coach Kim",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    assert.equal(createResponse.status, 201);
+    const created = await createResponse.json();
+    assert.equal(created.createdByUserId, "coach-1");
+    assert.equal(created.updatedByUserId, "coach-1");
+
+    const updatePayload = {
+      ...created,
+      focus: "TE",
+      metadata: created.metadata ?? {},
+    };
+
+    const updateResponse = await fetch(`${baseUrl}/api/plans/${created.id}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "If-Match": createResponse.headers.get("etag"),
+        "X-User-Id": "coach-2",
+        "X-User-Name": "Coach Sam",
+      },
+      body: JSON.stringify(updatePayload),
+    });
+
+    assert.equal(updateResponse.status, 200);
+    const updated = await updateResponse.json();
+    assert.equal(updated.createdByUserId, "coach-1");
+    assert.equal(updated.updatedByUserId, "coach-2");
+    assert.notEqual(updated.updatedAt, created.updatedAt);
+
+    const authMe = await fetch(`${baseUrl}/api/auth/me`, {
+      headers: {
+        "X-User-Id": "coach-2",
+        "X-User-Name": "Coach Sam",
+      },
+    });
+    assert.equal(authMe.status, 200);
+    const profile = await authMe.json();
+    assert.equal(profile.id, "coach-2");
+    assert.equal(profile.name, "Coach Sam");
+
+    const usersResponse = await fetch(`${baseUrl}/api/users`, {
+      headers: {
+        "X-User-Id": "admin-1",
+        "X-User-Role": "admin",
+        "X-User-Name": "Admin User",
+      },
+    });
+    assert.equal(usersResponse.status, 200);
+    const users = await usersResponse.json();
+    const userIds = users.map((user) => user.id);
+    assert.ok(userIds.includes("coach-1"));
+    assert.ok(userIds.includes("coach-2"));
+    assert.ok(userIds.includes("admin-1"));
+  });
+
   it("aktualisiert und löscht Pläne", async () => {
     const created = await store.createPlan({
       title: "Sprint",

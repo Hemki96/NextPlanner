@@ -290,6 +290,11 @@ const API_BASE_HEADERS = Object.freeze({
   "X-Content-Type-Options": "nosniff",
 });
 
+const USER_ID_HEADER = "x-user-id";
+const USER_NAME_HEADER = "x-user-name";
+const USER_ROLE_HEADER = "x-user-role";
+const KNOWN_USERS = new Map();
+
 const STATIC_SECURITY_HEADERS = Object.freeze({
   "Content-Security-Policy":
     "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';",
@@ -395,6 +400,8 @@ function canonicalizePlan(plan) {
     metadata: plan.metadata ?? {},
     createdAt: plan.createdAt,
     updatedAt: plan.updatedAt,
+    createdByUserId: plan.createdByUserId ?? null,
+    updatedByUserId: plan.updatedByUserId ?? null,
   };
   return JSON.stringify(sortCanonical(canonicalPlan));
 }
@@ -446,6 +453,63 @@ function ifMatchSatisfied(header, currentEtag) {
 function parseHttpDate(value) {
   const time = Date.parse(value);
   return Number.isNaN(time) ? null : time;
+}
+
+function getHeaderValue(headers, name) {
+  const value = headers?.[name];
+  if (Array.isArray(value)) {
+    return value[0];
+  }
+  return value ?? null;
+}
+
+function normalizeUserId(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value === "string" || typeof value === "number") {
+    const normalized = String(value).trim();
+    return normalized || null;
+  }
+  return null;
+}
+
+function normalizeUserRole(role) {
+  if (typeof role !== "string") {
+    return "user";
+  }
+  return role.trim().toLowerCase() === "admin" ? "admin" : "user";
+}
+
+function extractRequestUser(req) {
+  const id = normalizeUserId(getHeaderValue(req.headers, USER_ID_HEADER));
+  if (!id) {
+    return null;
+  }
+  const name = getHeaderValue(req.headers, USER_NAME_HEADER);
+  const role = normalizeUserRole(getHeaderValue(req.headers, USER_ROLE_HEADER));
+  const displayName = typeof name === "string" && name.trim() ? name.trim() : id;
+  return { id, name: displayName, role };
+}
+
+function rememberKnownUser(user) {
+  if (!user?.id) {
+    return;
+  }
+  KNOWN_USERS.set(user.id, {
+    id: user.id,
+    name: user.name ?? user.id,
+    role: user.role ?? "user",
+  });
+}
+
+function attachRequestUser(req) {
+  const user = extractRequestUser(req);
+  if (user) {
+    req.user = user;
+    rememberKnownUser(user);
+  }
+  return user;
 }
 
 function etagMatches(header, currentEtag) {
@@ -1805,12 +1869,81 @@ async function handleApiRequest(
     return;
   }
 
+  if (url.pathname === "/api/auth/me") {
+    if (method !== "GET" && method !== "HEAD") {
+      handleApiError(
+        res,
+        new HttpError(405, "Methode nicht erlaubt", {
+          hint: "Verwenden Sie GET oder HEAD, um das aktuelle Benutzerprofil abzurufen.",
+        }),
+        method,
+        requestOrigin,
+        logOptions,
+      );
+      return;
+    }
+    if (!req.user) {
+      handleApiError(
+        res,
+        new HttpError(401, "Authentifizierung erforderlich", {
+          hint: "Senden Sie die Benutzer-ID im Header 'X-User-Id', um das Profil abzurufen.",
+        }),
+        method,
+        requestOrigin,
+        logOptions,
+      );
+      return;
+    }
+    sendApiJson(
+      res,
+      200,
+      {
+        id: req.user.id,
+        name: req.user.name ?? req.user.id,
+        role: req.user.role ?? "user",
+      },
+      { method, origin: requestOrigin },
+    );
+    return;
+  }
+
+  if (url.pathname === "/api/users") {
+    if (method !== "GET" && method !== "HEAD") {
+      handleApiError(
+        res,
+        new HttpError(405, "Methode nicht erlaubt", {
+          hint: "Verwenden Sie GET oder HEAD, um bekannte Benutzer abzurufen.",
+        }),
+        method,
+        requestOrigin,
+        logOptions,
+      );
+      return;
+    }
+    if (!req.user || req.user.role !== "admin") {
+      handleApiError(
+        res,
+        new HttpError(403, "Admin-Rechte erforderlich", {
+          hint: "Nur Administratoren dürfen die Benutzerliste abrufen.",
+        }),
+        method,
+        requestOrigin,
+        logOptions,
+      );
+      return;
+    }
+    const users = Array.from(KNOWN_USERS.values());
+    sendApiJson(res, 200, users, { method, origin: requestOrigin });
+    return;
+  }
+
   if (url.pathname === "/api/plans") {
     if (method === "POST") {
       try {
         const body = await readJsonBody(req);
         const payload = validateCreatePayload(body);
-        const plan = await planStore.createPlan(payload);
+        const planOptions = req.user?.id ? { userId: req.user.id } : undefined;
+        const plan = await planStore.createPlan(payload, planOptions);
         sendApiJson(res, 201, plan, {
           method,
           origin: requestOrigin,
@@ -1914,9 +2047,11 @@ async function handleApiRequest(
       }
       const body = await readJsonBody(req);
       const replacement = validateCreatePayload(body);
-      const plan = await planStore.replacePlan(planId, replacement, {
-        expectedUpdatedAt: current.updatedAt,
-      });
+      const replaceOptions = { expectedUpdatedAt: current.updatedAt };
+      if (req.user?.id) {
+        replaceOptions.userId = req.user.id;
+      }
+      const plan = await planStore.replacePlan(planId, replacement, replaceOptions);
       if (!plan) {
         throw new HttpError(404, "Plan nicht gefunden", {
           hint: "Der Plan wurde eventuell gleichzeitig gelöscht. Laden Sie die Übersicht neu.",
@@ -2028,14 +2163,15 @@ export function createRequestHandler({
   return async (req, res) => {
     const start = process.hrtime.bigint();
     const method = (req.method ?? "GET").toUpperCase();
-    const requestId = ++requestCounter;
-    const requestLogger = createRequestLogger({ req: requestId });
-    let pathForLogging = req.url ?? "<unknown>";
-    let authContext = { user: null, isAdmin: false, token: null };
+  const requestId = ++requestCounter;
+  const requestLogger = createRequestLogger({ req: requestId });
+  let pathForLogging = req.url ?? "<unknown>";
 
-    res.once("finish", () => {
-      const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
-      const status = res.statusCode ?? 0;
+  attachRequestUser(req);
+
+  res.once("finish", () => {
+    const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+    const status = res.statusCode ?? 0;
       const level =
         isApiRequest(pathForLogging) || isHealthCheckRequest(pathForLogging) ? "info" : "debug";
       const formattedDuration = Number.isFinite(durationMs)

@@ -49,6 +49,33 @@ describe("JsonPlanStore", () => {
     assert.equal(loaded.metadata.coach, "Alex");
   });
 
+  it("setzt Audit-Felder auf Basis des Nutzerkontexts", async () => {
+    const created = await store.createPlan(
+      {
+        title: "Audit-Test",
+        content: "4x50",
+        planDate: "2024-06-12",
+        focus: "AR",
+      },
+      { userId: "coach-1" },
+    );
+
+    assert.equal(created.createdByUserId, "coach-1");
+    assert.equal(created.updatedByUserId, "coach-1");
+
+    const updated = await store.updatePlan(
+      created.id,
+      {
+        focus: "SP",
+      },
+      { userId: "coach-2", expectedUpdatedAt: created.updatedAt },
+    );
+
+    assert.equal(updated.createdByUserId, "coach-1");
+    assert.equal(updated.updatedByUserId, "coach-2");
+    assert.notEqual(updated.updatedAt, created.updatedAt);
+  });
+
   it("filtert Pläne nach Datum und Fokus", async () => {
     await store.createPlan({
       title: "Grundlagenausdauer",
