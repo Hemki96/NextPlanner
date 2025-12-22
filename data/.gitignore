@@ -1,6 +1,7 @@
 # Laufzeitdaten des lokalen Speichers (werden automatisch erstellt)
 plans.json
 team-snippets.json
+users.json
 backups/
 
 # Datenbankdateien werden zur Laufzeit erstellt
