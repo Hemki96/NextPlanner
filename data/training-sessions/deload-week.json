@@ -1,0 +1,102 @@
+{
+  "meta": {
+    "athlete": "Case Study",
+    "macroCycle": "2024 Build",
+    "targetEvent": "800m",
+    "targetRaceDay": "2024-07-14",
+    "weekTag": "deload"
+  },
+  "sessions": [
+    {
+      "id": 1,
+      "date": "2024-06-17",
+      "title": "Technik + Schwelle Touch",
+      "primaryStroke": "freestyle",
+      "distanceMeters": 3800,
+      "plannedMinutes": 70,
+      "zoneMeters": { "Z1": 1000, "Z2": 1400, "Z3": 900, "Z4": 400, "Z5": 100 },
+      "keySessionType": "threshold",
+      "keySetMeters": 1400,
+      "techniqueMeters": 600,
+      "longestBlockMeters": 900,
+      "mainGoalDay": "2024-07-14",
+      "tags": ["deload", "threshold"]
+    },
+    {
+      "id": 2,
+      "date": "2024-06-18",
+      "title": "Technik & Mobility",
+      "primaryStroke": "freestyle",
+      "distanceMeters": 2600,
+      "plannedMinutes": 50,
+      "zoneMeters": { "Z1": 1400, "Z2": 700, "Z3": 300, "Z4": 150, "Z5": 50 },
+      "keySessionType": "technique",
+      "keySetMeters": 500,
+      "techniqueMeters": 900,
+      "longestBlockMeters": 500,
+      "mainGoalDay": "2024-07-14",
+      "tags": ["deload", "technique"]
+    },
+    {
+      "id": 3,
+      "date": "2024-06-19",
+      "title": "Sprint Impulse",
+      "primaryStroke": "freestyle",
+      "distanceMeters": 3200,
+      "plannedMinutes": 55,
+      "zoneMeters": { "Z1": 1200, "Z2": 900, "Z3": 500, "Z4": 400, "Z5": 200 },
+      "keySessionType": "sprint",
+      "keySetMeters": 1100,
+      "techniqueMeters": 500,
+      "longestBlockMeters": 700,
+      "mainGoalDay": "2024-07-14",
+      "tags": ["deload", "sprint"]
+    },
+    {
+      "id": 4,
+      "date": "2024-06-21",
+      "title": "Race-Pace Maintenance",
+      "primaryStroke": "freestyle",
+      "distanceMeters": 3600,
+      "plannedMinutes": 60,
+      "zoneMeters": { "Z1": 900, "Z2": 1200, "Z3": 900, "Z4": 450, "Z5": 150 },
+      "keySessionType": "race-pace",
+      "keySetMeters": 1500,
+      "techniqueMeters": 450,
+      "longestBlockMeters": 1000,
+      "mainGoalDay": "2024-07-14",
+      "tags": ["deload", "race-pace"],
+      "racePaceTargets": { "event": "800m", "repDistance": 200, "restSeconds": 35 }
+    },
+    {
+      "id": 5,
+      "date": "2024-06-22",
+      "title": "Locker + OW-Feeling",
+      "primaryStroke": "freestyle",
+      "distanceMeters": 4100,
+      "plannedMinutes": 70,
+      "zoneMeters": { "Z1": 1900, "Z2": 1400, "Z3": 500, "Z4": 200, "Z5": 100 },
+      "keySessionType": "threshold",
+      "keySetMeters": 800,
+      "techniqueMeters": 700,
+      "longestBlockMeters": 1100,
+      "mainGoalDay": "2024-07-14",
+      "tags": ["deload", "open-water"]
+    },
+    {
+      "id": 6,
+      "date": "2024-06-23",
+      "title": "Technik kompakt",
+      "primaryStroke": "freestyle",
+      "distanceMeters": 2800,
+      "plannedMinutes": 45,
+      "zoneMeters": { "Z1": 1400, "Z2": 850, "Z3": 350, "Z4": 150, "Z5": 50 },
+      "keySessionType": "technique",
+      "keySetMeters": 550,
+      "techniqueMeters": 950,
+      "longestBlockMeters": 600,
+      "mainGoalDay": "2024-07-14",
+      "tags": ["deload", "technique"]
+    }
+  ]
+}

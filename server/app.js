@@ -1510,6 +1510,8 @@ async function handleApiRequest(
     return;
   }
 
+  const isAdminRequest = Boolean(authContext.isAdmin || req.user?.role === "admin" || req.isAdmin);
+
   const isBackupsRoute =
     url.pathname === "/api/backups" ||
     url.pathname === "/api/storage/backup" ||
