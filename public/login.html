@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NextPlanner – Anmeldung</title>
+  <script>
+    (function () {
+      try {
+        var storedTheme = localStorage.getItem("nextplanner-theme");
+        if (storedTheme === "dark") {
+          document.documentElement.dataset.theme = "dark";
+        } else if (storedTheme === "light") {
+          delete document.documentElement.dataset.theme;
+        }
+      } catch (error) {
+        /* ignore errors */
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="/css/main.css" />
+  <script type="module" src="/js/theme.js"></script>
+  <script type="module" src="/js/init-auth.js"></script>
+</head>
+<body>
+  <header class="page-header">
+    <h1>Anmeldung</h1>
+    <p>Melde dich mit Benutzername und Passwort an, um Pläne zu bearbeiten oder Admin-Aufgaben auszuführen.</p>
+    <nav class="page-nav" aria-label="Hauptnavigation">
+      <a href="/index.html" class="nav-link" data-feature="calendarView">Plan-Kalender</a>
+      <a href="/planner.html" class="nav-link">Planner</a>
+      <a href="/templates.html" class="nav-link" data-feature="templateLibrary">Vorlagen</a>
+      <a href="/settings.html" class="nav-link" data-feature="quickSnippets">Einstellungen</a>
+      <a href="/backup.html" class="nav-link">Backups</a>
+      <a href="/admin.html" class="nav-link" data-admin-link hidden>Admin</a>
+      <a href="/login.html" class="nav-link is-active" aria-current="page">Login</a>
+    </nav>
+  </header>
+
+  <main class="page-content">
+    <section class="page-card">
+      <header class="section-header">
+        <h2>Benutzerkonto</h2>
+      </header>
+      <form id="login-form" class="form-grid">
+        <label class="form-field" for="username">
+          <span>Benutzername</span>
+          <input id="username" name="username" type="text" autocomplete="username" required />
+        </label>
+        <label class="form-field" for="password">
+          <span>Passwort</span>
+          <input id="password" name="password" type="password" autocomplete="current-password" required />
+        </label>
+        <div class="form-actions">
+          <button type="submit" class="primary-button">Anmelden</button>
+          <button type="button" id="logout" class="ghost-button">Abmelden</button>
+        </div>
+      </form>
+      <p id="login-status" class="form-status" role="status" aria-live="polite"></p>
+    </section>
+  </main>
+
+  <script type="module" src="/js/login.js"></script>
+</body>
+</html>

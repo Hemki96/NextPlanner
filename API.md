@@ -7,7 +7,7 @@ Alle Endpunkte werden über den integrierten HTTP-Server unter `http://localhost
 - **Authentifizierung**: Alle API-Aufrufe (außer Health-Checks sowie `/api/auth/login` und `/api/auth/logout`) erfordern eine gültige Session. Das Login setzt ein `HttpOnly`, `Secure`, `SameSite=Lax`-Cookie (`nextplanner_session`), das bei jedem API-Call mitgesendet werden muss.
 - **Content Negotiation**: Clients senden standardmäßig `Accept: application/json`; bei Request-Bodys ist `Content-Type: application/json` Pflicht.
 - **Caching & ETag**: Ressourcen liefern starke SHA-256-ETags. Mutierende Requests (`PUT`, `DELETE`) **müssen** `If-Match` enthalten. Der Client speichert den letzten ETag je Ressource.
-- **CORS**: `Access-Control-Allow-Origin` wird auf den erlaubten Ursprung gesetzt (Standard: `http://localhost:3000`).
+- **CORS & CSRF**: `Access-Control-Allow-Origin` wird auf den erlaubten Ursprung gesetzt (Standard: `http://localhost:3000`). Mutierende Requests werden abgelehnt, wenn das Session-Cookie von einem nicht erlaubten Ursprung kommt (CSRF-Schutz).
 - **Fehlercodes**: 400 (Validierung), 404 (nicht gefunden), 409 (semantischer Konflikt), 412 (ETag-Mismatch), 422 (Schemafehler), 500 (unerwartet).
 - **Brute-Force-Schutz**: Login-Fehlversuche werden pro IP/Benutzer mit einem kurzen Zeitfenster gedrosselt und können temporär `429 Too Many Requests` auslösen.
 
@@ -23,6 +23,29 @@ Meldet einen Benutzer an. Erwartet `{ "username": "…", "password": "…" }` un
 ### `POST /api/auth/logout`
 
 Beendet die aktuelle Sitzung und löscht das Session-Cookie (`Max-Age=0`). Liefert `204 No Content`.
+
+### `GET /api/auth/me`
+
+Liefert das Profil des aktuellen Nutzers (Session erforderlich).
+
+```json
+{
+  "id": "42",
+  "username": "coach",
+  "role": "user",
+  "roles": ["user"],
+  "isAdmin": false,
+  "permissions": {
+    "isAdmin": false,
+    "canWrite": true,
+    "isReadOnly": false,
+    "role": "user"
+  },
+  "authenticated": true
+}
+```
+
+- Rollen: `admin` (alles, inkl. Benutzerverwaltung), `editor`/`user` (schreibend), `viewer` (nur lesend).
 
 ## `GET /api/plans`
 

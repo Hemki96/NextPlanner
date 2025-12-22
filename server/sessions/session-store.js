@@ -78,13 +78,15 @@ export class SessionStore {
     }
   }
 
-  async createSession({ token, username, isAdmin = false, ttlMs } = {}) {
+  async createSession({ token, userId, username, roles = [], isAdmin = false, ttlMs } = {}) {
     await this.ready;
     const now = new Date();
     const expiresAt = new Date(now.getTime() + (ttlMs ?? this.defaultTtlMs));
     const session = {
       token: token ?? randomUUID(),
+      userId,
       username,
+      roles: Array.isArray(roles) ? roles : roles ? [roles] : [],
       isAdmin: Boolean(isAdmin),
       createdAt: now.toISOString(),
       lastAccessAt: now.toISOString(),

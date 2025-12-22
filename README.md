@@ -18,6 +18,7 @@ direkt beim Tippen berechnet.
 - **Plan-Kalender** – verwalte gespeicherte Trainingseinheiten übersichtlich, öffne sie im Planner, dupliziere Termine oder lösche veraltete Pläne direkt in der Übersicht.
 - **Responsive Layout** – zweigeteilte Ansicht für große Bildschirme, einspaltige Darstellung
   auf Tablets und Smartphones.
+- **Mehrbenutzer & Rollen** – Anmeldung per Benutzername/Passwort, Admin-gesteuerte Benutzerverwaltung, Audit-Felder an Plänen sowie Rollen `admin`, `editor`, `user` (schreibend) und `viewer` (nur lesend).
 
 ## Anwendung starten
 
@@ -109,6 +110,13 @@ Du hast zwei gleichwertige Möglichkeiten, die Anwendung während der Entwicklun
 
 3. Öffne `http://localhost:3000` im Browser.
 4. Der Speicher-Button schreibt Pläne nun automatisch in `data/plans.json`.
+
+### Anmeldung & Benutzerverwaltung
+
+- Öffne `/login.html`, um dich anzumelden oder abzumelden. Nach erfolgreichem Login kannst du den Planner, Kalender und – mit Admin-Rechten – die Benutzerverwaltung nutzen.
+- **Initialer Admin:** Falls der User-Store leer ist, legt der Server beim Start automatisch einen Admin an. Standardwerte: `admin` / `Admin1234!`. Eigene Zugangsdaten setzt du über `ADMIN_USER` und `ADMIN_PASSWORD`.
+- **Rollenmodell:** `admin` kann Benutzer verwalten und schreiben; `editor`/`user` können Inhalte schreiben; `viewer` ist nur lesend. Selbstregistrierung ist nicht vorgesehen – nur Admins können Konten anlegen.
+- **Sicherheit:** Session-Cookie ist `HttpOnly`, `Secure`, `SameSite=Lax`. Mutierende Requests erfordern eine gültige Session und einen erlaubten Ursprung (`ALLOWED_ORIGINS`, Standard `http://localhost:3000`), andernfalls werden sie als CSRF-Schutz abgewiesen.
 
 ### Variante B – Direkter Datei-Aufruf
 
