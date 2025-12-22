@@ -24,6 +24,7 @@ import { logger, createRequestLogger } from "./logger.js";
 const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_QUICK_SNIPPET_FILE = path.join(DATA_DIR, "quick-snippets.json");
 const DEFAULT_HIGHLIGHT_CONFIG_FILE = path.join(DATA_DIR, "highlight-config.json");
+const DEFAULT_USER_FILE = path.join(DATA_DIR, "users.json");
 
 class HttpError extends Error {
   constructor(status, message, { expose = true, code = null, hint = null } = {}) {
@@ -392,6 +393,45 @@ function buildHealthPayload(checks) {
     checks: components,
     degraded: hasError,
   };
+}
+
+async function ensureInitialAdminUser(
+  userStore,
+  { adminUsername = process.env.ADMIN_USER, adminPassword = process.env.ADMIN_PASSWORD } = {},
+) {
+  if (
+    !userStore ||
+    typeof userStore.getUserCount !== "function" ||
+    typeof userStore.createUser !== "function"
+  ) {
+    return;
+  }
+  try {
+    const userCount = await userStore.getUserCount();
+    if (userCount > 0) {
+      return;
+    }
+    const username = (adminUsername ?? "").trim();
+    const password = (adminPassword ?? "").trim();
+    if (!username || !password) {
+      logger.warn(
+        "User-Store ist leer, aber ADMIN_USER oder ADMIN_PASSWORD ist nicht gesetzt. Kein Admin angelegt.",
+      );
+      return;
+    }
+    await userStore.createUser({
+      username,
+      password,
+      role: "admin",
+      isActive: true,
+    });
+    logger.info("Initialer Admin-Benutzer '%s' wurde angelegt.", username);
+  } catch (error) {
+    logger.error(
+      "Konnte initialen Admin-Benutzer nicht anlegen: %s",
+      error instanceof Error ? error.stack ?? error.message : String(error ?? ""),
+    );
+  }
 }
 
 async function handleHealthRequest(
@@ -1766,6 +1806,7 @@ export function createRequestHandler({
  * @param {import("./stores/json-snippet-store.js").JsonSnippetStore} [options.snippetStore]
  * @param {import("./stores/json-snippet-store.js").JsonSnippetStore} [options.quickSnippetStore]
  * @param {import("./stores/json-highlight-config-store.js").JsonHighlightConfigStore} [options.highlightConfigStore]
+ * @param {import("./stores/json-user-store.js").JsonUserStore} [options.userStore]
  * @param {string} [options.publicDir]
  * @param {string[]} [options.gracefulShutdownSignals]
  * @returns {import("node:http").Server}
@@ -1792,6 +1833,14 @@ export function createServer(options = {}) {
     userStore,
     publicDir,
   });
+
+  ensureInitialAdminUser(userStore).catch((error) => {
+    logger.error(
+      "Initialer Admin-Benutzer konnte nicht erzeugt werden: %s",
+      error instanceof Error ? error.stack ?? error.message : String(error ?? ""),
+    );
+  });
+
   const server = createHttpServer(handler);
 
   const signalHandlers = new Map();
@@ -1819,7 +1868,7 @@ export function createServer(options = {}) {
           await userStore.close();
         }
       } catch (error) {
-        logger.error("Fehler beim Schließen des Planstores: %s", error);
+        logger.error("Fehler beim Schließen der Stores: %s", error);
         throw error;
       }
     })();
