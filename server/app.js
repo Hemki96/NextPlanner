@@ -17,6 +17,7 @@ import {
   TemplateValidationError,
 } from "./stores/json-template-store.js";
 import { JsonHighlightConfigStore } from "./stores/json-highlight-config-store.js";
+import { JsonUserStore, UserValidationError } from "./stores/json-user-store.js";
 import { DATA_DIR } from "./config.js";
 import { logger, createRequestLogger } from "./logger.js";
 import { SessionStore } from "./sessions/session-store.js";
@@ -24,6 +25,7 @@ import { SessionStore } from "./sessions/session-store.js";
 const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_QUICK_SNIPPET_FILE = path.join(DATA_DIR, "quick-snippets.json");
 const DEFAULT_HIGHLIGHT_CONFIG_FILE = path.join(DATA_DIR, "highlight-config.json");
+const DEFAULT_USER_FILE = path.join(DATA_DIR, "users.json");
 
 class HttpError extends Error {
   constructor(status, message, { expose = true, code = null, hint = null } = {}) {
@@ -583,6 +585,45 @@ function buildHealthPayload(checks) {
   };
 }
 
+async function ensureInitialAdminUser(
+  userStore,
+  { adminUsername = process.env.ADMIN_USER, adminPassword = process.env.ADMIN_PASSWORD } = {},
+) {
+  if (
+    !userStore ||
+    typeof userStore.getUserCount !== "function" ||
+    typeof userStore.createUser !== "function"
+  ) {
+    return;
+  }
+  try {
+    const userCount = await userStore.getUserCount();
+    if (userCount > 0) {
+      return;
+    }
+    const username = (adminUsername ?? "").trim();
+    const password = (adminPassword ?? "").trim();
+    if (!username || !password) {
+      logger.warn(
+        "User-Store ist leer, aber ADMIN_USER oder ADMIN_PASSWORD ist nicht gesetzt. Kein Admin angelegt.",
+      );
+      return;
+    }
+    await userStore.createUser({
+      username,
+      password,
+      role: "admin",
+      isActive: true,
+    });
+    logger.info("Initialer Admin-Benutzer '%s' wurde angelegt.", username);
+  } catch (error) {
+    logger.error(
+      "Konnte initialen Admin-Benutzer nicht anlegen: %s",
+      error instanceof Error ? error.stack ?? error.message : String(error ?? ""),
+    );
+  }
+}
+
 async function handleHealthRequest(
   req,
   res,
@@ -593,6 +634,7 @@ async function handleHealthRequest(
     teamSnippetStore,
     quickSnippetStore,
     highlightConfigStore,
+    userStore,
   },
   { method, logger: requestLogger } = {},
 ) {
@@ -632,6 +674,7 @@ async function handleHealthRequest(
     ["teamSnippetStore", teamSnippetStore],
     ["quickSnippetStore", quickSnippetStore],
     ["highlightConfigStore", highlightConfigStore],
+    ["userStore", userStore],
   ]) {
     // eslint-disable-next-line no-await-in-loop
     checks.push(await evaluateStoreHealth(name, store, activeLogger));
@@ -833,6 +876,14 @@ function parseTemplateIdFromPath(pathname) {
   return match[1];
 }
 
+function parseUserIdFromPath(pathname) {
+  const match = /^\/api\/users\/(\d+)$/.exec(pathname);
+  if (!match) {
+    return null;
+  }
+  return Number(match[1]);
+}
+
 function ensureJsonObject(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new HttpError(400, "JSON body muss ein Objekt sein", {
@@ -978,6 +1029,18 @@ function handleApiError(res, error, method = "GET", origin, options = {}) {
     );
     return;
   }
+  if (error instanceof UserValidationError) {
+    logWith("warn", "User validation failed for %s: %s", location, error.message);
+    sendError(
+      400,
+      "user-validation",
+      error.message,
+      undefined,
+      undefined,
+      "Bitte Eingaben prüfen: Benutzername ohne Leerzeichen, ausreichend langes Passwort und gültige Rollen.",
+    );
+    return;
+  }
   if (error instanceof PlanConflictError) {
     const details = error.currentPlan ? { currentPlan: error.currentPlan } : undefined;
     const headers = error.currentPlan ? { ETag: buildPlanEtag(error.currentPlan) } : undefined;
@@ -1046,6 +1109,7 @@ async function handleApiRequest(
   teamSnippetStore,
   quickSnippetStore,
   highlightConfigStore,
+  userStore,
   origin,
   {
     method: providedMethod,
@@ -1227,6 +1291,185 @@ async function handleApiRequest(
       res,
       new HttpError(405, "Methode nicht erlaubt", {
         hint: "Für Sicherungen stehen GET/HEAD (Export) und POST (Import) zur Verfügung.",
+      }),
+      method,
+      requestOrigin,
+      logOptions,
+    );
+    return;
+  }
+
+  if (url.pathname === "/api/users") {
+    if (!userStore) {
+      handleApiError(
+        res,
+        new HttpError(503, "Benutzerspeicher nicht verfügbar", {
+          hint: "Der Server konnte den Benutzerspeicher nicht initialisieren.",
+        }),
+        method,
+        requestOrigin,
+        logOptions,
+      );
+      return;
+    }
+
+    if (!isAdminRequest) {
+      handleApiError(
+        res,
+        new HttpError(403, "Admin-Berechtigung erforderlich", {
+          code: "admin-required",
+          hint: "Melden Sie sich als Admin an, um Benutzer zu verwalten.",
+        }),
+        method,
+        requestOrigin,
+        logOptions,
+      );
+      return;
+    }
+
+    if (method === "GET" || method === "HEAD") {
+      try {
+        const users = await userStore.listUsers();
+        sendApiJson(res, 200, { users }, { method, origin: requestOrigin });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    if (method === "POST") {
+      try {
+        const body = await readJsonBody(req, { limit: 200_000 });
+        const payload = ensureJsonObject(body);
+        const user = await userStore.createUser(payload);
+        sendApiJson(res, 201, user, {
+          method,
+          origin: requestOrigin,
+          headers: { Location: `/api/users/${user.id}` },
+        });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    handleApiError(
+      res,
+      new HttpError(405, "Methode nicht erlaubt", {
+        hint: "Verwenden Sie GET/HEAD zum Abrufen oder POST zum Anlegen von Benutzern.",
+      }),
+      method,
+      requestOrigin,
+      logOptions,
+    );
+    return;
+  }
+
+  const userId = parseUserIdFromPath(url.pathname);
+  if (userId !== null) {
+    if (!userStore) {
+      handleApiError(
+        res,
+        new HttpError(503, "Benutzerspeicher nicht verfügbar", {
+          hint: "Der Server konnte den Benutzerspeicher nicht initialisieren.",
+        }),
+        method,
+        requestOrigin,
+        logOptions,
+      );
+      return;
+    }
+
+    if (!isAdminRequest) {
+      handleApiError(
+        res,
+        new HttpError(403, "Admin-Berechtigung erforderlich", {
+          code: "admin-required",
+          hint: "Melden Sie sich als Admin an, um Benutzer zu verwalten.",
+        }),
+        method,
+        requestOrigin,
+        logOptions,
+      );
+      return;
+    }
+
+    if (method === "GET" || method === "HEAD") {
+      try {
+        const user = await userStore.getUser(userId);
+        if (!user) {
+          throw new HttpError(404, "Benutzer nicht gefunden", {
+            hint: "Der angefragte Benutzer wurde nicht gefunden.",
+          });
+        }
+        sendApiJson(res, 200, user, { method, origin: requestOrigin });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    if (method === "PUT") {
+      try {
+        const body = await readJsonBody(req, { limit: 200_000 });
+        const payload = ensureJsonObject(body);
+        const current = await userStore.getUser(userId);
+        if (!current) {
+          throw new HttpError(404, "Benutzer nicht gefunden", {
+            hint: "Der angefragte Benutzer existiert nicht mehr.",
+          });
+        }
+
+        if (Object.hasOwn(payload, "active") && payload.active === false && current.active) {
+          const confirmed = payload.confirm === true;
+          if (!confirmed) {
+            throw new HttpError(400, "Deaktivierung muss bestätigt werden", {
+              code: "confirm-deactivation",
+              hint: "Bitte Deaktivierung doppelt bestätigen und das Feld 'confirm' auf true setzen.",
+            });
+          }
+        }
+
+        const updated = await userStore.updateUser(userId, payload);
+        if (!updated) {
+          throw new HttpError(404, "Benutzer nicht gefunden", {
+            hint: "Der angefragte Benutzer existiert nicht mehr.",
+          });
+        }
+        sendApiJson(res, 200, updated, { method, origin: requestOrigin });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    if (method === "DELETE") {
+      try {
+        const body = await readJsonBody(req, { limit: 50_000 });
+        const payload = ensureJsonObject(body);
+        if (payload.confirm !== true) {
+          throw new HttpError(400, "Löschung muss bestätigt werden", {
+            code: "confirm-deletion",
+            hint: "Die Löschung erfordert eine doppelte Bestätigung (Feld 'confirm' auf true setzen).",
+          });
+        }
+        const removed = await userStore.deleteUser(userId);
+        if (!removed) {
+          throw new HttpError(404, "Benutzer nicht gefunden", {
+            hint: "Der angefragte Benutzer existiert nicht mehr.",
+          });
+        }
+        sendApiEmpty(res, 204, { origin: requestOrigin });
+      } catch (error) {
+        handleApiError(res, error, method, requestOrigin, logOptions);
+      }
+      return;
+    }
+
+    handleApiError(
+      res,
+      new HttpError(405, "Methode nicht erlaubt", {
+        hint: "Erlaubte Methoden sind GET/HEAD, PUT und DELETE.",
       }),
       method,
       requestOrigin,
@@ -1745,6 +1988,7 @@ async function handleApiRequest(
  * @param {import("./stores/json-snippet-store.js").JsonSnippetStore} [options.snippetStore]
  * @param {import("./stores/json-snippet-store.js").JsonSnippetStore} [options.quickSnippetStore]
  * @param {import("./stores/json-highlight-config-store.js").JsonHighlightConfigStore} [options.highlightConfigStore]
+ * @param {import("./stores/json-user-store.js").JsonUserStore} [options.userStore]
  * @param {string} [options.publicDir]
  * @param {import("./sessions/session-store.js").SessionStore} [options.sessionStore]
  * @param {Array<{ username: string, password?: string, passwordHash?: string, isAdmin?: boolean }>} [options.users]
@@ -1758,6 +2002,7 @@ export function createRequestHandler({
   snippetStore,
   quickSnippetStore,
   highlightConfigStore,
+  userStore,
   publicDir,
   sessionStore: providedSessionStore,
   users,
@@ -1771,6 +2016,7 @@ export function createRequestHandler({
     quickSnippetStore ?? new JsonSnippetStore({ storageFile: DEFAULT_QUICK_SNIPPET_FILE });
   const localHighlightConfigStore =
     highlightConfigStore ?? new JsonHighlightConfigStore({ storageFile: DEFAULT_HIGHLIGHT_CONFIG_FILE });
+  const localUserStore = userStore ?? new JsonUserStore();
   const defaultDir = path.join(CURRENT_DIR, "..", "public");
   const rootDir = path.resolve(publicDir ?? defaultDir);
   const sessionStore = providedSessionStore ?? new SessionStore({ defaultTtlMs: sessionTtlMs });
@@ -1854,6 +2100,7 @@ export function createRequestHandler({
             teamSnippetStore,
             quickSnippetStore: localQuickSnippetStore,
             highlightConfigStore: localHighlightConfigStore,
+            userStore: localUserStore,
           },
           { method, logger: requestLogger },
         );
@@ -1870,6 +2117,7 @@ export function createRequestHandler({
           teamSnippetStore,
           localQuickSnippetStore,
           localHighlightConfigStore,
+          localUserStore,
           req.headers?.origin ?? "",
           {
             method,
@@ -1918,6 +2166,7 @@ export function createRequestHandler({
  * @param {import("./stores/json-snippet-store.js").JsonSnippetStore} [options.snippetStore]
  * @param {import("./stores/json-snippet-store.js").JsonSnippetStore} [options.quickSnippetStore]
  * @param {import("./stores/json-highlight-config-store.js").JsonHighlightConfigStore} [options.highlightConfigStore]
+ * @param {import("./stores/json-user-store.js").JsonUserStore} [options.userStore]
  * @param {string} [options.publicDir]
  * @param {string[]} [options.gracefulShutdownSignals]
  * @returns {import("node:http").Server}
@@ -1931,6 +2180,7 @@ export function createServer(options = {}) {
     highlightConfigStore = new JsonHighlightConfigStore({
       storageFile: DEFAULT_HIGHLIGHT_CONFIG_FILE,
     }),
+    userStore = new JsonUserStore(),
     publicDir,
     sessionStore,
     users,
@@ -1946,12 +2196,21 @@ export function createServer(options = {}) {
     snippetStore,
     quickSnippetStore,
     highlightConfigStore,
+    userStore,
     publicDir,
     sessionStore: activeSessionStore,
     users,
     sessionTtlMs,
     loginRateLimit,
   });
+
+  ensureInitialAdminUser(userStore).catch((error) => {
+    logger.error(
+      "Initialer Admin-Benutzer konnte nicht erzeugt werden: %s",
+      error instanceof Error ? error.stack ?? error.message : String(error ?? ""),
+    );
+  });
+
   const server = createHttpServer(handler);
 
   const signalHandlers = new Map();
@@ -1979,7 +2238,7 @@ export function createServer(options = {}) {
           await activeSessionStore.close();
         }
       } catch (error) {
-        logger.error("Fehler beim Schließen des Planstores: %s", error);
+        logger.error("Fehler beim Schließen der Stores: %s", error);
         throw error;
       }
     })();

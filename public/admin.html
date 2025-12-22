@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NextPlanner – Admin</title>
+  <script>
+    (function () {
+      try {
+        var storedTheme = localStorage.getItem("nextplanner-theme");
+        if (storedTheme === "dark") {
+          document.documentElement.dataset.theme = "dark";
+        } else if (storedTheme === "light") {
+          delete document.documentElement.dataset.theme;
+        }
+      } catch (error) {
+        /* ignore errors */
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="/css/main.css" />
+  <script type="module" src="/js/theme.js"></script>
+  <script type="module" src="/js/init-auth.js"></script>
+</head>
+<body>
+  <header class="page-header">
+    <h1>Admin – Benutzerverwaltung</h1>
+    <p>Lege neue Nutzer:innen an, setze Passwörter zurück und verwalte Rollen sowie den Aktivierungsstatus.</p>
+    <nav class="page-nav" aria-label="Hauptnavigation">
+      <a href="/index.html" class="nav-link" data-feature="calendarView">Plan-Kalender</a>
+      <a href="/planner.html" class="nav-link">Planner</a>
+      <a href="/templates.html" class="nav-link" data-feature="templateLibrary">Vorlagen</a>
+      <a href="/settings.html" class="nav-link" data-feature="quickSnippets">Einstellungen</a>
+      <a href="/backup.html" class="nav-link">Backups</a>
+      <a href="/admin.html" class="nav-link is-active" aria-current="page" data-admin-link hidden>Admin</a>
+    </nav>
+  </header>
+
+  <main class="page-content">
+    <section class="page-card">
+      <header class="section-header">
+        <h2>Admin-Bereich</h2>
+      </header>
+      <p class="form-hint">
+        Der Zugriff auf diese Seite erfordert ein angemeldetes Admin-Konto. Änderungen an Benutzerkonten wirken sich sofort aus.
+      </p>
+      <p id="admin-status" class="form-status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="page-card" id="user-create-section" hidden>
+      <header class="section-header">
+        <h2>Neuen Benutzer anlegen</h2>
+      </header>
+      <form id="create-user-form" class="form-grid">
+        <label class="form-field" for="create-username">
+          <span>Benutzername</span>
+          <input id="create-username" name="username" type="text" autocomplete="username" required />
+          <span class="field-hint">Keine Leerzeichen, mindestens 3 Zeichen.</span>
+        </label>
+        <label class="form-field" for="create-password">
+          <span>Initiales Passwort</span>
+          <input id="create-password" name="password" type="password" autocomplete="new-password" required />
+          <span class="field-hint">Mindestens 10 Zeichen inkl. Groß-/Kleinbuchstaben, Zahl, Sonderzeichen.</span>
+        </label>
+        <label class="form-field" for="create-roles">
+          <span>Rollen</span>
+          <input id="create-roles" name="roles" type="text" placeholder="z.B. admin, trainer" />
+          <span class="field-hint">Kommagetrennte Liste. Standard: user.</span>
+        </label>
+        <label class="form-field" for="create-active">
+          <span>Aktiv</span>
+          <input id="create-active" name="active" type="checkbox" checked />
+          <span class="field-hint">Kann später erneut deaktiviert werden (mit doppelter Bestätigung).</span>
+        </label>
+        <div class="form-actions">
+          <button type="submit" class="primary-button">Benutzer erstellen</button>
+        </div>
+      </form>
+      <p id="create-user-status" class="form-status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="page-card" id="user-list-section" hidden>
+      <header class="section-header">
+        <h2>Benutzerverwaltung</h2>
+        <div class="section-actions">
+          <button type="button" class="ghost-button" id="refresh-users">Aktualisieren</button>
+        </div>
+      </header>
+      <div id="admin-user-list" class="admin-user-list" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <script type="module" src="/js/admin-users.js" defer></script>
+</body>
+</html>
