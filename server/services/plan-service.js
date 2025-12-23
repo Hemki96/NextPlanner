@@ -1,48 +1,9 @@
-import { createHash } from "node:crypto";
-
 import { PlanConflictError, PlanValidationError } from "../stores/json-plan-store.js";
-
-function sortCanonical(value) {
-  if (Array.isArray(value)) {
-    return value.map((item) => sortCanonical(item));
-  }
-  if (value && typeof value === "object") {
-    return Object.keys(value)
-      .sort()
-      .reduce((acc, key) => {
-        acc[key] = sortCanonical(value[key]);
-        return acc;
-      }, {});
-  }
-  return value;
-}
-
-function canonicalizePlan(plan) {
-  const canonicalPlan = {
-    id: plan.id,
-    title: plan.title,
-    content: plan.content,
-    planDate: plan.planDate,
-    focus: plan.focus,
-    metadata: plan.metadata ?? {},
-    createdAt: plan.createdAt,
-    updatedAt: plan.updatedAt,
-    createdByUserId: plan.createdByUserId ?? null,
-    updatedByUserId: plan.updatedByUserId ?? null,
-  };
-  return JSON.stringify(sortCanonical(canonicalPlan));
-}
-
-function buildPlanEtag(plan) {
-  const canonical = canonicalizePlan(plan);
-  const hash = createHash("sha256").update(canonical).digest("hex");
-  return `"${hash}"`;
-}
 
 class PlanService {
   constructor({ store }) {
     if (!store) {
-      throw new Error("Plan store is required.");
+      throw new Error("Plan store ist erforderlich.");
     }
     this.store = store;
   }
@@ -51,50 +12,32 @@ class PlanService {
     return this.store.listPlans(filters);
   }
 
-  async getPlanWithEtag(id) {
+  async getPlan(id) {
     const plan = await this.store.getPlan(id);
-    if (!plan) {
-      return null;
-    }
-    return { plan, etag: buildPlanEtag(plan) };
+    return plan ?? null;
   }
 
   async createPlan(payload, { userId } = {}) {
-    const plan = await this.store.createPlan(payload, { userId });
-    return { plan, etag: buildPlanEtag(plan) };
+    return this.store.createPlan(payload, { userId });
   }
 
-  async updatePlan(id, payload, { expectedEtag, userId } = {}) {
+  async updatePlan(id, payload, { expectedUpdatedAt, userId } = {}) {
     const current = await this.store.getPlan(id);
     if (!current) {
-      return { plan: null, etag: null };
+      return null;
     }
-    if (expectedEtag && expectedEtag !== buildPlanEtag(current)) {
-      throw new PlanConflictError("Plan wurde bereits geändert.", {
-        currentPlan: current,
-        expectedUpdatedAt: current.updatedAt,
-      });
-    }
-    const updated = await this.store.replacePlan(id, payload, {
-      expectedUpdatedAt: current.updatedAt,
+    return this.store.replacePlan(id, payload, {
+      expectedUpdatedAt: expectedUpdatedAt ?? current.updatedAt,
       userId,
     });
-    return { plan: updated, etag: buildPlanEtag(updated) };
   }
 
-  async deletePlan(id, { expectedEtag } = {}) {
+  async deletePlan(id, { expectedUpdatedAt } = {}) {
     const current = await this.store.getPlan(id);
     if (!current) {
-      return { deleted: false, etag: null };
+      return false;
     }
-    if (expectedEtag && expectedEtag !== buildPlanEtag(current)) {
-      throw new PlanConflictError("Plan wurde bereits geändert.", {
-        currentPlan: current,
-        expectedUpdatedAt: current.updatedAt,
-      });
-    }
-    const deleted = await this.store.deletePlan(id, { expectedUpdatedAt: current.updatedAt });
-    return { deleted, etag: buildPlanEtag(current) };
+    return this.store.deletePlan(id, { expectedUpdatedAt: expectedUpdatedAt ?? current.updatedAt });
   }
 
   async exportBackup() {
@@ -106,4 +49,4 @@ class PlanService {
   }
 }
 
-export { PlanService, PlanValidationError, PlanConflictError, buildPlanEtag };
+export { PlanService, PlanValidationError, PlanConflictError };

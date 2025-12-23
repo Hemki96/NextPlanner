@@ -7,6 +7,8 @@ import process from "node:process";
 
 import { runtimeConfig } from "./config/runtime-config.js";
 import { buildApiHeaders, handleApiError, sendApiEmpty, sendApiJson, sendEmpty, sendJson, withCorsHeaders } from "./http/responses.js";
+import { buildPlanEtag, buildTemplateEtag } from "./http/etag.js";
+import { etagMatches, requireIfMatch, respondIfNoneMatch, sendPreconditionFailed } from "./http/conditional.js";
 import { logger, createRequestLogger } from "./logger.js";
 import { SessionStore } from "./sessions/session-store.js";
 import { createHttpSessionMiddleware, requireSession } from "./sessions/http-session-middleware.js";
@@ -16,8 +18,8 @@ import { JsonTemplateStore, TemplateValidationError } from "./stores/json-templa
 import { JsonSnippetStore } from "./stores/json-snippet-store.js";
 import { JsonHighlightConfigStore } from "./stores/json-highlight-config-store.js";
 import { JsonUserStore } from "./stores/json-user-store.js";
-import { PlanService, buildPlanEtag } from "./services/plan-service.js";
-import { TemplateService, buildTemplateEtag } from "./services/template-service.js";
+import { PlanService } from "./services/plan-service.js";
+import { TemplateService } from "./services/template-service.js";
 import { SnippetService } from "./services/snippet-service.js";
 import { HighlightConfigService } from "./services/highlight-config-service.js";
 import { AuthService } from "./services/auth-service.js";
@@ -208,30 +210,6 @@ function extractRequestUser(req) {
   const name = typeof nameHeader === "string" && nameHeader.trim() ? nameHeader.trim() : id;
   const role = typeof roleHeader === "string" && roleHeader.trim().toLowerCase() === "admin" ? "admin" : "user";
   return { id, name, role, roles: [role] };
-}
-
-function etagMatches(header, currentEtag) {
-  if (!header || !currentEtag) {
-    return false;
-  }
-  const trimmed = header.trim();
-  if (!trimmed) {
-    return false;
-  }
-  if (trimmed === "*") {
-    return true;
-  }
-  const candidates = trimmed.split(",").map((tag) => tag.trim()).filter(Boolean);
-  return candidates.some((candidate) => {
-    if (candidate === currentEtag) return true;
-    if (candidate.startsWith("W/")) {
-      return candidate.slice(2) === currentEtag;
-    }
-    if (currentEtag.startsWith("W/")) {
-      return currentEtag.slice(2) === candidate;
-    }
-    return false;
-  });
 }
 
 function requireAuthenticated(ctx) {
@@ -524,13 +502,13 @@ class HttpApplication {
       if (method === "POST") {
         const body = await readJsonBody(req);
         try {
-          const { plan, etag } = await this.services.planService.createPlan(body, {
+          const plan = await this.services.planService.createPlan(body, {
             userId: ctx.authUser?.id,
           });
           sendApiJson(res, 201, plan, {
             origin,
             allowedOrigins,
-            headers: headers({ ETag: etag }),
+            headers: headers({ ETag: buildPlanEtag(plan) }),
           });
         } catch (error) {
           if (error instanceof PlanValidationError) {
@@ -553,50 +531,65 @@ class HttpApplication {
     }
 
     if (method === "GET" || method === "HEAD") {
-      const result = await this.services.planService.getPlanWithEtag(planId);
-      if (!result) {
+      const plan = await this.services.planService.getPlan(planId);
+      if (!plan) {
         throw new HttpError(404, "Plan nicht gefunden");
       }
-      if (etagMatches(req.headers["if-none-match"], result.etag)) {
-        sendApiEmpty(res, 304, {
-          origin,
-          allowedOrigins,
-          headers: headers({ ETag: result.etag }),
-        });
+      const etag = buildPlanEtag(plan);
+      if (respondIfNoneMatch(req, res, etag, { origin, allowedOrigins, headers })) {
         return;
       }
-      sendApiJson(res, 200, result.plan, {
+      sendApiJson(res, 200, plan, {
         origin,
         allowedOrigins,
-        headers: headers({ ETag: result.etag }),
+        headers: headers({ ETag: etag }),
         method,
       });
       return;
     }
 
     if (method === "PUT") {
-      const ifMatch = req.headers["if-match"];
-      if (!ifMatch) {
-        throw new HttpError(428, "If-Match Header erforderlich", { code: "missing-precondition" });
+      const current = await this.services.planService.getPlan(planId);
+      if (!current) {
+        throw new HttpError(404, "Plan nicht gefunden");
+      }
+      const etag = buildPlanEtag(current);
+      requireIfMatch(req);
+      if (!etagMatches(req.headers["if-match"], etag)) {
+        sendPreconditionFailed(res, {
+          origin,
+          allowedOrigins,
+          headers,
+          message: "Plan wurde bereits geändert.",
+          details: { currentPlan: current },
+          etag,
+        });
+        return;
       }
       const body = await readJsonBody(req);
       try {
-        const { plan, etag } = await this.services.planService.updatePlan(planId, body, {
-          expectedEtag: ifMatch,
+        const plan = await this.services.planService.updatePlan(planId, body, {
+          expectedUpdatedAt: current.updatedAt,
           userId: ctx.authUser?.id,
         });
         if (!plan) {
           throw new HttpError(404, "Plan nicht gefunden");
         }
-        sendApiJson(res, 200, plan, { origin, allowedOrigins, headers: headers({ ETag: etag }) });
+        sendApiJson(res, 200, plan, {
+          origin,
+          allowedOrigins,
+          headers: headers({ ETag: buildPlanEtag(plan) }),
+        });
       } catch (error) {
         if (error instanceof PlanConflictError) {
-          sendApiJson(
-            res,
-            412,
-            { error: { message: error.message, details: { currentPlan: error.currentPlan } } },
-            { origin, allowedOrigins, headers: headers({ ETag: buildPlanEtag(error.currentPlan) }) },
-          );
+          sendPreconditionFailed(res, {
+            origin,
+            allowedOrigins,
+            headers,
+            message: error.message,
+            details: { currentPlan: error.currentPlan },
+            etag: buildPlanEtag(error.currentPlan),
+          });
           return;
         }
         if (error instanceof PlanValidationError) {
@@ -608,36 +601,41 @@ class HttpApplication {
     }
 
     if (method === "DELETE") {
-      const ifMatch = req.headers["if-match"];
-      if (!ifMatch) {
-        throw new HttpError(428, "If-Match Header erforderlich", { code: "missing-precondition" });
+      const current = await this.services.planService.getPlan(planId);
+      if (!current) {
+        throw new HttpError(404, "Plan nicht gefunden");
+      }
+      const etag = buildPlanEtag(current);
+      requireIfMatch(req);
+      if (!etagMatches(req.headers["if-match"], etag)) {
+        sendPreconditionFailed(res, {
+          origin,
+          allowedOrigins,
+          headers,
+          message: "Plan wurde bereits geändert.",
+          details: { currentPlan: current },
+          etag,
+        });
+        return;
       }
       try {
-        const result = await this.services.planService.deletePlan(planId, {
-          expectedEtag: ifMatch,
+        const deleted = await this.services.planService.deletePlan(planId, {
+          expectedUpdatedAt: current.updatedAt,
         });
-        if (!result.deleted) {
-          const current = await this.services.planService.getPlanWithEtag(planId);
-          if (!current) {
-            throw new HttpError(404, "Plan nicht gefunden");
-          }
-          sendApiJson(
-            res,
-            412,
-            { error: { message: "Plan wurde bereits geändert.", details: { currentPlan: current.plan } } },
-            { origin, allowedOrigins, headers: headers({ ETag: current.etag }) },
-          );
-          return;
+        if (!deleted) {
+          throw new HttpError(404, "Plan nicht gefunden");
         }
         sendApiEmpty(res, 204, { origin, allowedOrigins, headers: headers({}) });
       } catch (error) {
         if (error instanceof PlanConflictError) {
-          sendApiJson(
-            res,
-            412,
-            { error: { message: error.message, details: { currentPlan: error.currentPlan } } },
-            { origin, allowedOrigins, headers: headers({ ETag: buildPlanEtag(error.currentPlan) }) },
-          );
+          sendPreconditionFailed(res, {
+            origin,
+            allowedOrigins,
+            headers,
+            message: error.message,
+            details: { currentPlan: error.currentPlan },
+            etag: buildPlanEtag(error.currentPlan),
+          });
           return;
         }
         throw error;
@@ -663,22 +661,17 @@ class HttpApplication {
     if (!hasId) {
       if (method === "GET" || method === "HEAD") {
         const templates = await this.services.templateService.listTemplates();
-        sendApiJson(
-          res,
-          200,
-          templates.map((entry) => entry.template),
-          { origin, allowedOrigins, headers: headers({}), method },
-        );
+        sendApiJson(res, 200, templates, { origin, allowedOrigins, headers: headers({}), method });
         return;
       }
       if (method === "POST") {
         const body = await readJsonBody(req);
         try {
-          const { template, etag } = await this.services.templateService.createTemplate(body);
+          const template = await this.services.templateService.createTemplate(body);
           sendApiJson(res, 201, template, {
             origin,
             allowedOrigins,
-            headers: headers({ ETag: etag }),
+            headers: headers({ ETag: buildTemplateEtag(template) }),
           });
         } catch (error) {
           if (error instanceof TemplateValidationError) {
@@ -697,12 +690,12 @@ class HttpApplication {
 
     const templateId = decodeURIComponent(pathParts[2]);
     if (method === "GET" || method === "HEAD") {
-      const { template, etag } = await this.services.templateService.getTemplate(templateId);
+      const template = await this.services.templateService.getTemplate(templateId);
       if (!template) {
         throw new HttpError(404, "Vorlage nicht gefunden");
       }
-      if (etagMatches(req.headers["if-none-match"], etag)) {
-        sendApiEmpty(res, 304, { origin, allowedOrigins, headers: headers({ ETag: etag }) });
+      const etag = buildTemplateEtag(template);
+      if (respondIfNoneMatch(req, res, etag, { origin, allowedOrigins, headers })) {
         return;
       }
       sendApiJson(res, 200, template, {
@@ -715,13 +708,30 @@ class HttpApplication {
     }
 
     if (method === "PUT") {
+      const current = await this.services.templateService.getTemplate(templateId);
+      if (!current) {
+        throw new HttpError(404, "Vorlage nicht gefunden");
+      }
+      const ifMatch = requireIfMatch(req);
+      const currentEtag = buildTemplateEtag(current);
+      if (!etagMatches(ifMatch, currentEtag)) {
+        sendPreconditionFailed(res, {
+          origin,
+          allowedOrigins,
+          headers,
+          message: "Vorlage wurde bereits geändert.",
+          details: { currentTemplate: current },
+          etag: currentEtag,
+        });
+        return;
+      }
       const body = await readJsonBody(req);
       try {
-        const { template, etag } = await this.services.templateService.updateTemplate(templateId, body);
+        const template = await this.services.templateService.updateTemplate(templateId, body);
         if (!template) {
           throw new HttpError(404, "Vorlage nicht gefunden");
         }
-        sendApiJson(res, 200, template, { origin, allowedOrigins, headers: headers({ ETag: etag }) });
+        sendApiJson(res, 200, template, { origin, allowedOrigins, headers: headers({ ETag: buildTemplateEtag(template) }) });
       } catch (error) {
         if (error instanceof TemplateValidationError) {
           throw new HttpError(400, error.message);
@@ -732,6 +742,23 @@ class HttpApplication {
     }
 
     if (method === "DELETE") {
+      const current = await this.services.templateService.getTemplate(templateId);
+      if (!current) {
+        throw new HttpError(404, "Vorlage nicht gefunden");
+      }
+      const ifMatch = requireIfMatch(req);
+      const currentEtag = buildTemplateEtag(current);
+      if (!etagMatches(ifMatch, currentEtag)) {
+        sendPreconditionFailed(res, {
+          origin,
+          allowedOrigins,
+          headers,
+          message: "Vorlage wurde bereits geändert.",
+          details: { currentTemplate: current },
+          etag: currentEtag,
+        });
+        return;
+      }
       const deleted = await this.services.templateService.deleteTemplate(templateId);
       if (!deleted) {
         throw new HttpError(404, "Vorlage nicht gefunden");

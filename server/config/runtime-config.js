@@ -162,4 +162,4 @@ function buildRuntimeConfig(env = process.env) {
 
 const runtimeConfig = buildRuntimeConfig();
 
-export { runtimeConfig, buildRuntimeConfig, PROJECT_ROOT, DEFAULT_DATA_DIR };
+export { runtimeConfig, buildRuntimeConfig, PROJECT_ROOT, DEFAULT_DATA_DIR, DEFAULT_ALLOWED_ORIGINS };
