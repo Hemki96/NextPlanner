@@ -67,7 +67,7 @@ function resolveDataDir(value) {
   return path.resolve(PROJECT_ROOT, value);
 }
 
-function validateDefaultCredentials(env, isProduction) {
+function validateDefaultCredentials(env, isProduction, errors) {
   const adminUser = env.NEXTPLANNER_ADMIN_USER ?? env.ADMIN_USER ?? "admin";
   const adminPassword =
     env.NEXTPLANNER_ADMIN_PASSWORD ??
@@ -85,9 +85,7 @@ function validateDefaultCredentials(env, isProduction) {
     if (!editorPassword) missing.push("NEXTPLANNER_EDITOR_PASSWORD");
     if (!userPassword) missing.push("NEXTPLANNER_USER_PASSWORD");
     if (missing.length > 0) {
-      throw new Error(
-        `Missing required credentials in production. Please set ${missing.join(", ")}.`
-      );
+      errors.push(`Missing required credentials in production. Please set ${missing.join(", ")}.`);
     }
   }
 
@@ -102,35 +100,56 @@ function buildRuntimeConfig(env = process.env) {
   const nodeEnv = env.NODE_ENV ?? "development";
   const isProduction = nodeEnv === "production";
   const isDevelopment = nodeEnv === "development";
+  const errors = [];
+  const safeParse = (label, fn) => {
+    try {
+      return fn();
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : `${label} is invalid`);
+      return null;
+    }
+  };
+
   const port =
-    parseIntEnv("PORT", env.PORT, { min: 0 }) ??
+    safeParse("PORT", () => parseIntEnv("PORT", env.PORT, { min: 0 })) ??
     DEFAULTS.port;
   const allowedOrigins = parseAllowedOrigins(env.ALLOWED_ORIGINS);
   const sessionTtlMs =
-    parseIntEnv("SESSION_TTL_MS", env.SESSION_TTL_MS, { min: 1000 }) ??
+    safeParse("SESSION_TTL_MS", () => parseIntEnv("SESSION_TTL_MS", env.SESSION_TTL_MS, { min: 1000 })) ??
     DEFAULTS.sessionTtlMs;
   const loginRateLimit = {
     windowMs:
-      parseIntEnv("LOGIN_RATE_LIMIT_WINDOW_MS", env.LOGIN_RATE_LIMIT_WINDOW_MS, {
-        min: 1000,
-      }) ?? DEFAULTS.loginRateLimit.windowMs,
+      safeParse("LOGIN_RATE_LIMIT_WINDOW_MS", () =>
+        parseIntEnv("LOGIN_RATE_LIMIT_WINDOW_MS", env.LOGIN_RATE_LIMIT_WINDOW_MS, {
+          min: 1000,
+        }),
+      ) ?? DEFAULTS.loginRateLimit.windowMs,
     maxAttempts:
-      parseIntEnv("LOGIN_RATE_LIMIT_MAX_ATTEMPTS", env.LOGIN_RATE_LIMIT_MAX_ATTEMPTS, {
-        min: 1,
-      }) ?? DEFAULTS.loginRateLimit.maxAttempts,
+      safeParse("LOGIN_RATE_LIMIT_MAX_ATTEMPTS", () =>
+        parseIntEnv("LOGIN_RATE_LIMIT_MAX_ATTEMPTS", env.LOGIN_RATE_LIMIT_MAX_ATTEMPTS, {
+          min: 1,
+        }),
+      ) ?? DEFAULTS.loginRateLimit.maxAttempts,
     blockDurationMs:
-      parseIntEnv(
-        "LOGIN_RATE_LIMIT_BLOCK_DURATION_MS",
-        env.LOGIN_RATE_LIMIT_BLOCK_DURATION_MS,
-        { min: 1000 },
+      safeParse("LOGIN_RATE_LIMIT_BLOCK_DURATION_MS", () =>
+        parseIntEnv(
+          "LOGIN_RATE_LIMIT_BLOCK_DURATION_MS",
+          env.LOGIN_RATE_LIMIT_BLOCK_DURATION_MS,
+          { min: 1000 },
+        ),
       ) ?? DEFAULTS.loginRateLimit.blockDurationMs,
   };
 
   const cookieSecureOverride = parseBooleanEnv(env.COOKIE_SECURE);
 
-  const defaults = validateDefaultCredentials(env, isProduction);
+  const defaults = validateDefaultCredentials(env, isProduction, errors);
 
   const dataDir = resolveDataDir(env.NEXTPLANNER_DATA_DIR ?? env.DATA_DIR);
+
+  if (errors.length > 0) {
+    const unique = Array.from(new Set(errors));
+    throw new Error(`Invalid runtime config:\n- ${unique.join("\n- ")}`);
+  }
 
   return {
     env: {
@@ -162,4 +181,4 @@ function buildRuntimeConfig(env = process.env) {
 
 const runtimeConfig = buildRuntimeConfig();
 
-export { runtimeConfig, buildRuntimeConfig, PROJECT_ROOT, DEFAULT_DATA_DIR, DEFAULT_ALLOWED_ORIGINS };
+export { runtimeConfig, buildRuntimeConfig, PROJECT_ROOT, DEFAULT_DATA_DIR };

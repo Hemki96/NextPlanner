@@ -5,17 +5,6 @@ import { runtimeConfig } from "./config/runtime-config.js";
 import { logger } from "./logger.js";
 import { RuntimeConfigError, buildRuntimeConfig } from "./config/runtime-config.js";
 
-let runtimeConfig;
-try {
-  runtimeConfig = buildRuntimeConfig({ ...process.env, NODE_ENV: process.env.NODE_ENV ?? "production" });
-} catch (error) {
-  if (error instanceof RuntimeConfigError) {
-    logger.error(error.message);
-    process.exit(1);
-  }
-  throw error;
-}
-
 const port = runtimeConfig.server.port ?? 3000;
 const server = createServer({ config: runtimeConfig });
 

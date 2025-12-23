@@ -49,7 +49,7 @@ function createHttpSessionMiddleware({
   const name = cookieName ?? "nextplanner_session";
   const ttl = ttlMs ?? 1000 * 60 * 60 * 12;
 
-  return async function httpSessionMiddleware(req, res, ctx, next) {
+  const middleware = async function httpSessionMiddleware(req, res, ctx, next) {
     const cookies = parseCookies(req.headers?.cookie ?? "");
     const token = cookies[name];
     if (token) {
@@ -89,6 +89,13 @@ function createHttpSessionMiddleware({
 
     await next();
   };
+
+  middleware.resolveSecure = resolveSecure;
+  middleware.buildSessionCookie = (token, expiresAt, options) =>
+    buildSessionCookie(name, token, expiresAt, options);
+  middleware.buildExpiredSessionCookie = (options) => buildExpiredSessionCookie(name, options);
+
+  return middleware;
 }
 
 function requireSession(req) {

@@ -82,7 +82,7 @@ function sendApiEmpty(res, status, { origin, allowedOrigins, headers } = {}) {
   sendEmpty(res, status, { headers: finalHeaders });
 }
 
-function handleApiError(res, error, { origin, allowedOrigins }) {
+function handleApiError(res, error, { origin, allowedOrigins, cookies } = {}) {
   const status = error instanceof HttpError ? error.status : 500;
   const message =
     error instanceof HttpError && error.expose
@@ -95,7 +95,11 @@ function handleApiError(res, error, { origin, allowedOrigins }) {
       hint: error instanceof HttpError ? error.hint : undefined,
     },
   };
-  sendApiJson(res, status, payload, { origin, allowedOrigins });
+  sendApiJson(res, status, payload, {
+    origin,
+    allowedOrigins,
+    headers: cookies && cookies.length > 0 ? { "Set-Cookie": cookies } : undefined,
+  });
 }
 
 export {
