@@ -576,6 +576,26 @@ body {
   color: var(--text-secondary);
 }
 
+.auth-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  margin-top: 0.5rem;
+  background: var(--surface-muted);
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.auth-status-pill[data-status-type="success"] {
+  background: #e8f5e9;
+}
+
+.auth-status-pill[data-status-type="warning"],
+.auth-status-pill[data-status-type="error"] {
+  background: #fff3e0;
+}
+
 .team-library-meta {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
