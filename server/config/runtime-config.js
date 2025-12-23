@@ -7,6 +7,13 @@ const PROJECT_ROOT = path.resolve(CURRENT_DIR, "..");
 const DEFAULT_DATA_DIR = path.join(PROJECT_ROOT, "data");
 const SESSION_COOKIE_NAME = "nextplanner_session";
 
+class RuntimeConfigError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "RuntimeConfigError";
+  }
+}
+
 const DEFAULT_ALLOWED_ORIGINS = Object.freeze(["http://localhost:3000"]);
 
 const DEFAULTS = Object.freeze({
@@ -148,7 +155,7 @@ function buildRuntimeConfig(env = process.env) {
 
   if (errors.length > 0) {
     const unique = Array.from(new Set(errors));
-    throw new Error(`Invalid runtime config:\n- ${unique.join("\n- ")}`);
+    throw new RuntimeConfigError(`Invalid runtime config:\n- ${unique.join("\n- ")}`);
   }
 
   return {
@@ -181,4 +188,4 @@ function buildRuntimeConfig(env = process.env) {
 
 const runtimeConfig = buildRuntimeConfig();
 
-export { runtimeConfig, buildRuntimeConfig, PROJECT_ROOT, DEFAULT_DATA_DIR };
+export { runtimeConfig, buildRuntimeConfig, RuntimeConfigError, PROJECT_ROOT, DEFAULT_DATA_DIR };

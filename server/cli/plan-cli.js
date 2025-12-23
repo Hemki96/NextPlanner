@@ -9,7 +9,11 @@ import {
   PlanValidationError,
   StorageIntegrityError,
 } from "../stores/json-plan-store.js";
-import { runtimeConfig } from "../config/runtime-config.js";
+import {
+  RuntimeConfigError,
+  buildRuntimeConfig,
+  runtimeConfig,
+} from "../config/runtime-config.js";
 
 const EXIT_SUCCESS = 0;
 const EXIT_VALIDATION = 1;
