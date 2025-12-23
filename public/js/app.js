@@ -7,9 +7,7 @@ import { initPlanHighlighter } from "./ui/plan-highlighter.js";
 import { initTemplateCapture } from "./ui/template-capture.js";
 import { initPlanSaveDialog } from "./ui/plan-save-dialog.js";
 import { initValidationPanel } from "./ui/validation-panel.js";
-import { ApiError, apiRequest, canUseApi, describeApiError } from "./utils/api-client.js";
-import { ensurePlanSkeleton } from "./utils/plan-defaults.js";
-import { loadPlanDraft, savePlanDraft } from "./utils/plan-draft-storage.js";
+import { describeApiError } from "./utils/api-client.js";
 import { initTrendReports } from "./ui/trend-reports.js";
 import {
   applyFeatureVisibility,
@@ -17,6 +15,8 @@ import {
   subscribeToFeatureSettings,
 } from "./utils/feature-settings.js";
 import { bootstrapHighlightVocabulary } from "./utils/highlight-bootstrap.js";
+import { PlannerController } from "./controllers/planner-controller.js";
+import { createPlanService } from "./services/plan-service.js";
 
 const originalTitle = document.title;
 
@@ -66,13 +66,6 @@ const dom = {
   validationPanel: document.getElementById("validation-panel"),
 };
 
-const initialPlanDraft = loadPlanDraft();
-if (typeof initialPlanDraft === "string" && dom.planInput) {
-  dom.planInput.value = initialPlanDraft;
-}
-
-ensurePlanSkeleton(dom.planInput);
-
 const featureSettings = getFeatureSettings();
 applyFeatureVisibility(document, featureSettings);
 subscribeToFeatureSettings(() => {
@@ -120,29 +113,35 @@ initTrendReports({
   exportButton: dom.trendExportButton,
 });
 
-/**
- * Liest den aktuellen Text aus dem Eingabefeld, parst ihn und aktualisiert die Anzeige.
- */
-function updateSummary() {
-  const planText = dom.planInput?.value ?? "";
-  if (dom.planInput) {
-    savePlanDraft(planText);
-  }
-  const plan = parsePlan(planText);
-  renderSummary(plan, dom);
-  validationPanel.update(plan.issues ?? []);
-  templateCapture.update(plan);
-  planSaveDialog.update(plan);
-}
+const planService = createPlanService();
 
-// Automatische Aktualisierung bei jeder Nutzereingabe sowie Initialisierung beim Laden der Seite.
-dom.planInput?.addEventListener("input", updateSummary);
-updateSummary();
+const plannerController = new PlannerController({
+  parsePlan,
+  renderSummary,
+  planService,
+  views: {
+    validationPanel,
+    templateCapture,
+    planSaveDialog,
+    planHighlighter,
+  },
+  featureFlags: featureSettings,
+  domRefs: dom,
+});
+
+plannerController.init({
+  textarea: dom.planInput,
+  initialText: planService.loadDraft(),
+});
+
+dom.planInput?.addEventListener("input", (event) => {
+  plannerController.handleInput(event.target.value ?? "");
+});
 
 bootstrapHighlightVocabulary({
   onVocabularyLoaded: () => {
-    updateSummary();
-    planHighlighter.refresh();
+    plannerController.updateSummary();
+    plannerController.refreshHighlight();
   },
 });
 
@@ -223,42 +222,23 @@ if (quickSnippetsEnabled && dom.layout && dom.quickPanel && dom.quickSnippetCont
 }
 
 async function loadPlanFromQuery() {
-  if (typeof window === "undefined" || !canUseApi()) {
+  if (typeof window === "undefined") {
     return;
   }
   const params = new URLSearchParams(window.location.search);
-  const planId = params.get("planId");
-  const duplicatePlanId = params.get("duplicatePlanId");
-  const lookupId = planId ?? duplicatePlanId;
-  if (!lookupId) {
+  const lookupId = params.get("planId") ?? params.get("duplicatePlanId");
+  if (!lookupId || !planService.canUseApi()) {
     return;
   }
 
   try {
-    const { data: plan } = await apiRequest(`/api/plans/${encodeURIComponent(lookupId)}`);
-    if (!plan?.content) {
-      console.warn(`Plan ${lookupId} enthielt keinen Inhalt.`);
-      return;
-    }
-    planHighlighter.setText(plan.content);
-    updateSummary();
-    if (plan.title && planId) {
-      document.title = `${plan.title} – Swim Planner`;
-    }
-    if (window.history && typeof window.history.replaceState === "function") {
-      const nextParams = new URLSearchParams(window.location.search);
-      if (planId) {
-        window.history.replaceState({}, document.title, window.location.pathname);
-      } else if (duplicatePlanId) {
-        nextParams.delete("duplicatePlanId");
-        const newQuery = nextParams.toString();
-        const nextUrl = newQuery ? `${window.location.pathname}?${newQuery}` : window.location.pathname;
-        window.history.replaceState({}, document.title, nextUrl);
-      }
-    }
+    await plannerController.loadPlanFromQuery(params, {
+      documentRef: document,
+      historyRef: window.history,
+    });
   } catch (error) {
-    const message = describeApiError(error);
-    const severity = error instanceof ApiError && error.offline ? "warn" : "error";
+    const message = planService.describeError ? planService.describeError(error) : describeApiError(error);
+    const severity = error instanceof planService.ApiError && error.offline ? "warn" : "error";
     console[severity === "warn" ? "warn" : "error"](`Plan ${lookupId} konnte nicht geladen werden: ${message}`);
     document.title = originalTitle;
   }
