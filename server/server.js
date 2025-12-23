@@ -1,15 +1,11 @@
 import process from "node:process";
 
 import { createServer } from "./app.js";
+import { runtimeConfig } from "./config/runtime-config.js";
 import { logger } from "./logger.js";
 
-if (!process.env.NODE_ENV) {
-  process.env.NODE_ENV = "production";
-}
-
-const preferredPort = Number(process.env.PORT ?? 3000);
-const port = Number.isFinite(preferredPort) && preferredPort >= 0 ? preferredPort : 3000;
-const server = createServer();
+const port = runtimeConfig.server.port ?? 3000;
+const server = createServer({ config: runtimeConfig });
 
 let hasRetriedWithDynamicPort = false;
 let currentPort = port;
