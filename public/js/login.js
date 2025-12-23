@@ -11,6 +11,26 @@ const dom = {
   password: document.querySelector("#password"),
 };
 
+function showRedirectReason() {
+  const params = new URLSearchParams(window.location.search);
+  const reason = params.get("reason");
+  if (!reason) {
+    return;
+  }
+  if (reason === "login-required") {
+    setStatus(dom.status, "Bitte anmelden, um die Anwendung zu verwenden.", "info");
+  }
+}
+
+function resolveRedirectTarget() {
+  const params = new URLSearchParams(window.location.search);
+  const target = params.get("next");
+  if (target && target.startsWith("/")) {
+    return target;
+  }
+  return "/index.html";
+}
+
 function focusUsername() {
   if (dom.username) {
     dom.username.focus();
@@ -45,7 +65,7 @@ async function handleLogin(event) {
     });
     resetAuthStatusCache();
     setStatus(dom.status, "Erfolgreich angemeldet. Weiterleitung...", "success");
-    window.location.assign("/index.html");
+    window.location.assign(resolveRedirectTarget());
   } catch (error) {
     setStatus(dom.status, error?.message ?? "Anmeldung fehlgeschlagen.", "error");
     dom.password.value = "";
@@ -68,6 +88,7 @@ function init() {
   initAdminNavigation();
   dom.form?.addEventListener("submit", handleLogin);
   dom.logout?.addEventListener("click", handleLogout);
+  showRedirectReason();
   showCurrentStatus();
   focusUsername();
 }

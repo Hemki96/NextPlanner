@@ -56,6 +56,10 @@ const DEFAULT_SESSION_TTL_MS = 1000 * 60 * 60 * 12; // 12h
 const SESSION_COOKIE_NAME = "nextplanner_session";
 const DEFAULT_ADMIN_USERNAME = process.env.NEXTPLANNER_ADMIN_USER ?? "admin";
 const DEFAULT_ADMIN_PASSWORD = process.env.NEXTPLANNER_ADMIN_PASSWORD ?? "Admin1234!";
+const DEFAULT_EDITOR_USERNAME = process.env.NEXTPLANNER_EDITOR_USER ?? "coach";
+const DEFAULT_EDITOR_PASSWORD = process.env.NEXTPLANNER_EDITOR_PASSWORD ?? "CoachPower#2024";
+const DEFAULT_USER_USERNAME = process.env.NEXTPLANNER_USER ?? "athlete";
+const DEFAULT_USER_PASSWORD = process.env.NEXTPLANNER_USER_PASSWORD ?? "AthleteReady#2024";
 const LOGIN_RATE_LIMIT_DEFAULTS = Object.freeze({
   windowMs: 1000 * 60 * 5,
   maxAttempts: 5,
@@ -769,44 +773,57 @@ function buildHealthPayload(checks) {
   };
 }
 
-async function ensureInitialAdminUser(
+async function ensureSeedUsers(
   userStore,
   {
     adminUsername = process.env.ADMIN_USER ?? DEFAULT_ADMIN_USERNAME,
     adminPassword = process.env.ADMIN_PASSWORD ?? DEFAULT_ADMIN_PASSWORD,
+    editorUsername = DEFAULT_EDITOR_USERNAME,
+    editorPassword = DEFAULT_EDITOR_PASSWORD,
+    userUsername = DEFAULT_USER_USERNAME,
+    userPassword = DEFAULT_USER_PASSWORD,
   } = {},
 ) {
   if (
     !userStore ||
-    typeof userStore.getUserCount !== "function" ||
-    typeof userStore.createUser !== "function"
+    typeof userStore.createUser !== "function" ||
+    typeof userStore.findByUsername !== "function"
   ) {
     return;
   }
-  try {
-    const userCount = await userStore.getUserCount();
-    if (userCount > 0) {
-      return;
-    }
-    const username = (adminUsername ?? "").trim();
-    const password = (adminPassword ?? "").trim();
-    if (!username || !password) {
-      logger.warn(
-        "User-Store ist leer, ADMIN_USER/ADMIN_PASSWORD fehlen. Lege Fallback-Admin aus Defaults an.",
+
+  const seeds = [
+    { username: adminUsername, password: adminPassword, roles: ["admin"], label: "Admin" },
+    { username: editorUsername, password: editorPassword, roles: ["editor"], label: "Editor" },
+    { username: userUsername, password: userPassword, roles: ["user"], label: "User" },
+  ]
+    .map((seed) => ({
+      ...seed,
+      username: (seed.username ?? "").trim(),
+      password: (seed.password ?? "").trim(),
+    }))
+    .filter((seed) => seed.username && seed.password);
+
+  for (const seed of seeds) {
+    try {
+      const existing = await userStore.findByUsername(seed.username);
+      if (existing) {
+        continue;
+      }
+      await userStore.createUser({
+        username: seed.username,
+        password: seed.password,
+        roles: seed.roles,
+        active: true,
+      });
+      logger.info("%s-Benutzer '%s' wurde angelegt.", seed.label, seed.username);
+    } catch (error) {
+      logger.error(
+        "Konnte Seed-Benutzer '%s' nicht anlegen: %s",
+        seed.username,
+        error instanceof Error ? error.stack ?? error.message : String(error ?? ""),
       );
     }
-    await userStore.createUser({
-      username,
-      password,
-      roles: ["admin"],
-      active: true,
-    });
-    logger.info("Initialer Admin-Benutzer '%s' wurde angelegt.", username);
-  } catch (error) {
-    logger.error(
-      "Konnte initialen Admin-Benutzer nicht anlegen: %s",
-      error instanceof Error ? error.stack ?? error.message : String(error ?? ""),
-    );
   }
 }
 
@@ -962,6 +979,49 @@ function sanitizePath(rootDir, requestedPath) {
   }
 
   return resolved;
+}
+
+function isHtmlPageRequest(pathname) {
+  if (!pathname) {
+    return false;
+  }
+  const ext = path.extname(pathname);
+  if (ext) {
+    return ext.toLowerCase() === ".html";
+  }
+  return pathname.endsWith("/") || !pathname.includes(".");
+}
+
+function isLoginPath(pathname) {
+  if (!pathname) {
+    return false;
+  }
+  const normalized = pathname.toLowerCase();
+  return normalized === "/login.html" || normalized === "/login";
+}
+
+function buildLoginRedirectTarget(pathname, search = "", reason = null) {
+  const next = `${pathname ?? "/"}` + (search ?? "");
+  const params = new URLSearchParams();
+  if (next && next !== "/login.html" && next !== "/login") {
+    params.set("next", next);
+  }
+  if (reason) {
+    params.set("reason", reason);
+  }
+  const query = params.toString();
+  return query ? `/login.html?${query}` : "/login.html";
+}
+
+function resolvePostLoginRedirect(url) {
+  if (!url || typeof url.searchParams?.get !== "function") {
+    return "/index.html";
+  }
+  const target = url.searchParams.get("next");
+  if (typeof target === "string" && target.startsWith("/")) {
+    return target;
+  }
+  return "/index.html";
 }
 
 async function serveStatic(req, res, url, rootDir) {
@@ -2505,6 +2565,29 @@ export function createRequestHandler({
         return;
       }
 
+      const isAuthenticated = Boolean(authContext.user);
+      const isHtml = isHtmlPageRequest(url.pathname);
+      const loginRequested = isLoginPath(url.pathname);
+      if (!isAuthenticated && isHtml && !loginRequested) {
+        res.writeHead(302, {
+          Location: buildLoginRedirectTarget(url.pathname, url.search, "login-required"),
+          "Cache-Control": "no-store",
+          ...STATIC_SECURITY_HEADERS,
+        });
+        res.end();
+        return;
+      }
+
+      if (isAuthenticated && loginRequested) {
+        res.writeHead(302, {
+          Location: resolvePostLoginRedirect(url),
+          "Cache-Control": "no-store",
+          ...STATIC_SECURITY_HEADERS,
+        });
+        res.end();
+        return;
+      }
+
       await serveStatic(req, res, url, rootDir);
     } catch (error) {
       const message = error instanceof Error ? error.stack ?? error.message : String(error ?? "");
@@ -2577,9 +2660,9 @@ export function createServer(options = {}) {
     loginRateLimit,
   });
 
-  ensureInitialAdminUser(userStore).catch((error) => {
+  ensureSeedUsers(userStore).catch((error) => {
     logger.error(
-      "Initialer Admin-Benutzer konnte nicht erzeugt werden: %s",
+      "Seed-Benutzer konnten nicht erzeugt werden: %s",
       error instanceof Error ? error.stack ?? error.message : String(error ?? ""),
     );
   });
