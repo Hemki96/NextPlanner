@@ -1,6 +1,8 @@
 import { initAdminNavigation } from "./utils/admin-nav.js";
-import { fetchAuthStatus } from "./utils/auth-status.js";
+import { fetchAuthStatus, resetAuthStatusCache } from "./utils/auth-status.js";
 import { setStatus } from "./utils/status.js";
+
+const AUTH_CHANGED_EVENT = "nextplanner:auth-changed";
 
 function ensureAuthIndicator() {
   const header = document.querySelector(".page-header");
@@ -39,3 +41,10 @@ async function renderAuthIndicator() {
 
 initAdminNavigation();
 renderAuthIndicator();
+
+if (typeof window !== "undefined") {
+  window.addEventListener(AUTH_CHANGED_EVENT, async () => {
+    resetAuthStatusCache();
+    await renderAuthIndicator();
+  });
+}

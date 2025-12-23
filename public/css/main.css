@@ -572,6 +572,10 @@ body {
   color: #8d6e00;
 }
 
+.form-status[data-status-type="error"] {
+  color: #b71c1c;
+}
+
 .form-status[data-status-type="info"] {
   color: var(--text-secondary);
 }
