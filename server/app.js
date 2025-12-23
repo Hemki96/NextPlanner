@@ -1,48 +1,30 @@
-import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import process from "node:process";
 
-import {
-  JsonPlanStore,
-  PlanConflictError,
-  PlanValidationError,
-  StorageIntegrityError,
-} from "./stores/json-plan-store.js";
-import { JsonSnippetStore } from "./stores/json-snippet-store.js";
-import {
-  JsonTemplateStore,
-  TemplateValidationError,
-} from "./stores/json-template-store.js";
-import { JsonHighlightConfigStore } from "./stores/json-highlight-config-store.js";
-import { JsonUserStore, UserValidationError } from "./stores/json-user-store.js";
-import { DATA_DIR } from "./config.js";
-import {
-  DEFAULT_ALLOWED_ORIGINS,
-  DEFAULT_DEV_CREDENTIALS,
-  buildRuntimeConfig,
-} from "./config/runtime-config.js";
+import { runtimeConfig } from "./config/runtime-config.js";
+import { buildApiHeaders, handleApiError, sendApiEmpty, sendApiJson, sendEmpty, sendJson, withCorsHeaders } from "./http/responses.js";
 import { logger, createRequestLogger } from "./logger.js";
 import { SessionStore } from "./sessions/session-store.js";
+import { createHttpSessionMiddleware, requireSession } from "./sessions/http-session-middleware.js";
+import { HttpError } from "./http/http-error.js";
+import { JsonPlanStore, PlanConflictError, PlanValidationError } from "./stores/json-plan-store.js";
+import { JsonTemplateStore, TemplateValidationError } from "./stores/json-template-store.js";
+import { JsonSnippetStore } from "./stores/json-snippet-store.js";
+import { JsonHighlightConfigStore } from "./stores/json-highlight-config-store.js";
+import { JsonUserStore } from "./stores/json-user-store.js";
+import { PlanService, buildPlanEtag } from "./services/plan-service.js";
+import { TemplateService, buildTemplateEtag } from "./services/template-service.js";
+import { SnippetService } from "./services/snippet-service.js";
+import { HighlightConfigService } from "./services/highlight-config-service.js";
+import { AuthService } from "./services/auth-service.js";
+import { UserService } from "./services/user-service.js";
 
 const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const QUICK_SNIPPET_FILE_NAME = "quick-snippets.json";
-const HIGHLIGHT_CONFIG_FILE_NAME = "highlight-config.json";
-const USER_FILE_NAME = "users.json";
-let activeRuntimeConfig = null;
-
-class HttpError extends Error {
-  constructor(status, message, { expose = true, code = null, hint = null } = {}) {
-    super(message);
-    this.name = "HttpError";
-    this.status = status;
-    this.expose = expose;
-    this.code = code ?? `http-${status}`;
-    this.hint = hint;
-  }
-}
+const DEFAULT_PUBLIC_DIR = path.join(CURRENT_DIR, "..", "public");
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -56,286 +38,11 @@ const MIME_TYPES = {
   ".md": "text/markdown; charset=utf-8",
 };
 
-const DEFAULT_SESSION_TTL_MS = 1000 * 60 * 60 * 12; // 12h
-const SESSION_COOKIE_NAME = "nextplanner_session";
-const LOGIN_RATE_LIMIT_DEFAULTS = Object.freeze({
-  windowMs: 1000 * 60 * 5,
-  maxAttempts: 5,
-  blockDurationMs: 1000 * 60 * 5,
-});
-
-function setActiveRuntimeConfig(config) {
-  activeRuntimeConfig = config;
-}
-
-function getActiveRuntimeConfig() {
-  return activeRuntimeConfig;
-}
-
-function getAllowedOrigins() {
-  return getActiveRuntimeConfig()?.allowedOrigins ?? DEFAULT_ALLOWED_ORIGINS;
-}
-
-function getSeedCredentials() {
-  return getActiveRuntimeConfig()?.credentials ?? DEFAULT_DEV_CREDENTIALS;
-}
-
-function getJsonSpacing() {
-  return getActiveRuntimeConfig()?.nodeEnv === "development" ? 2 : 0;
-}
-
-function getDataDirectory() {
-  return getActiveRuntimeConfig()?.dataDir ?? DATA_DIR;
-}
-
-/**
- * Serialises JSON responses using pretty-printing only in development mode.
- * This keeps production payloads compact while retaining readability locally.
- *
- * @param {unknown} payload
- * @returns {string}
- */
-function stringifyJson(payload) {
-  const spacing = getJsonSpacing();
-  if (spacing > 0) {
-    return JSON.stringify(payload, null, spacing);
-  }
-  return JSON.stringify(payload);
-}
-
-function hashPassword(password) {
-  return createHash("sha256").update(String(password ?? "")).digest();
-}
-
-function normalizeUserRecord(user) {
-  if (!user || typeof user.username !== "string" || !user.username.trim()) {
-    return null;
-  }
-  const username = user.username.trim();
-  let passwordHash = null;
-  if (user.passwordHash) {
-    passwordHash = Buffer.isBuffer(user.passwordHash)
-      ? user.passwordHash
-      : Buffer.from(String(user.passwordHash), "hex");
-  } else if (typeof user.password === "string" && user.password.trim()) {
-    passwordHash = hashPassword(user.password);
-  }
-  if (!passwordHash) {
-    return null;
-  }
-  return {
-    username,
-    passwordHash,
-    isAdmin: Boolean(user.isAdmin),
-  };
-}
-
-function buildUserRegistry(users) {
-  const registry = new Map();
-  const fallbackCredentials = getSeedCredentials();
-  const normalizedUsers =
-    Array.isArray(users) && users.length > 0
-      ? users
-      : [
-          {
-            username: fallbackCredentials.admin?.username,
-            password: fallbackCredentials.admin?.password,
-            isAdmin: true,
-          },
-        ];
-  for (const entry of normalizedUsers) {
-    const normalized = normalizeUserRecord(entry);
-    if (normalized) {
-      registry.set(normalized.username, normalized);
-    }
-  }
-  return registry;
-}
-
-function verifyUserCredentials(registry, username, password) {
-  if (!username || !password) {
-    return null;
-  }
-  const record = registry.get(username.trim());
-  if (!record) {
-    return null;
-  }
-  const attempted = hashPassword(password);
-  if (record.passwordHash.length !== attempted.length) {
-    return null;
-  }
-  if (!timingSafeEqual(record.passwordHash, attempted)) {
-    return null;
-  }
-  return { username: record.username, isAdmin: Boolean(record.isAdmin) };
-}
-
-function parseCookies(header = "") {
-  return (header ?? "")
-    .split(";")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .reduce((acc, part) => {
-      const [name, ...rest] = part.split("=");
-      if (!name) {
-        return acc;
-      }
-      acc[name] = rest.join("=");
-      return acc;
-    }, {});
-}
-
-function buildSessionCookie(token, expiresAt, { secure = true } = {}) {
-  const parts = [`${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`, "HttpOnly", "SameSite=Lax", "Path=/"];
-  if (secure) {
-    parts.push("Secure");
-  }
-  const expiresDate = new Date(expiresAt);
-  if (!Number.isNaN(expiresDate.getTime())) {
-    const maxAgeSeconds = Math.max(0, Math.floor((expiresDate.getTime() - Date.now()) / 1000));
-    parts.push(`Expires=${expiresDate.toUTCString()}`);
-    parts.push(`Max-Age=${maxAgeSeconds}`);
-  }
-  return parts.join("; ");
-}
-
-function buildExpiredSessionCookie({ secure = true } = {}) {
-  const parts = [`${SESSION_COOKIE_NAME}=`, "HttpOnly", "SameSite=Lax", "Path=/", "Max-Age=0"];
-  if (secure) {
-    parts.push("Secure");
-  }
-  return parts.join("; ");
-}
-
-function getClientIp(req) {
-  const forwarded = req.headers?.["x-forwarded-for"];
-  if (typeof forwarded === "string" && forwarded.trim()) {
-    const [first] = forwarded.split(",");
-    if (first && first.trim()) {
-      return first.trim();
-    }
-  }
-  return req.socket?.remoteAddress ?? "unknown";
-}
-
-function isSecureRequest(req) {
-  const forwardedProto = (req.headers?.["x-forwarded-proto"] ?? "").toString().toLowerCase();
-  if (forwardedProto === "https") {
-    return true;
-  }
-  return Boolean(req.socket?.encrypted);
-}
-
-function shouldUseSecureCookies(req) {
-  const secureFlag = getActiveRuntimeConfig()?.secureCookies;
-  if (secureFlag === true) {
-    return true;
-  }
-  if (secureFlag === false) {
-    return false;
-  }
-  return isSecureRequest(req);
-}
-
-class LoginRateLimiter {
-  constructor(options = {}) {
-    this.windowMs = options.windowMs ?? LOGIN_RATE_LIMIT_DEFAULTS.windowMs;
-    this.maxAttempts = options.maxAttempts ?? LOGIN_RATE_LIMIT_DEFAULTS.maxAttempts;
-    this.blockDurationMs = options.blockDurationMs ?? LOGIN_RATE_LIMIT_DEFAULTS.blockDurationMs;
-    this.buckets = new Map();
-  }
-
-  buildKeys(ip, username) {
-    const keys = [];
-    if (ip) {
-      keys.push(`ip:${ip}`);
-    }
-    if (username) {
-      keys.push(`user:${username}`);
-    }
-    if (ip && username) {
-      keys.push(`combo:${username}@${ip}`);
-    }
-    return keys;
-  }
-
-  check(ip, username) {
-    const now = Date.now();
-    const keys = this.buildKeys(ip, username);
-    let blockedUntil = null;
-    for (const key of keys) {
-      const entry = this.buckets.get(key);
-      if (!entry) {
-        continue;
-      }
-      const isBlocked = entry.blockedUntil && entry.blockedUntil > now;
-      const windowExpired = entry.firstAttempt + this.windowMs < now;
-      if (isBlocked) {
-        blockedUntil = Math.max(blockedUntil ?? 0, entry.blockedUntil);
-      } else if (windowExpired) {
-        this.buckets.delete(key);
-      }
-    }
-    return { allowed: blockedUntil === null, blockedUntil, keys, now };
-  }
-
-  recordFailure(ip, username) {
-    const { keys, now } = this.check(ip, username);
-    let blockedUntil = null;
-    for (const key of keys) {
-      const existing = this.buckets.get(key);
-      const withinWindow = existing ? now - existing.firstAttempt <= this.windowMs : false;
-      const nextCount = withinWindow ? (existing?.count ?? 0) + 1 : 1;
-      const firstAttempt = withinWindow && existing ? existing.firstAttempt : now;
-      const newEntry = {
-        count: nextCount,
-        firstAttempt,
-        blockedUntil:
-          nextCount >= this.maxAttempts ? now + this.blockDurationMs : existing?.blockedUntil ?? null,
-      };
-      this.buckets.set(key, newEntry);
-      if (newEntry.blockedUntil && (!blockedUntil || newEntry.blockedUntil > blockedUntil)) {
-        blockedUntil = newEntry.blockedUntil;
-      }
-    }
-    return blockedUntil;
-  }
-
-  recordSuccess(ip, username) {
-    const { keys } = this.check(ip, username);
-    for (const key of keys) {
-      this.buckets.delete(key);
-    }
-  }
-}
-
 const HEALTH_ENDPOINTS = Object.freeze({
   readiness: "/readyz",
   liveness: "/livez",
   health: "/healthz",
 });
-
-const HEALTH_PATHS = new Set(Object.values(HEALTH_ENDPOINTS));
-const HEALTH_ALLOWED_METHODS = "GET,HEAD,OPTIONS";
-
-const API_CORS_HEADERS = {
-  "Access-Control-Allow-Headers": "Content-Type,If-Match,If-None-Match",
-  "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,DELETE,OPTIONS",
-  "Access-Control-Allow-Credentials": "true",
-  "Access-Control-Max-Age": "600",
-};
-
-const API_BASE_HEADERS = Object.freeze({
-  "Cache-Control": "no-store",
-  "Content-Security-Policy":
-    "default-src 'none'; script-src 'self'; base-uri 'self'; frame-ancestors 'none';", // tightened for API responses
-  "X-Content-Type-Options": "nosniff",
-});
-
-const USER_ID_HEADER = "x-user-id";
-const USER_NAME_HEADER = "x-user-name";
-const USER_ROLE_HEADER = "x-user-role";
-const KNOWN_USERS = new Map();
 
 const STATIC_SECURITY_HEADERS = Object.freeze({
   "Content-Security-Policy":
@@ -365,6 +72,11 @@ const IMMUTABLE_CACHE_EXTENSIONS = new Set([
 
 const FINGERPRINT_PATTERN = /(?:^|[.-])[0-9a-f]{8,}(?:\.|$)/i;
 
+function mapExtension(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  return MIME_TYPES[ext] ?? "application/octet-stream";
+}
+
 function resolveCacheControl(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === ".html") {
@@ -379,552 +91,31 @@ function resolveCacheControl(filePath) {
   return "public, max-age=3600";
 }
 
-function appendVary(value, field) {
-  const vary = new Set(
-    (value ?? "")
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean),
-  );
-  vary.add(field);
-  return Array.from(vary).join(", ");
-}
-
-function selectCorsOrigin(origin) {
-  const allowedOrigins = getAllowedOrigins();
-  if (origin && allowedOrigins.includes(origin)) {
-    return origin;
-  }
-  return allowedOrigins[0] ?? origin ?? "";
-}
-
-function withCorsHeaders(headers = {}, origin) {
-  const chosenOrigin = selectCorsOrigin(origin);
-  const base = { ...API_CORS_HEADERS, ...headers };
-  if (chosenOrigin) {
-    base["Access-Control-Allow-Origin"] = chosenOrigin;
-  }
-  base.Vary = appendVary(base.Vary, "Origin");
-  return base;
-}
-
-function buildApiHeaders(extra = {}) {
-  return { ...API_BASE_HEADERS, ...extra };
-}
-
-function buildEtag(fileStat) {
-  const sizeHex = fileStat.size.toString(16);
-  const mtimeHex = Math.floor(fileStat.mtimeMs).toString(16);
-  return `"${sizeHex}-${mtimeHex}"`;
-}
-
-function sortCanonical(value) {
-  if (Array.isArray(value)) {
-    return value.map((item) => sortCanonical(item));
-  }
-  if (value && typeof value === "object") {
-    return Object.keys(value)
-      .sort()
-      .reduce((acc, key) => {
-        acc[key] = sortCanonical(value[key]);
-        return acc;
-      }, {});
-  }
-  return value;
-}
-
-function canonicalizePlan(plan) {
-  const canonicalPlan = {
-    id: plan.id,
-    title: plan.title,
-    content: plan.content,
-    planDate: plan.planDate,
-    focus: plan.focus,
-    metadata: plan.metadata ?? {},
-    createdAt: plan.createdAt,
-    updatedAt: plan.updatedAt,
-    createdByUserId: plan.createdByUserId ?? null,
-    updatedByUserId: plan.updatedByUserId ?? null,
-  };
-  return JSON.stringify(sortCanonical(canonicalPlan));
-}
-
-function buildPlanEtag(plan) {
-  const canonical = canonicalizePlan(plan);
-  const hash = createHash("sha256").update(canonical).digest("hex");
-  return `"${hash}"`;
-}
-
-function canonicalizeTemplate(template) {
-  const canonicalTemplate = {
-    id: template.id,
-    type: template.type,
-    title: template.title,
-    notes: template.notes,
-    content: template.content,
-    tags: Array.isArray(template.tags) ? [...template.tags] : [],
-    createdAt: template.createdAt,
-    updatedAt: template.updatedAt,
-  };
-  return JSON.stringify(sortCanonical(canonicalTemplate));
-}
-
-function buildTemplateEtag(template) {
-  const canonical = canonicalizeTemplate(template);
-  const hash = createHash("sha256").update(canonical).digest("hex");
-  return `"${hash}"`;
-}
-
-function ifMatchSatisfied(header, currentEtag) {
-  if (!header || !currentEtag) {
-    return false;
-  }
-  const trimmed = header.trim();
-  if (!trimmed) {
-    return false;
-  }
-  if (trimmed === "*") {
-    return true;
-  }
-  const candidates = trimmed
-    .split(",")
-    .map((tag) => tag.trim())
-    .filter(Boolean);
-  return candidates.some((candidate) => candidate === currentEtag);
-}
-
 function parseHttpDate(value) {
   const time = Date.parse(value);
   return Number.isNaN(time) ? null : time;
 }
 
-function getHeaderValue(headers, name) {
-  const value = headers?.[name];
-  if (Array.isArray(value)) {
-    return value[0];
-  }
-  return value ?? null;
-}
-
-function normalizeUserId(value) {
-  if (value === undefined || value === null) {
-    return null;
-  }
-  if (typeof value === "string" || typeof value === "number") {
-    const normalized = String(value).trim();
-    return normalized || null;
-  }
-  return null;
-}
-
-function normalizeUserRole(role) {
-  if (typeof role !== "string") {
-    return "user";
-  }
-  return role.trim().toLowerCase() === "admin" ? "admin" : "user";
-}
-
-function hasAdminRole(roles, role) {
-  if (Array.isArray(roles)) {
-    if (roles.some((entry) => typeof entry === "string" && entry.trim().toLowerCase() === "admin")) {
-      return true;
-    }
-  }
-  if (typeof role === "string" && role.trim().toLowerCase() === "admin") {
-    return true;
-  }
-  return false;
-}
-
-function buildAuthUserFromSession(session) {
-  if (!session) {
-    return null;
-  }
-  const roles = Array.isArray(session.roles)
-    ? session.roles.filter((entry) => typeof entry === "string" && entry.trim())
-    : [];
-  const role = hasAdminRole(roles, session.role) ? "admin" : normalizeUserRole(roles[0]);
-  const username = session.username ?? null;
-  const id = session.userId ?? username ?? null;
-  const displayName = typeof session.name === "string" && session.name.trim() ? session.name : username ?? id;
-  return {
-    id,
-    name: displayName,
-    username,
-    role,
-    roles,
-  };
-}
-
-function resolveEffectiveRole(user) {
-  if (!user) {
-    return "user";
-  }
-  if (hasAdminRole(user.roles, user.role)) {
-    return "admin";
-  }
-  if (Array.isArray(user.roles)) {
-    if (user.roles.some((role) => typeof role === "string" && role.trim().toLowerCase() === "editor")) {
-      return "editor";
-    }
-    if (user.roles.some((role) => typeof role === "string" && role.trim().toLowerCase() === "viewer")) {
-      return "viewer";
-    }
-  }
-  return user.role ?? "user";
-}
-
-function resolveAccess(user, isAdminRequest = false) {
-  const effectiveRole = resolveEffectiveRole(user);
-  const isAdmin = isAdminRequest || effectiveRole === "admin";
-  const canWrite = isAdmin || effectiveRole === "editor" || effectiveRole === "user";
-  const isReadOnly = effectiveRole === "viewer";
-  return { isAdmin, canWrite, isReadOnly, role: effectiveRole };
-}
-
-function mergeKnownUsers(primary = [], secondary = []) {
-  const merged = new Map();
-  const add = (user) => {
-    if (!user) {
-      return;
-    }
-    const id = user.id ?? user.userId ?? user.username;
-    if (id === undefined || id === null) {
-      return;
-    }
-    const normalizedId = String(id).trim();
-    if (!normalizedId || merged.has(normalizedId)) {
-      return;
-    }
-    const roles = Array.isArray(user.roles) ? user.roles : [];
-    const role = user.role ?? (hasAdminRole(roles, roles[0]) ? "admin" : "user");
-    const name =
-      user.name ??
-      user.username ??
-      (typeof user.userId === "string" ? user.userId : normalizedId);
-    merged.set(normalizedId, {
-      ...user,
-      id: normalizedId,
-      name,
-      role,
-      roles,
-    });
-  };
-  primary.forEach(add);
-  secondary.forEach(add);
-  return Array.from(merged.values());
-}
-
-async function verifyLoginCredentials(userStore, userRegistry, username, password) {
-  const trimmedUsername = typeof username === "string" ? username.trim() : "";
-  if (!trimmedUsername || typeof password !== "string") {
-    return null;
-  }
-  if (userStore && typeof userStore.verifyCredentials === "function") {
-    const user = await userStore.verifyCredentials(trimmedUsername, password);
-    if (user) {
-      const roles = Array.isArray(user.roles) ? user.roles : [];
-      return {
-        id: user.id ?? user.username,
-        username: user.username,
-        roles,
-        isAdmin: hasAdminRole(roles, roles[0]),
-      };
-    }
-  }
-  const verifiedUser = verifyUserCredentials(userRegistry ?? new Map(), trimmedUsername, password);
-  if (verifiedUser) {
-    return {
-      id: verifiedUser.username,
-      username: verifiedUser.username,
-      roles: verifiedUser.isAdmin ? ["admin"] : ["user"],
-      isAdmin: Boolean(verifiedUser.isAdmin),
-    };
-  }
-  return null;
-}
-
-function extractRequestUser(req) {
-  const id = normalizeUserId(getHeaderValue(req.headers, USER_ID_HEADER));
-  if (!id) {
-    return null;
-  }
-  const name = getHeaderValue(req.headers, USER_NAME_HEADER);
-  const role = normalizeUserRole(getHeaderValue(req.headers, USER_ROLE_HEADER));
-  const displayName = typeof name === "string" && name.trim() ? name.trim() : id;
-  return { id, name: displayName, role };
-}
-
-function rememberKnownUser(user) {
-  if (!user?.id) {
-    return;
-  }
-  KNOWN_USERS.set(user.id, {
-    id: user.id,
-    name: user.name ?? user.username ?? user.id,
-    role: user.role ?? "user",
-  });
-}
-
-function attachRequestUser(req) {
-  const user = extractRequestUser(req);
-  if (user) {
-    req.user = user;
-    rememberKnownUser(user);
-  }
-  return user;
-}
-
-function etagMatches(header, currentEtag) {
-  if (!header || !currentEtag) {
-    return false;
-  }
-  const trimmed = header.trim();
-  if (!trimmed) {
-    return false;
-  }
-  if (trimmed === "*") {
-    return true;
-  }
-  const candidates = trimmed.split(",").map((tag) => tag.trim()).filter(Boolean);
-  return candidates.some((candidate) => {
-    if (candidate === currentEtag) {
-      return true;
-    }
-    if (candidate.startsWith("W/")) {
-      return candidate.slice(2) === currentEtag;
-    }
-    if (currentEtag.startsWith("W/")) {
-      return currentEtag.slice(2) === candidate;
-    }
-    return false;
-  });
-}
-
 function isRequestFresh(headers, etag, mtimeMs) {
-  if (etagMatches(headers["if-none-match"], etag)) {
-    return true;
+  const ifNoneMatch = headers["if-none-match"];
+  if (ifNoneMatch && etag) {
+    const candidates = ifNoneMatch
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    if (candidates.includes(etag)) {
+      return true;
+    }
   }
-  const ifModifiedSince = headers["if-modified-since"];
-  if (!ifModifiedSince) {
+  const since = headers["if-modified-since"];
+  if (!since) {
     return false;
   }
-  const since = parseHttpDate(ifModifiedSince);
-  if (since === null) {
+  const timestamp = parseHttpDate(since);
+  if (timestamp === null) {
     return false;
   }
-  // HTTP dates are second resolution, allow equality within one second window.
-  return Math.floor(mtimeMs / 1000) <= Math.floor(since / 1000);
-}
-
-function sendJson(
-  res,
-  status,
-  payload,
-  { cors = false, method = "GET", headers = {}, origin } = {},
-) {
-  const body = stringifyJson(payload);
-  const baseHeaders = {
-    "Content-Type": "application/json; charset=utf-8",
-    "Content-Length": Buffer.byteLength(body),
-  };
-  const finalHeaders = { ...(headers ?? {}), ...baseHeaders };
-  res.writeHead(
-    status,
-    cors ? withCorsHeaders(finalHeaders, origin) : finalHeaders,
-  );
-  if (method !== "HEAD") {
-    res.end(body);
-  } else {
-    res.end();
-  }
-}
-
-function sendEmpty(res, status, { cors = false, headers = {}, origin } = {}) {
-  const finalHeaders = { ...(headers ?? {}) };
-  res.writeHead(
-    status,
-    cors ? withCorsHeaders(finalHeaders, origin) : finalHeaders,
-  );
-  res.end();
-}
-
-function sendApiJson(res, status, payload, { method = "GET", headers, origin } = {}) {
-  sendJson(res, status, payload, {
-    cors: true,
-    method,
-    origin,
-    headers: buildApiHeaders(headers),
-  });
-}
-
-function sendApiEmpty(res, status, { headers, origin } = {}) {
-  sendEmpty(res, status, {
-    cors: true,
-    origin,
-    headers: buildApiHeaders(headers),
-  });
-}
-
-async function evaluateStoreHealth(name, store, log = logger) {
-  if (!store || typeof store.checkHealth !== "function") {
-    return { name, status: "unknown" };
-  }
-  try {
-    const details = await store.checkHealth();
-    return { name, status: "ok", details };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const failure = { name, status: "error", error: message };
-    if (error instanceof StorageIntegrityError && error.backupFile) {
-      failure.details = { backupFile: error.backupFile };
-    }
-    const level = error instanceof StorageIntegrityError ? "error" : "warn";
-    if (log && typeof log[level] === "function") {
-      log[level]("Health check '%s' failed: %s", name, error instanceof Error ? error.stack ?? error.message : message);
-    } else if (typeof logger[level] === "function") {
-      logger[level]("Health check '%s' failed: %s", name, message);
-    }
-    return failure;
-  }
-}
-
-function buildHealthPayload(checks) {
-  const hasError = checks.some((entry) => entry.status === "error");
-  const hasOk = checks.some((entry) => entry.status === "ok");
-  const status = hasError ? "degraded" : hasOk ? "ok" : "unknown";
-  const components = checks.reduce((acc, entry) => {
-    const info = { status: entry.status };
-    if (entry.details) {
-      info.details = entry.details;
-    }
-    if (entry.error) {
-      info.error = entry.error;
-    }
-    acc[entry.name] = info;
-    return acc;
-  }, {});
-  return {
-    status,
-    timestamp: new Date().toISOString(),
-    checks: components,
-    degraded: hasError,
-  };
-}
-
-async function ensureSeedUsers(userStore, seedCredentials = getSeedCredentials()) {
-  if (
-    !userStore ||
-    typeof userStore.createUser !== "function" ||
-    typeof userStore.findByUsername !== "function"
-  ) {
-    return;
-  }
-
-  const adminUsername = seedCredentials?.admin?.username ?? "";
-  const adminPassword = seedCredentials?.admin?.password ?? "";
-  const editorUsername = seedCredentials?.editor?.username ?? "";
-  const editorPassword = seedCredentials?.editor?.password ?? "";
-  const userUsername = seedCredentials?.user?.username ?? "";
-  const userPassword = seedCredentials?.user?.password ?? "";
-
-  const seedUsers = [
-    { username: adminUsername, password: adminPassword, roles: ["admin"], label: "Admin" },
-    { username: editorUsername, password: editorPassword, roles: ["editor"], label: "Editor" },
-    { username: userUsername, password: userPassword, roles: ["user"], label: "User" },
-  ]
-    .map((seed) => ({
-      ...seed,
-      username: (seed.username ?? "").trim(),
-      password: (seed.password ?? "").trim(),
-    }))
-    .filter((seed) => seed.username && seed.password);
-
-  for (const seed of seedUsers) {
-    try {
-      const existing = await userStore.findByUsername(seed.username);
-      if (existing) {
-        continue;
-      }
-      await userStore.createUser({
-        username: seed.username,
-        password: seed.password,
-        roles: seed.roles,
-        active: true,
-      });
-      logger.info("%s-Benutzer '%s' wurde angelegt.", seed.label, seed.username);
-    } catch (error) {
-      logger.error(
-        "Konnte Seed-Benutzer '%s' nicht anlegen: %s",
-        seed.username,
-        error instanceof Error ? error.stack ?? error.message : String(error ?? ""),
-      );
-    }
-  }
-}
-
-async function handleHealthRequest(
-  req,
-  res,
-  url,
-  {
-    planStore,
-    templateStore,
-    teamSnippetStore,
-    quickSnippetStore,
-    highlightConfigStore,
-    userStore,
-  },
-  { method, logger: requestLogger } = {},
-) {
-  const methodName = (method ?? req.method ?? "GET").toUpperCase();
-  const activeLogger = requestLogger ?? logger;
-
-  if (methodName === "OPTIONS") {
-    sendEmpty(res, 204, {
-      headers: buildApiHeaders({ Allow: HEALTH_ALLOWED_METHODS }),
-    });
-    return;
-  }
-
-  if (methodName !== "GET" && methodName !== "HEAD") {
-    sendEmpty(res, 405, {
-      headers: buildApiHeaders({ Allow: HEALTH_ALLOWED_METHODS }),
-    });
-    return;
-  }
-
-  if (url.pathname === HEALTH_ENDPOINTS.liveness) {
-    const payload = {
-      status: "ok",
-      timestamp: new Date().toISOString(),
-    };
-    sendJson(res, 200, payload, {
-      method: methodName,
-      headers: buildApiHeaders(),
-    });
-    return;
-  }
-
-  const checks = [];
-  for (const [name, store] of [
-    ["planStore", planStore],
-    ["templateStore", templateStore],
-    ["teamSnippetStore", teamSnippetStore],
-    ["quickSnippetStore", quickSnippetStore],
-    ["highlightConfigStore", highlightConfigStore],
-    ["userStore", userStore],
-  ]) {
-    // eslint-disable-next-line no-await-in-loop
-    checks.push(await evaluateStoreHealth(name, store, activeLogger));
-  }
-
-  const payload = buildHealthPayload(checks);
-  const statusCode = payload.degraded ? 503 : 200;
-  sendJson(res, statusCode, payload, {
-    method: methodName,
-    headers: buildApiHeaders(),
-  });
+  return Math.floor(mtimeMs / 1000) <= Math.floor(timestamp / 1000);
 }
 
 async function readJsonBody(req, { limit = 1_000_000 } = {}) {
@@ -952,10 +143,6 @@ async function readJsonBody(req, { limit = 1_000_000 } = {}) {
     body += chunk;
   }
 
-  if (!body) {
-    return {};
-  }
-
   if (!body.trim()) {
     return {};
   }
@@ -963,9 +150,7 @@ async function readJsonBody(req, { limit = 1_000_000 } = {}) {
   try {
     const parsed = JSON.parse(body);
     if (parsed === null || typeof parsed !== "object") {
-      throw new HttpError(400, "JSON body muss ein Objekt sein", {
-        hint: "Senden Sie ein JSON-Objekt (z. B. {\"title\":\"...\"}) statt eines Arrays oder eines einfachen Werts.",
-      });
+      throw new HttpError(400, "JSON body muss ein Objekt sein");
     }
     return parsed;
   } catch (error) {
@@ -976,19 +161,6 @@ async function readJsonBody(req, { limit = 1_000_000 } = {}) {
       hint: "Prüfen Sie die JSON-Syntax. Häufige Fehler sind fehlende Anführungszeichen oder Kommas.",
     });
   }
-}
-
-function isApiRequest(pathname) {
-  return pathname.startsWith("/api/");
-}
-
-function isHealthCheckRequest(pathname) {
-  return HEALTH_PATHS.has(pathname);
-}
-
-function mapExtension(filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  return MIME_TYPES[ext] ?? "application/octet-stream";
 }
 
 function sanitizePath(rootDir, requestedPath) {
@@ -1017,1782 +189,843 @@ function sanitizePath(rootDir, requestedPath) {
   return resolved;
 }
 
-function isHtmlPageRequest(pathname) {
-  if (!pathname) {
+function isHealthPath(pathname) {
+  return Object.values(HEALTH_ENDPOINTS).includes(pathname);
+}
+
+function buildNotModifiedHeaders(base, headers) {
+  return { ...base, ...headers };
+}
+
+function extractRequestUser(req) {
+  const idHeader = req.headers?.["x-user-id"];
+  const nameHeader = req.headers?.["x-user-name"];
+  const roleHeader = req.headers?.["x-user-role"];
+  const id = typeof idHeader === "string" && idHeader.trim() ? idHeader.trim() : null;
+  if (!id) {
+    return null;
+  }
+  const name = typeof nameHeader === "string" && nameHeader.trim() ? nameHeader.trim() : id;
+  const role = typeof roleHeader === "string" && roleHeader.trim().toLowerCase() === "admin" ? "admin" : "user";
+  return { id, name, role, roles: [role] };
+}
+
+function etagMatches(header, currentEtag) {
+  if (!header || !currentEtag) {
     return false;
   }
-  const ext = path.extname(pathname);
-  if (ext) {
-    return ext.toLowerCase() === ".html";
-  }
-  return pathname.endsWith("/") || !pathname.includes(".");
-}
-
-function isLoginPath(pathname) {
-  if (!pathname) {
+  const trimmed = header.trim();
+  if (!trimmed) {
     return false;
   }
-  const normalized = pathname.toLowerCase();
-  return normalized === "/login.html" || normalized === "/login";
+  if (trimmed === "*") {
+    return true;
+  }
+  const candidates = trimmed.split(",").map((tag) => tag.trim()).filter(Boolean);
+  return candidates.some((candidate) => {
+    if (candidate === currentEtag) return true;
+    if (candidate.startsWith("W/")) {
+      return candidate.slice(2) === currentEtag;
+    }
+    if (currentEtag.startsWith("W/")) {
+      return currentEtag.slice(2) === candidate;
+    }
+    return false;
+  });
 }
 
-function buildLoginRedirectTarget(pathname, search = "", reason = null) {
-  const next = `${pathname ?? "/"}` + (search ?? "");
-  const params = new URLSearchParams();
-  if (next && next !== "/login.html" && next !== "/login") {
-    params.set("next", next);
+function requireAuthenticated(ctx) {
+  if (!ctx.authUser) {
+    throw new HttpError(401, "Authentifizierung erforderlich.", {
+      code: "unauthorized",
+      hint: "Melden Sie sich an und wiederholen Sie den Vorgang.",
+    });
   }
-  if (reason) {
-    params.set("reason", reason);
-  }
-  const query = params.toString();
-  return query ? `/login.html?${query}` : "/login.html";
 }
 
-function resolvePostLoginRedirect(url) {
-  if (!url || typeof url.searchParams?.get !== "function") {
-    return "/index.html";
+function localizePlanValidationMessage(message) {
+  if (/content is required/i.test(message)) {
+    return "content ist erforderlich";
   }
-  const target = url.searchParams.get("next");
-  if (typeof target === "string" && target.startsWith("/")) {
-    return target;
+  if (/title is required/i.test(message)) {
+    return "title ist erforderlich";
   }
-  return "/index.html";
+  if (/focus is required/i.test(message)) {
+    return "focus ist erforderlich";
+  }
+  if (/metadata must be an object/i.test(message)) {
+    return "metadata muss ein Objekt sein";
+  }
+  return message;
 }
 
-async function serveStatic(req, res, url, rootDir) {
-  const safePath = sanitizePath(rootDir, url.pathname);
-  if (!safePath) {
-    sendEmpty(res, 403, { headers: STATIC_SECURITY_HEADERS });
-    return;
+class HttpApplication {
+  constructor({ config, services, publicDir }) {
+    this.config = config;
+    this.services = services;
+    this.publicDir = publicDir ?? DEFAULT_PUBLIC_DIR;
+    this.sessionMiddleware = createHttpSessionMiddleware({
+      sessionStore: services.sessionStore,
+      cookieName: config.security.session.cookieName,
+      resolveSecure: (req) => {
+        const flag = config.security.session.secureCookies;
+        if (flag === true) return true;
+        if (flag === false) return false;
+        const forwardedProto = (req.headers?.["x-forwarded-proto"] ?? "").toString().toLowerCase();
+        if (forwardedProto === "https") return true;
+        return Boolean(req.socket?.encrypted);
+      },
+      ttlMs: config.security.session.ttlMs,
+    });
   }
 
-  let filePath = safePath;
-  let fileStat;
-  let attemptedFallback = false;
+  async handle(req, res) {
+    res.locals = { jsonSpacing: this.config.server.jsonSpacing };
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const requestLogger = createRequestLogger({
+      method: req.method,
+      path: url.pathname,
+    });
+    const startedAt = Date.now();
+    const ctx = {
+      config: this.config,
+      services: this.services,
+      url,
+      logger: requestLogger,
+      state: {},
+      cookies: [],
+      authUser: null,
+    };
 
-  while (true) {
     try {
-      fileStat = await stat(filePath);
-      if (fileStat.isDirectory()) {
-        filePath = path.join(filePath, "index.html");
-        continue;
-      }
-      break;
+      await this.sessionMiddleware(req, res, ctx, async () => {
+        ctx.authUser = req.session
+          ? {
+              id: req.session.userId ?? req.session.username,
+              username: req.session.username,
+              name: req.session.username ?? req.session.userId,
+              roles: req.session.roles ?? [],
+              role: (req.session.roles ?? [])[0] ?? "user",
+              isAdmin: (req.session.roles ?? []).includes("admin") || req.session.isAdmin,
+            }
+          : extractRequestUser(req);
+        if (ctx.authUser) {
+          this.services.userService.remember(ctx.authUser);
+        }
+
+        if (isHealthPath(url.pathname)) {
+          await this.handleHealth(req, res, ctx);
+          return;
+        }
+
+        if (url.pathname.startsWith("/api/")) {
+          await this.handleApi(req, res, ctx);
+          return;
+        }
+
+        await this.handleStatic(req, res, ctx);
+      });
     } catch (error) {
-      if (!attemptedFallback && (req.method === "GET" || req.method === "HEAD")) {
-        filePath = path.join(rootDir, "index.html");
-        attemptedFallback = true;
-        continue;
+      if (url.pathname.startsWith("/api/")) {
+        handleApiError(res, error, {
+          origin: req.headers?.origin,
+          allowedOrigins: this.config.server.allowedOrigins,
+        });
+      } else if (isHealthPath(url.pathname)) {
+        const status = error instanceof HttpError ? error.status : 500;
+        sendJson(res, status, { error: error.message }, { headers: buildApiHeaders() });
+      } else {
+        const status = error instanceof HttpError ? error.status : 500;
+        sendEmpty(res, status, { headers: STATIC_SECURITY_HEADERS });
       }
-      sendEmpty(res, 404, { headers: STATIC_SECURITY_HEADERS });
+    } finally {
+      const durationMs = Date.now() - startedAt;
+      requestLogger.info("Request beendet mit Status %s nach %dms", res.statusCode ?? "-", durationMs);
+    }
+  }
+
+  async handleHealth(req, res, ctx) {
+    const method = (req.method ?? "GET").toUpperCase();
+    if (method === "OPTIONS") {
+      sendEmpty(res, 204, { headers: buildApiHeaders({ Allow: "GET,HEAD,OPTIONS" }) });
       return;
     }
-  }
-
-  const method = req.method ?? "GET";
-  const mime = mapExtension(filePath);
-  const etag = buildEtag(fileStat);
-  const cacheHeaders = {
-    "Last-Modified": fileStat.mtime.toUTCString(),
-    ETag: etag,
-    "Cache-Control": resolveCacheControl(filePath),
-  };
-
-  const notModifiedHeaders = { ...cacheHeaders, ...STATIC_SECURITY_HEADERS };
-  if (isRequestFresh(req.headers ?? {}, etag, fileStat.mtimeMs)) {
-    res.writeHead(304, notModifiedHeaders);
-    res.end();
-    return;
-  }
-
-  const headers = {
-    ...cacheHeaders,
-    "Content-Type": mime,
-    "Content-Length": fileStat.size,
-  };
-  const responseHeaders = { ...headers, ...STATIC_SECURITY_HEADERS };
-
-  if (method === "HEAD") {
-    res.writeHead(200, responseHeaders);
-    res.end();
-    return;
-  }
-
-  if (method !== "GET") {
-    sendEmpty(res, 405, { headers: STATIC_SECURITY_HEADERS });
-    return;
-  }
-
-  const stream = createReadStream(filePath);
-  stream.once("open", () => {
-    res.writeHead(200, responseHeaders);
-  });
-  stream.once("error", (error) => {
-    if (!res.headersSent) {
-      const status = error?.code === "ENOENT" ? 404 : 500;
-      sendEmpty(res, status, { headers: STATIC_SECURITY_HEADERS });
-    } else {
-      res.destroy(error);
+    if (method !== "GET" && method !== "HEAD") {
+      sendEmpty(res, 405, { headers: buildApiHeaders({ Allow: "GET,HEAD,OPTIONS" }) });
+      return;
     }
-  });
-  res.once("close", () => {
-    stream.destroy();
-  });
-  stream.pipe(res);
-}
 
-function parseIdFromPath(pathname) {
-  const match = /^\/api\/plans\/(\d+)$/.exec(pathname);
-  if (!match) {
-    return null;
-  }
-  return Number(match[1]);
-}
-
-function parseTemplateIdFromPath(pathname) {
-  const match = /^\/api\/templates\/([^/]+)$/.exec(pathname);
-  if (!match) {
-    return null;
-  }
-  return match[1];
-}
-
-function parseUserIdFromPath(pathname) {
-  const match = /^\/api\/users\/(\d+)$/.exec(pathname);
-  if (!match) {
-    return null;
-  }
-  return Number(match[1]);
-}
-
-function ensureJsonObject(payload) {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new HttpError(400, "JSON body muss ein Objekt sein", {
-      hint: "Verwenden Sie ein JSON-Objekt mit Schlüssel-Wert-Paaren, um die Daten zu übermitteln.",
-    });
-  }
-  return payload;
-}
-
-function validateMetadata(metadata) {
-  if (metadata === undefined) {
-    return undefined;
-  }
-  if (metadata === null) {
-    return {};
-  }
-  if (typeof metadata !== "object" || Array.isArray(metadata)) {
-    throw new HttpError(400, "metadata muss ein Objekt sein", {
-      hint: "'metadata' erwartet ein JSON-Objekt, z. B. {\"priority\":\"hoch\"}.",
-    });
-  }
-  return metadata;
-}
-
-function validateCreatePayload(payload) {
-  const data = ensureJsonObject(payload);
-  const { title, content, planDate, focus, metadata } = data;
-  if (typeof title !== "string" || !title.trim()) {
-    throw new HttpError(400, "title ist erforderlich und muss ein String sein", {
-      hint: "Geben Sie einen nicht-leeren Text im Feld 'title' an.",
-    });
-  }
-  if (typeof content !== "string" || !content.trim()) {
-    throw new HttpError(400, "content ist erforderlich und muss ein String sein", {
-      hint: "Füllen Sie das Feld 'content' mit einer Beschreibung des Plans aus.",
-    });
-  }
-  if (typeof planDate !== "string" || !planDate.trim()) {
-    throw new HttpError(400, "planDate ist erforderlich und muss ein ISO-Datum sein", {
-      hint: "Verwenden Sie ein ISO-Datum, z. B. '2025-01-31'.",
-    });
-  }
-  if (typeof focus !== "string" || !focus.trim()) {
-    throw new HttpError(400, "focus ist erforderlich und muss ein String sein", {
-      hint: "Definieren Sie einen Schwerpunkt im Feld 'focus', z. B. 'Teamkommunikation'.",
-    });
-  }
-  return {
-    title,
-    content,
-    planDate,
-    focus,
-    metadata: validateMetadata(metadata) ?? {},
-  };
-}
-
-function buildErrorPayload(code, message, details, hint) {
-  const payload = { error: { code, message } };
-  if (details !== undefined) {
-    payload.error.details = details;
-  }
-  if (hint) {
-    payload.error.hint = hint;
-  }
-  return payload;
-}
-
-function handleApiError(res, error, method = "GET", origin, options = {}) {
-  const log = options?.logger ?? logger;
-  const path = options?.path ?? "";
-  const location = path ? `${method} ${path}` : method;
-  const logWith = (level, message, ...args) => {
-    if (log && typeof log[level] === "function") {
-      log[level](message, ...args);
-    } else if (typeof logger[level] === "function") {
-      logger[level](message, ...args);
+    if (ctx.url.pathname === HEALTH_ENDPOINTS.liveness) {
+      const payload = {
+        status: "ok",
+        timestamp: new Date().toISOString(),
+      };
+      sendJson(res, 200, payload, { method });
+      return;
     }
-  };
 
-  const sendError = (status, code, message, details, headers, hint) => {
-    sendApiJson(res, status, buildErrorPayload(code, message, details, hint), {
-      method,
-      origin,
-      headers,
-    });
-  };
+    const checks = [];
+    for (const [name, store] of [
+      ["planStore", this.services.planStore],
+      ["templateStore", this.services.templateStore],
+      ["snippetStore", this.services.snippetStore],
+      ["highlightConfigStore", this.services.highlightConfigStore],
+      ["userStore", this.services.userService?.store],
+    ]) {
+      if (!store || typeof store.checkHealth !== "function") {
+        checks.push({ name, status: "unknown" });
+        continue;
+      }
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const details = await store.checkHealth();
+        checks.push({ name, status: "ok", details });
+      } catch (error) {
+        checks.push({
+          name,
+          status: "error",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
 
-  if (error instanceof HttpError) {
-    const message = error.expose ? error.message : "Unbekannter Fehler";
-    const level = error.status >= 500 ? "error" : "debug";
-    logWith(level, "API %s -> %d: %s", location, error.status, message);
-    sendError(
-      error.status,
-      error.code ?? `http-${error.status}`,
-      message,
-      undefined,
-      undefined,
-      error.hint,
-    );
-    return;
-  }
-  if (error instanceof PlanValidationError) {
-    logWith("warn", "Plan validation failed for %s: %s", location, error.message);
-    sendError(
-      400,
-      "plan-validation",
-      error.message,
-      undefined,
-      undefined,
-      "Bitte prüfen Sie die angegebenen Felder und korrigieren Sie ungültige Werte.",
-    );
-    return;
-  }
-  if (error instanceof StorageIntegrityError) {
-    const details = error.backupFile ? { backupFile: error.backupFile } : undefined;
-    const backupInfo = error.backupFile ? ` (Backup: ${error.backupFile})` : "";
-    logWith(
-      "error",
-      "Storage integrity issue detected for %s: %s%s",
-      location,
-      error.message,
-      backupInfo,
-    );
-    sendError(
-      503,
-      "storage-integrity",
-      error.message,
-      details,
-      undefined,
-      "Die lokalen Daten konnten nicht gespeichert werden. Bitte sichern Sie Ihre Eingaben und versuchen Sie es später erneut.",
-    );
-    return;
-  }
-  if (error instanceof TemplateValidationError) {
-    logWith("warn", "Template validation failed for %s: %s", location, error.message);
-    sendError(
-      400,
-      "template-validation",
-      error.message,
-      undefined,
-      undefined,
-      "Überprüfen Sie die Angaben zur Vorlage und korrigieren Sie ungültige Werte.",
-    );
-    return;
-  }
-  if (error instanceof UserValidationError) {
-    logWith("warn", "User validation failed for %s: %s", location, error.message);
-    sendError(
-      400,
-      "user-validation",
-      error.message,
-      undefined,
-      undefined,
-      "Bitte Eingaben prüfen: Benutzername ohne Leerzeichen, ausreichend langes Passwort und gültige Rollen.",
-    );
-    return;
-  }
-  if (error instanceof PlanConflictError) {
-    const details = error.currentPlan ? { currentPlan: error.currentPlan } : undefined;
-    const headers = error.currentPlan ? { ETag: buildPlanEtag(error.currentPlan) } : undefined;
-    logWith("warn", "Plan conflict detected for %s: %s", location, error.message);
-    sendError(
-      412,
-      "plan-conflict",
-      error.message,
-      details,
-      headers,
-      "Der Plan wurde inzwischen geändert. Laden Sie die aktuelle Version und übernehmen Sie Ihre Anpassungen erneut.",
-    );
-    return;
-  }
-  const rawMessage =
-    error instanceof Error ? error.stack ?? error.message : String(error ?? "Unbekannter Fehler");
-  logWith("error", "Unexpected API error for %s: %s", location, rawMessage);
-  const message =
-    process.env.NODE_ENV === "development"
-      ? error instanceof Error
-        ? error.message
-        : String(error)
-      : "Interner Serverfehler";
-  sendError(
-    500,
-    "internal-error",
-    message,
-    undefined,
-    undefined,
-    "Bitte versuchen Sie es später erneut oder wenden Sie sich an den Support, falls das Problem bestehen bleibt.",
-  );
-}
-
-async function resolveAuthContext(req, sessionStoreInstance, requestLogger) {
-  if (!sessionStoreInstance) {
-    return { user: null, isAdmin: false, token: null };
-  }
-  try {
-    const cookies = parseCookies(req.headers?.cookie ?? "");
-    const token = cookies[SESSION_COOKIE_NAME];
-    if (!token) {
-      return { user: null, isAdmin: false, token: null };
-    }
-    const session = await sessionStoreInstance.getSession(token);
-    if (!session || !session.username) {
-      return { user: null, isAdmin: false, token };
-    }
-    const user = buildAuthUserFromSession(session);
-    if (!user) {
-      return { user: null, isAdmin: false, token: null };
-    }
-    const access = resolveAccess(user, session.isAdmin);
-    return {
-      user: {
-        id: user.id,
-        name: user.name,
-        username: user.username,
-        role: user.role,
-        roles: user.roles,
-      },
-      isAdmin: access.isAdmin,
-      token,
+    const hasError = checks.some((entry) => entry.status === "error");
+    const payload = {
+      status: hasError ? "degraded" : "ok",
+      timestamp: new Date().toISOString(),
+      checks: checks.reduce((acc, entry) => {
+        acc[entry.name] = { status: entry.status, ...(entry.details ? { details: entry.details } : {}) };
+        if (entry.error) acc[entry.name].error = entry.error;
+        return acc;
+      }, {}),
+      degraded: hasError,
     };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    requestLogger?.warn?.("Session konnte nicht geladen werden: %s", message);
-    return { user: null, isAdmin: false, token: null };
-  }
-}
-
-async function handleApiRequest(
-  req,
-  res,
-  url,
-  planStore,
-  templateStore,
-  teamSnippetStore,
-  quickSnippetStore,
-  highlightConfigStore,
-  userStore,
-  origin,
-  {
-    method: providedMethod,
-    logger: requestLogger,
-    auth,
-    sessionStore,
-    userRegistry,
-    loginRateLimiter,
-    sessionTtlMs = DEFAULT_SESSION_TTL_MS,
-  } = {},
-) {
-  const requestOrigin = origin ?? req.headers?.origin ?? "";
-  const method = (providedMethod ?? req.method ?? "GET").toUpperCase();
-  const logOptions = { logger: requestLogger ?? logger, path: url.pathname };
-  const authContext = auth ?? { user: null, isAdmin: false, token: null };
-  const requestUser = authContext.user ?? req.user ?? null;
-  const access = resolveAccess(requestUser, authContext.isAdmin || req.isAdmin);
-  let isAdminRequest = access.isAdmin;
-  const isSafeMethod = method === "GET" || method === "HEAD" || method === "OPTIONS";
-  const hasSessionCookie = Boolean(authContext.token);
-
-  if (req.user && req.user.role !== access.role) {
-    req.user.role = access.role;
-    if (Array.isArray(req.user.roles)) {
-      req.user.roles = req.user.roles;
-    }
-  }
-
-  if (requestUser && !req.user) {
-    req.user = requestUser;
-  }
-  if (isAdminRequest && !req.isAdmin) {
-    req.isAdmin = true;
-  }
-
-  if (method === "OPTIONS") {
-    sendApiEmpty(res, 204, {
-      headers: {
-        "Access-Control-Allow-Methods":
-          API_CORS_HEADERS["Access-Control-Allow-Methods"],
-      },
-      origin: requestOrigin,
+    const statusCode = payload.degraded ? 503 : 200;
+    sendJson(res, statusCode, payload, {
+      method,
+      headers: buildApiHeaders(),
     });
-    return;
   }
 
-  if (!isSafeMethod && hasSessionCookie && requestOrigin && !getAllowedOrigins().includes(requestOrigin)) {
-    handleApiError(
-      res,
-      new HttpError(403, "CSRF-Schutz: Ursprung nicht erlaubt", {
-        code: "csrf-origin",
-        hint: "Anfragen müssen vom konfigurierten Ursprung kommen.",
-      }),
-      method,
-      requestOrigin,
-      logOptions,
-    );
-    return;
-  }
+  async handleApi(req, res, ctx) {
+    const origin = req.headers?.origin;
+    const allowedOrigins = this.config.server.allowedOrigins;
+    const method = (req.method ?? "GET").toUpperCase();
+    const headers = (extra) => ({
+      ...withCorsHeaders(buildApiHeaders(extra), origin, allowedOrigins),
+      ...(ctx.cookies.length > 0 ? { "Set-Cookie": ctx.cookies } : {}),
+    });
 
-  const requireWriteAccess = () => {
-    if (access.canWrite) {
-      return true;
+    if (method === "OPTIONS") {
+      sendEmpty(res, 204, { headers: headers({}) });
+      return;
     }
-    handleApiError(
-      res,
-      new HttpError(403, "Schreibberechtigung erforderlich", {
-        code: "write-required",
-        hint: "Ihr Konto ist nur für Lesezugriffe freigeschaltet.",
-      }),
-      method,
-      requestOrigin,
-      logOptions,
-    );
-    return false;
-  };
 
-  if (url.pathname === "/api/auth/login") {
-    if (method !== "POST") {
-      handleApiError(
+    if (ctx.url.pathname === "/api/auth/login") {
+      if (method !== "POST") {
+        sendApiEmpty(res, 405, { origin, allowedOrigins, headers: { Allow: "POST,OPTIONS" } });
+        return;
+      }
+      const body = await readJsonBody(req);
+      const username = body.username;
+      const password = body.password;
+      const ip = req.socket?.remoteAddress ?? "unknown";
+      const user = await this.services.authService.login(username, password, { ip });
+      await ctx.state.issueSession(user);
+      sendApiJson(
         res,
-        new HttpError(405, "Methode nicht erlaubt", {
-          hint: "Verwenden Sie POST mit { username, password }, um sich anzumelden.",
-        }),
-        method,
-        requestOrigin,
-        logOptions,
+        200,
+        { id: user.id, username: user.username, roles: user.roles },
+        { origin, allowedOrigins, headers: { "Set-Cookie": ctx.cookies } },
       );
       return;
     }
-    try {
-      const body = await readJsonBody(req, { limit: 50_000 });
-      const payload = ensureJsonObject(body);
-      const { username, password } = payload;
-      if (typeof username !== "string" || typeof password !== "string" || !username.trim()) {
-        throw new HttpError(400, "username und password sind erforderlich", {
-          code: "invalid-credentials-input",
-          hint: "Senden Sie beide Felder als Strings, z. B. { \"username\": \"coach\", \"password\": \"secret\" }.",
-        });
-      }
 
-      const clientIp = getClientIp(req);
-      const rateStatus = loginRateLimiter?.check(clientIp, username);
-      if (rateStatus && rateStatus.allowed === false) {
-        const retryAfterMs = Math.max(0, (rateStatus?.blockedUntil ?? Date.now()) - Date.now());
-        const retryAfterSeconds = Math.max(
-          1,
-          Math.ceil(retryAfterMs / 1000),
-        );
-        throw new HttpError(429, "Zu viele fehlgeschlagene Anmeldeversuche", {
-          code: "login-rate-limit",
-          hint: `Warten Sie ${retryAfterSeconds} Sekunden, bevor Sie es erneut versuchen.`,
-        });
+    if (ctx.url.pathname === "/api/auth/logout") {
+      if (method !== "POST") {
+        sendApiEmpty(res, 405, { origin, allowedOrigins, headers: { Allow: "POST,OPTIONS" } });
+        return;
       }
+      requireSession(req);
+      await ctx.state.clearSession();
+      sendApiEmpty(res, 204, { origin, allowedOrigins, headers: { "Set-Cookie": ctx.cookies } });
+      return;
+    }
 
-      const verifiedUser = await verifyLoginCredentials(userStore, userRegistry, username, password);
-      if (!verifiedUser) {
-        const blockedUntil = loginRateLimiter?.recordFailure(clientIp, username);
-        const hint =
-          blockedUntil && blockedUntil > Date.now()
-            ? `Zu viele Fehlversuche. Bitte warten Sie ${Math.max(1, Math.floor((blockedUntil - Date.now()) / 1000))} Sekunden.`
-            : "Bitte prüfen Sie Benutzername oder Passwort.";
-        throw new HttpError(401, "Ungültige Zugangsdaten", {
-          code: "invalid-credentials",
-          hint,
-        });
+    if (ctx.url.pathname === "/api/auth/me") {
+      if (method !== "GET" && method !== "HEAD") {
+        sendApiEmpty(res, 405, { origin, allowedOrigins, headers: { Allow: "GET,HEAD,OPTIONS" } });
+        return;
       }
-
-      loginRateLimiter?.recordSuccess(clientIp, verifiedUser.username);
-      const session = await sessionStore.createSession({
-        userId: verifiedUser.id,
-        username: verifiedUser.username,
-        roles: verifiedUser.roles,
-        isAdmin: verifiedUser.isAdmin,
-        ttlMs: sessionTtlMs,
-      });
-      const cookieSecure = shouldUseSecureCookies(req);
-      const cookie = buildSessionCookie(session.token, session.expiresAt, {
-        secure: cookieSecure,
-      });
+      if (!ctx.authUser) {
+        sendApiEmpty(res, 401, { origin, allowedOrigins });
+        return;
+      }
       sendApiJson(
         res,
         200,
         {
-          success: true,
-          user: {
-            id: verifiedUser.id,
-            username: verifiedUser.username,
-            roles: verifiedUser.roles,
-            isAdmin: verifiedUser.isAdmin,
-          },
-          expiresAt: session.expiresAt,
+          id: ctx.authUser.id,
+          name: ctx.authUser.name ?? ctx.authUser.username ?? ctx.authUser.id,
+          role: ctx.authUser.role ?? (ctx.authUser.roles ?? [])[0] ?? "user",
+          roles: ctx.authUser.roles ?? [],
         },
-        {
-          method,
-          origin: requestOrigin,
-          headers: { "Set-Cookie": cookie },
-        },
-      );
-    } catch (error) {
-      handleApiError(res, error, method, requestOrigin, logOptions);
-    }
-    return;
-  }
-
-  if (url.pathname === "/api/auth/logout") {
-    if (method !== "POST") {
-      handleApiError(
-        res,
-        new HttpError(405, "Methode nicht erlaubt", {
-          hint: "Verwenden Sie POST, um die Sitzung zu beenden.",
-        }),
-        method,
-        requestOrigin,
-        logOptions,
-      );
-      return;
-    }
-    try {
-      if (authContext.token) {
-        await sessionStore.deleteSession(authContext.token);
-      }
-      const cookieSecure = shouldUseSecureCookies(req);
-      sendApiEmpty(res, 204, {
-        origin: requestOrigin,
-        headers: { "Set-Cookie": buildExpiredSessionCookie({ secure: cookieSecure }) },
-      });
-    } catch (error) {
-      handleApiError(res, error, method, requestOrigin, logOptions);
-    }
-    return;
-  }
-
-  if (!requestUser) {
-    handleApiError(
-      res,
-      new HttpError(401, "Authentifizierung erforderlich", {
-        code: "unauthenticated",
-        hint: "Melden Sie sich an, um auf diese API zuzugreifen.",
-      }),
-      method,
-      requestOrigin,
-      logOptions,
-    );
-    return;
-  }
-
-  isAdminRequest = Boolean(authContext.isAdmin || req.user?.role === "admin" || req.isAdmin);
-
-  const isBackupsRoute =
-    url.pathname === "/api/backups" ||
-    url.pathname === "/api/storage/backup" ||
-    url.pathname === "/api/storage/restore";
-  if (isBackupsRoute) {
-    const isRestorePath = url.pathname === "/api/storage/restore";
-    if ((method === "GET" || method === "HEAD") && !isRestorePath) {
-      try {
-        const backup = await planStore.exportBackup();
-        sendApiJson(res, 200, backup, { method, origin: requestOrigin });
-      } catch (error) {
-        handleApiError(res, error, method, requestOrigin, logOptions);
-      }
-      return;
-    }
-    if (method === "POST") {
-      if (!requireWriteAccess()) {
-        return;
-      }
-      try {
-        const body = await readJsonBody(req, { limit: 5_000_000 });
-        const payload = ensureJsonObject(body);
-        const result = await planStore.importBackup(payload);
-        const responseBody = {
-          success: true,
-          planCount: result.planCount,
-          restoredAt: new Date().toISOString(),
-        };
-        sendApiJson(res, 200, responseBody, { method, origin: requestOrigin });
-      } catch (error) {
-        handleApiError(res, error, method, requestOrigin, logOptions);
-      }
-      return;
-    }
-    handleApiError(
-      res,
-      new HttpError(405, "Methode nicht erlaubt", {
-        hint: "Für Sicherungen stehen GET/HEAD (Export) und POST (Import) zur Verfügung.",
-      }),
-      method,
-      requestOrigin,
-      logOptions,
-    );
-    return;
-  }
-
-  if (url.pathname === "/api/users") {
-    if (!userStore) {
-      handleApiError(
-        res,
-        new HttpError(503, "Benutzerspeicher nicht verfügbar", {
-          hint: "Der Server konnte den Benutzerspeicher nicht initialisieren.",
-        }),
-        method,
-        requestOrigin,
-        logOptions,
+        { origin, allowedOrigins, headers: { "Set-Cookie": ctx.cookies }, method },
       );
       return;
     }
 
-    if (!isAdminRequest) {
-      handleApiError(
-        res,
-        new HttpError(403, "Admin-Berechtigung erforderlich", {
-          code: "admin-required",
-          hint: "Melden Sie sich als Admin an, um Benutzer zu verwalten.",
-        }),
-        method,
-        requestOrigin,
-        logOptions,
-      );
+    if (ctx.url.pathname.startsWith("/api/plans")) {
+      await this.handlePlanRoutes(req, res, ctx, { headers, origin, allowedOrigins });
+      return;
+    }
+    if (ctx.url.pathname.startsWith("/api/templates")) {
+      await this.handleTemplateRoutes(req, res, ctx, { headers, origin, allowedOrigins });
+      return;
+    }
+    if (ctx.url.pathname === "/api/snippets") {
+      await this.handleSnippetRoutes(req, res, ctx, { headers, origin, allowedOrigins });
+      return;
+    }
+    if (ctx.url.pathname === "/api/highlight-config") {
+      await this.handleHighlightRoutes(req, res, ctx, { headers, origin, allowedOrigins });
+      return;
+    }
+    if (ctx.url.pathname === "/api/backups") {
+      await this.handleBackupRoutes(req, res, ctx, { headers, origin, allowedOrigins });
+      return;
+    }
+    if (ctx.url.pathname === "/api/users") {
+      await this.handleUserRoutes(req, res, ctx, { headers, origin, allowedOrigins });
       return;
     }
 
-    if (method === "GET" || method === "HEAD") {
-      try {
-        const storedUsers = await userStore.listUsers();
-        const users = mergeKnownUsers(storedUsers, Array.from(KNOWN_USERS.values()));
-        sendApiJson(res, 200, users, { method, origin: requestOrigin });
-      } catch (error) {
-        handleApiError(res, error, method, requestOrigin, logOptions);
-      }
-      return;
-    }
+    throw new HttpError(404, "Endpoint nicht gefunden");
+  }
 
-    if (method === "POST") {
-      try {
-        const body = await readJsonBody(req, { limit: 200_000 });
-        const payload = ensureJsonObject(body);
-        const user = await userStore.createUser(payload);
-        sendApiJson(res, 201, user, {
-          method,
-          origin: requestOrigin,
-          headers: { Location: `/api/users/${user.id}` },
+  async handlePlanRoutes(req, res, ctx, meta) {
+    const { headers, origin, allowedOrigins } = meta;
+    const method = (req.method ?? "GET").toUpperCase();
+    const pathParts = ctx.url.pathname.split("/").filter(Boolean);
+    const hasId = pathParts.length === 3;
+    if (!ctx.authUser) {
+      throw new HttpError(401, "Authentifizierung erforderlich.");
+    }
+    if (!hasId) {
+      if (method === "GET" || method === "HEAD") {
+        const plans = await this.services.planService.listPlans({
+          focus: ctx.url.searchParams.get("focus") ?? undefined,
+          from: ctx.url.searchParams.get("from") ?? undefined,
+          to: ctx.url.searchParams.get("to") ?? undefined,
         });
-      } catch (error) {
-        handleApiError(res, error, method, requestOrigin, logOptions);
-      }
-      return;
-    }
-
-    handleApiError(
-      res,
-      new HttpError(405, "Methode nicht erlaubt", {
-        hint: "Verwenden Sie GET/HEAD zum Abrufen oder POST zum Anlegen von Benutzern.",
-      }),
-      method,
-      requestOrigin,
-      logOptions,
-    );
-    return;
-  }
-
-  const userId = parseUserIdFromPath(url.pathname);
-  if (userId !== null) {
-    if (!userStore) {
-      handleApiError(
-        res,
-        new HttpError(503, "Benutzerspeicher nicht verfügbar", {
-          hint: "Der Server konnte den Benutzerspeicher nicht initialisieren.",
-        }),
-        method,
-        requestOrigin,
-        logOptions,
-      );
-      return;
-    }
-
-    if (!isAdminRequest) {
-      handleApiError(
-        res,
-        new HttpError(403, "Admin-Berechtigung erforderlich", {
-          code: "admin-required",
-          hint: "Melden Sie sich als Admin an, um Benutzer zu verwalten.",
-        }),
-        method,
-        requestOrigin,
-        logOptions,
-      );
-      return;
-    }
-
-    if (method === "GET" || method === "HEAD") {
-      try {
-        const user = await userStore.getUser(userId);
-        if (!user) {
-          throw new HttpError(404, "Benutzer nicht gefunden", {
-            hint: "Der angefragte Benutzer wurde nicht gefunden.",
-          });
-        }
-        sendApiJson(res, 200, user, { method, origin: requestOrigin });
-      } catch (error) {
-        handleApiError(res, error, method, requestOrigin, logOptions);
-      }
-      return;
-    }
-
-    if (method === "PUT") {
-      try {
-        const body = await readJsonBody(req, { limit: 200_000 });
-        const payload = ensureJsonObject(body);
-        const current = await userStore.getUser(userId);
-        if (!current) {
-          throw new HttpError(404, "Benutzer nicht gefunden", {
-            hint: "Der angefragte Benutzer existiert nicht mehr.",
-          });
-        }
-
-        if (Object.hasOwn(payload, "active") && payload.active === false && current.active) {
-          const confirmed = payload.confirm === true;
-          if (!confirmed) {
-            throw new HttpError(400, "Deaktivierung muss bestätigt werden", {
-              code: "confirm-deactivation",
-              hint: "Bitte Deaktivierung doppelt bestätigen und das Feld 'confirm' auf true setzen.",
-            });
-          }
-        }
-
-        const updated = await userStore.updateUser(userId, payload);
-        if (!updated) {
-          throw new HttpError(404, "Benutzer nicht gefunden", {
-            hint: "Der angefragte Benutzer existiert nicht mehr.",
-          });
-        }
-        sendApiJson(res, 200, updated, { method, origin: requestOrigin });
-      } catch (error) {
-        handleApiError(res, error, method, requestOrigin, logOptions);
-      }
-      return;
-    }
-
-    if (method === "DELETE") {
-      try {
-        const body = await readJsonBody(req, { limit: 50_000 });
-        const payload = ensureJsonObject(body);
-        if (payload.confirm !== true) {
-          throw new HttpError(400, "Löschung muss bestätigt werden", {
-            code: "confirm-deletion",
-            hint: "Die Löschung erfordert eine doppelte Bestätigung (Feld 'confirm' auf true setzen).",
-          });
-        }
-        const removed = await userStore.deleteUser(userId);
-        if (!removed) {
-          throw new HttpError(404, "Benutzer nicht gefunden", {
-            hint: "Der angefragte Benutzer existiert nicht mehr.",
-          });
-        }
-        sendApiEmpty(res, 204, { origin: requestOrigin });
-      } catch (error) {
-        handleApiError(res, error, method, requestOrigin, logOptions);
-      }
-      return;
-    }
-
-    handleApiError(
-      res,
-      new HttpError(405, "Methode nicht erlaubt", {
-        hint: "Erlaubte Methoden sind GET/HEAD, PUT und DELETE.",
-      }),
-      method,
-      requestOrigin,
-      logOptions,
-    );
-    return;
-  }
-
-  if (url.pathname === "/api/quick-snippets") {
-    if (!quickSnippetStore) {
-      handleApiError(
-        res,
-        new HttpError(503, "Schnellbausteine nicht verfügbar", {
-          hint: "Der Server konnte keinen Speicher für Schnellbausteine initialisieren.",
-        }),
-        method,
-        requestOrigin,
-        logOptions,
-      );
-      return;
-    }
-
-    if (method === "GET" || method === "HEAD") {
-      try {
-        const library = await quickSnippetStore.getLibrary();
-        sendApiJson(res, 200, library, { method, origin: requestOrigin });
-      } catch (error) {
-        handleApiError(res, error, method, requestOrigin, logOptions);
-      }
-      return;
-    }
-
-    if (method === "PUT") {
-      if (!requireWriteAccess()) {
+        sendApiJson(res, 200, plans, { origin, allowedOrigins, headers: headers({}), method });
         return;
       }
-      try {
-        const body = await readJsonBody(req, { limit: 1_000_000 });
-        const payload = Array.isArray(body) ? body : ensureJsonObject(body).groups ?? body;
-        if (!Array.isArray(payload)) {
-          throw new HttpError(400, "Erwartet wurde ein Array von Gruppen", {
-            code: "invalid-snippet-payload",
-            hint: "Senden Sie ein Array mit Gruppenobjekten, jeweils inklusive 'title' und 'snippets'.",
-          });
-        }
-        const library = await quickSnippetStore.replaceLibrary(payload);
-        sendApiJson(res, 200, library, { method, origin: requestOrigin });
-      } catch (error) {
-        handleApiError(res, error, method, requestOrigin, logOptions);
-      }
-      return;
-    }
-
-    handleApiError(
-      res,
-      new HttpError(405, "Methode nicht erlaubt", {
-        hint: "Verwenden Sie GET/HEAD zum Abrufen oder PUT zum Aktualisieren der Schnellbausteine.",
-      }),
-      method,
-      requestOrigin,
-      logOptions,
-    );
-    return;
-  }
-
-  if (url.pathname === "/api/highlight-config") {
-    if (!highlightConfigStore) {
-      handleApiError(
-        res,
-        new HttpError(503, "Highlight-Konfiguration nicht verfügbar", {
-          hint: "Der Server konnte die Konfiguration für Plan-Markierungen nicht initialisieren.",
-        }),
-        method,
-        requestOrigin,
-        logOptions,
-      );
-      return;
-    }
-
-    if (method === "GET" || method === "HEAD") {
-      try {
-        const config = await highlightConfigStore.getConfig();
-        sendApiJson(res, 200, config, { method, origin: requestOrigin });
-      } catch (error) {
-        handleApiError(res, error, method, requestOrigin, logOptions);
-      }
-      return;
-    }
-
-    if (method === "PUT") {
-      if (!requireWriteAccess()) {
-        return;
-      }
-      try {
-        const body = await readJsonBody(req, { limit: 200_000 });
-        const payload = ensureJsonObject(body);
-        const updated = await highlightConfigStore.updateConfig(payload);
-        sendApiJson(res, 200, updated, { method, origin: requestOrigin });
-      } catch (error) {
-        handleApiError(res, error, method, requestOrigin, logOptions);
-      }
-      return;
-    }
-
-    handleApiError(
-      res,
-      new HttpError(405, "Methode nicht erlaubt", {
-        hint: "Verwenden Sie GET/HEAD zum Abrufen oder PUT zum Aktualisieren der Highlight-Konfiguration.",
-      }),
-      method,
-      requestOrigin,
-      logOptions,
-    );
-    return;
-  }
-
-  if (url.pathname === "/api/templates") {
-    if (!templateStore) {
-      handleApiError(
-        res,
-        new HttpError(503, "Template-Speicher nicht verfügbar", {
-          hint: "Der Server konnte keinen Speicher für Vorlagen initialisieren.",
-        }),
-        method,
-        requestOrigin,
-        logOptions,
-      );
-      return;
-    }
-
-    if (method === "GET" || method === "HEAD") {
-      try {
-        const templates = await templateStore.listTemplates();
-        sendApiJson(res, 200, templates, { method, origin: requestOrigin });
-      } catch (error) {
-        handleApiError(res, error, method, requestOrigin, logOptions);
-      }
-      return;
-    }
-
-    if (method === "POST") {
-      if (!requireWriteAccess()) {
-        return;
-      }
-      try {
-        const body = await readJsonBody(req, { limit: 500_000 });
-        const template = await templateStore.createTemplate(body);
-        sendApiJson(res, 201, template, {
-          method,
-          origin: requestOrigin,
-          headers: {
-            Location: `/api/templates/${encodeURIComponent(template.id)}`,
-            ETag: buildTemplateEtag(template),
-          },
-        });
-      } catch (error) {
-        handleApiError(res, error, method, requestOrigin, logOptions);
-      }
-      return;
-    }
-
-    handleApiError(
-      res,
-      new HttpError(405, "Methode nicht erlaubt", {
-        hint: "Nutzen Sie GET/HEAD zum Abruf oder POST zum Anlegen neuer Vorlagen.",
-      }),
-      method,
-      requestOrigin,
-      logOptions,
-    );
-    return;
-  }
-
-  const templateId = parseTemplateIdFromPath(url.pathname);
-  if (templateId !== null) {
-    if (!templateStore) {
-      handleApiError(
-        res,
-        new HttpError(503, "Template-Speicher nicht verfügbar", {
-          hint: "Der Server konnte keinen Speicher für Vorlagen initialisieren.",
-        }),
-        method,
-        requestOrigin,
-        logOptions,
-      );
-      return;
-    }
-
-    if (method === "GET" || method === "HEAD") {
-      try {
-        const template = await templateStore.getTemplate(templateId);
-        if (!template) {
-          throw new HttpError(404, "Vorlage nicht gefunden", {
-            hint: "Prüfen Sie, ob die Vorlage bereits gelöscht wurde.",
-          });
-        }
-        const etag = buildTemplateEtag(template);
-        if (etagMatches(req.headers?.["if-none-match"], etag)) {
-          sendApiEmpty(res, 304, {
-            headers: { ETag: etag },
-            origin: requestOrigin,
-          });
-          return;
-        }
-        sendApiJson(res, 200, template, {
-          method,
-          origin: requestOrigin,
-          headers: { ETag: etag },
-        });
-      } catch (error) {
-        handleApiError(res, error, method, requestOrigin, logOptions);
-      }
-      return;
-    }
-
-    if (method === "PUT") {
-      if (!requireWriteAccess()) {
-        return;
-      }
-      try {
-        const ifMatch = req.headers?.["if-match"];
-        const current = await templateStore.getTemplate(templateId);
-        if (!current) {
-          throw new HttpError(404, "Vorlage nicht gefunden", {
-            hint: "Die Vorlage wurde möglicherweise gelöscht.",
-          });
-        }
-        const currentEtag = buildTemplateEtag(current);
-        if (ifMatch && !ifMatchSatisfied(ifMatch, currentEtag)) {
-          throw new HttpError(412, "Vorlage wurde bereits geändert.", {
-            code: "template-conflict",
-            hint: "Laden Sie die aktuelle Version und versuchen Sie es erneut.",
-            expose: true,
-          });
-        }
-        const body = await readJsonBody(req, { limit: 500_000 });
-        const template = await templateStore.updateTemplate(templateId, body);
-        if (!template) {
-          throw new HttpError(404, "Vorlage nicht gefunden", {
-            hint: "Die Vorlage wurde möglicherweise gelöscht.",
-          });
-        }
-        sendApiJson(res, 200, template, {
-          method,
-          origin: requestOrigin,
-          headers: { ETag: buildTemplateEtag(template) },
-        });
-      } catch (error) {
-        handleApiError(res, error, method, requestOrigin, logOptions);
-      }
-      return;
-    }
-
-    if (method === "DELETE") {
-      if (!requireWriteAccess()) {
-        return;
-      }
-      try {
-        const ifMatch = req.headers?.["if-match"];
-        const current = await templateStore.getTemplate(templateId);
-        if (!current) {
-          throw new HttpError(404, "Vorlage nicht gefunden", {
-            hint: "Die Vorlage wurde möglicherweise bereits gelöscht.",
-          });
-        }
-        const currentEtag = buildTemplateEtag(current);
-        if (ifMatch && !ifMatchSatisfied(ifMatch, currentEtag)) {
-          throw new HttpError(412, "Vorlage wurde bereits geändert.", {
-            code: "template-conflict",
-            hint: "Laden Sie die aktuelle Version und versuchen Sie es erneut.",
-            expose: true,
-          });
-        }
-        const removed = await templateStore.deleteTemplate(templateId);
-        if (!removed) {
-          throw new HttpError(404, "Vorlage nicht gefunden", {
-            hint: "Die Vorlage wurde möglicherweise bereits gelöscht.",
-          });
-        }
-        sendApiEmpty(res, 204, { origin: requestOrigin });
-      } catch (error) {
-        handleApiError(res, error, method, requestOrigin, logOptions);
-      }
-      return;
-    }
-
-    handleApiError(
-      res,
-      new HttpError(405, "Methode nicht erlaubt", {
-        hint: "Erlaubte Methoden sind GET/HEAD, PUT und DELETE.",
-      }),
-      method,
-      requestOrigin,
-    );
-    return;
-  }
-
-  if (url.pathname === "/api/snippets") {
-    if (!teamSnippetStore) {
-      handleApiError(
-        res,
-        new HttpError(503, "Team-Bibliothek nicht verfügbar", {
-          hint: "Aktivieren oder konfigurieren Sie die Team-Bibliothek, um auf Snippets zuzugreifen.",
-        }),
-        method,
-        requestOrigin,
-      );
-      return;
-    }
-
-    if (method === "GET" || method === "HEAD") {
-      try {
-        const library = await teamSnippetStore.getLibrary();
-        sendApiJson(res, 200, library, { method, origin: requestOrigin });
-      } catch (error) {
-        handleApiError(res, error, method, requestOrigin, logOptions);
-      }
-      return;
-    }
-
-    if (method === "PUT") {
-      if (!requireWriteAccess()) {
-        return;
-      }
-      try {
-        const body = await readJsonBody(req, { limit: 1_000_000 });
-        const payload = Array.isArray(body) ? body : ensureJsonObject(body).groups ?? body;
-        if (!Array.isArray(payload)) {
-          throw new HttpError(400, "Erwartet wurde ein Array von Gruppen", {
-            code: "invalid-snippet-payload",
-            hint: "Senden Sie ein Array mit Gruppenobjekten, jeweils inklusive 'title' und 'snippets'.",
-          });
-        }
-        const library = await teamSnippetStore.replaceLibrary(payload);
-        sendApiJson(res, 200, library, { method, origin: requestOrigin });
-      } catch (error) {
-        handleApiError(res, error, method, requestOrigin, logOptions);
-      }
-      return;
-    }
-
-    handleApiError(
-      res,
-      new HttpError(405, "Methode nicht erlaubt", {
-        hint: "Verwenden Sie GET/HEAD zum Abrufen oder PUT zum Ersetzen der Snippet-Bibliothek.",
-      }),
-      method,
-      requestOrigin,
-      logOptions,
-    );
-    return;
-  }
-
-  if (url.pathname === "/api/auth/me") {
-    if (method !== "GET" && method !== "HEAD") {
-      handleApiError(
-        res,
-        new HttpError(405, "Methode nicht erlaubt", {
-          hint: "Verwenden Sie GET oder HEAD, um das aktuelle Benutzerprofil abzurufen.",
-        }),
-        method,
-        requestOrigin,
-        logOptions,
-      );
-      return;
-    }
-    if (!req.user) {
-      handleApiError(
-        res,
-        new HttpError(401, "Authentifizierung erforderlich", {
-          hint: "Melden Sie sich an, um das aktuelle Profil abzurufen.",
-        }),
-        method,
-        requestOrigin,
-        logOptions,
-      );
-      return;
-    }
-    sendApiJson(
-      res,
-      200,
-      {
-        id: req.user.id,
-        username: req.user.username ?? req.user.name ?? req.user.id,
-        name: req.user.name ?? req.user.username ?? req.user.id,
-        role: req.user.role ?? "user",
-        roles: Array.isArray(req.user.roles) ? req.user.roles : [],
-        isAdmin: Boolean(req.isAdmin ?? hasAdminRole(req.user.roles, req.user.role)),
-        permissions: resolveAccess(req.user, req.isAdmin),
-        authenticated: true,
-      },
-      { method, origin: requestOrigin },
-    );
-    return;
-  }
-
-  if (url.pathname === "/api/users") {
-    if (method !== "GET" && method !== "HEAD") {
-      handleApiError(
-        res,
-        new HttpError(405, "Methode nicht erlaubt", {
-          hint: "Verwenden Sie GET oder HEAD, um bekannte Benutzer abzurufen.",
-        }),
-        method,
-        requestOrigin,
-        logOptions,
-      );
-      return;
-    }
-    if (!req.user || req.user.role !== "admin") {
-      handleApiError(
-        res,
-        new HttpError(403, "Admin-Rechte erforderlich", {
-          hint: "Nur Administratoren dürfen die Benutzerliste abrufen.",
-        }),
-        method,
-        requestOrigin,
-        logOptions,
-      );
-      return;
-    }
-    const knownUsers = Array.from(KNOWN_USERS.values());
-    const storedUsers = userStore && typeof userStore.listUsers === "function" ? await userStore.listUsers() : [];
-    const merged = mergeKnownUsers(storedUsers, knownUsers);
-    sendApiJson(res, 200, merged, { method, origin: requestOrigin });
-    return;
-  }
-
-  if (url.pathname === "/api/plans") {
-    if (method === "POST") {
-      if (!requireWriteAccess()) {
-        return;
-      }
-      try {
+      if (method === "POST") {
         const body = await readJsonBody(req);
-        const payload = validateCreatePayload(body);
-        const planOptions = req.user?.id ? { userId: req.user.id } : undefined;
-        const plan = await planStore.createPlan(payload, planOptions);
-        sendApiJson(res, 201, plan, {
-          method,
-          origin: requestOrigin,
-          headers: {
-            ETag: buildPlanEtag(plan),
-            Location: `/api/plans/${plan.id}`,
-          },
-        });
-      } catch (error) {
-        handleApiError(res, error, method, requestOrigin, logOptions);
+        try {
+          const { plan, etag } = await this.services.planService.createPlan(body, {
+            userId: ctx.authUser?.id,
+          });
+          sendApiJson(res, 201, plan, {
+            origin,
+            allowedOrigins,
+            headers: headers({ ETag: etag }),
+          });
+        } catch (error) {
+          if (error instanceof PlanValidationError) {
+            throw new HttpError(400, localizePlanValidationMessage(error.message));
+          }
+          throw error;
+        }
+        return;
       }
-      return;
+      if (method === "OPTIONS") {
+        sendApiEmpty(res, 204, { origin, allowedOrigins });
+        return;
+      }
+      throw new HttpError(405, "Methode nicht erlaubt");
+    }
+
+    const planId = Number(pathParts[2]);
+    if (!Number.isInteger(planId)) {
+      throw new HttpError(400, "Ungültige Plan-ID");
     }
 
     if (method === "GET" || method === "HEAD") {
-      try {
-        const { focus, from, to } = url.searchParams;
-        const plans = await planStore.listPlans({
-          focus: focus ?? undefined,
-          from: from ?? undefined,
-          to: to ?? undefined,
-        });
-        sendApiJson(res, 200, plans, { method, origin: requestOrigin });
-      } catch (error) {
-        handleApiError(res, error, method, requestOrigin, logOptions);
+      const result = await this.services.planService.getPlanWithEtag(planId);
+      if (!result) {
+        throw new HttpError(404, "Plan nicht gefunden");
       }
-      return;
-    }
-
-    handleApiError(
-      res,
-      new HttpError(405, "Methode nicht erlaubt", {
-        hint: "Nutzen Sie POST zum Anlegen oder GET/HEAD zum Auflisten von Plänen.",
-      }),
-      method,
-      requestOrigin,
-      logOptions,
-    );
-    return;
-  }
-
-  const planId = parseIdFromPath(url.pathname);
-  if (planId === null) {
-    handleApiError(
-      res,
-      new HttpError(404, "Endpunkt nicht gefunden", {
-        hint: "Prüfen Sie die URL. Einzelpläne erreichen Sie unter /api/plans/{id}.",
-      }),
-      method,
-      requestOrigin,
-      logOptions,
-    );
-    return;
-  }
-
-  if (method === "GET" || method === "HEAD") {
-    try {
-      const plan = await planStore.getPlan(planId);
-      if (!plan) {
-        throw new HttpError(404, "Plan nicht gefunden", {
-          hint: "Stellen Sie sicher, dass die Plan-ID korrekt ist oder der Plan noch existiert.",
-        });
-      }
-      const etag = buildPlanEtag(plan);
-      if (etagMatches(req.headers?.["if-none-match"], etag)) {
+      if (etagMatches(req.headers["if-none-match"], result.etag)) {
         sendApiEmpty(res, 304, {
-          headers: { ETag: etag },
-          origin: requestOrigin,
+          origin,
+          allowedOrigins,
+          headers: headers({ ETag: result.etag }),
         });
         return;
       }
-      sendApiJson(res, 200, plan, {
+      sendApiJson(res, 200, result.plan, {
+        origin,
+        allowedOrigins,
+        headers: headers({ ETag: result.etag }),
         method,
-        origin: requestOrigin,
-        headers: { ETag: etag },
       });
-    } catch (error) {
-      handleApiError(res, error, method, requestOrigin, logOptions);
-    }
-    return;
-  }
-
-  if (method === "PUT") {
-    if (!requireWriteAccess()) {
       return;
     }
-    try {
-      const ifMatch = req.headers?.["if-match"];
+
+    if (method === "PUT") {
+      const ifMatch = req.headers["if-match"];
       if (!ifMatch) {
-        throw new HttpError(412, "If-Match Header ist erforderlich", {
-          code: "missing-if-match",
-          hint: "Senden Sie den aktuellen ETag des Plans im Header 'If-Match', um Konflikte zu vermeiden.",
-        });
-      }
-      const current = await planStore.getPlan(planId);
-      if (!current) {
-        throw new HttpError(404, "Plan nicht gefunden", {
-          hint: "Stellen Sie sicher, dass die Plan-ID korrekt ist oder der Plan noch existiert.",
-        });
-      }
-      const currentEtag = buildPlanEtag(current);
-      if (!ifMatchSatisfied(ifMatch, currentEtag)) {
-        throw new PlanConflictError("Plan wurde bereits geändert.", { currentPlan: current });
+        throw new HttpError(428, "If-Match Header erforderlich", { code: "missing-precondition" });
       }
       const body = await readJsonBody(req);
-      const replacement = validateCreatePayload(body);
-      const replaceOptions = { expectedUpdatedAt: current.updatedAt };
-      if (req.user?.id) {
-        replaceOptions.userId = req.user.id;
-      }
-      const plan = await planStore.replacePlan(planId, replacement, replaceOptions);
-      if (!plan) {
-        throw new HttpError(404, "Plan nicht gefunden", {
-          hint: "Der Plan wurde eventuell gleichzeitig gelöscht. Laden Sie die Übersicht neu.",
-        });
-      }
-      sendApiJson(res, 200, plan, {
-        method,
-        origin: requestOrigin,
-        headers: { ETag: buildPlanEtag(plan) },
-      });
-    } catch (error) {
-      handleApiError(res, error, method, requestOrigin, logOptions);
-    }
-    return;
-  }
-
-  if (method === "DELETE") {
-    if (!requireWriteAccess()) {
-      return;
-    }
-    try {
-      const ifMatch = req.headers?.["if-match"];
-      if (!ifMatch) {
-        throw new HttpError(412, "If-Match Header ist erforderlich", {
-          code: "missing-if-match",
-          hint: "Übermitteln Sie den zuletzt erhaltenen ETag im Header 'If-Match', um den Löschvorgang freizugeben.",
-        });
-      }
-      const current = await planStore.getPlan(planId);
-      if (!current) {
-        throw new HttpError(404, "Plan nicht gefunden", {
-          hint: "Prüfen Sie, ob der Plan bereits entfernt oder archiviert wurde.",
-        });
-      }
-      const currentEtag = buildPlanEtag(current);
-      if (!ifMatchSatisfied(ifMatch, currentEtag)) {
-        throw new PlanConflictError("Plan wurde bereits geändert.", { currentPlan: current });
-      }
-      const removed = await planStore.deletePlan(planId, {
-        expectedUpdatedAt: current.updatedAt,
-      });
-      if (!removed) {
-        throw new HttpError(404, "Plan nicht gefunden", {
-          hint: "Der Plan wurde möglicherweise parallel gelöscht. Aktualisieren Sie die Liste.",
-        });
-      }
-      sendApiEmpty(res, 204, { origin: requestOrigin });
-    } catch (error) {
-      handleApiError(res, error, method, requestOrigin, logOptions);
-    }
-    return;
-  }
-
-  handleApiError(
-    res,
-    new HttpError(405, "Methode nicht erlaubt", {
-      hint: "Erlaubte Methoden sind GET/HEAD (lesen), PUT (aktualisieren) und DELETE (entfernen).",
-    }),
-    method,
-    requestOrigin,
-    logOptions,
-  );
-}
-
-/**
- * Creates the HTTP request handler for the NextPlanner server including API,
- * health-check and static-file routing.
- *
- * @param {object} [options]
- * @param {import("./stores/json-plan-store.js").JsonPlanStore} [options.store]
- * @param {import("./stores/json-template-store.js").JsonTemplateStore} [options.templateStore]
- * @param {import("./stores/json-snippet-store.js").JsonSnippetStore} [options.snippetStore]
- * @param {import("./stores/json-snippet-store.js").JsonSnippetStore} [options.quickSnippetStore]
- * @param {import("./stores/json-highlight-config-store.js").JsonHighlightConfigStore} [options.highlightConfigStore]
- * @param {import("./stores/json-user-store.js").JsonUserStore} [options.userStore]
- * @param {string} [options.publicDir]
- * @param {import("./sessions/session-store.js").SessionStore} [options.sessionStore]
- * @param {Array<{ username: string, password?: string, passwordHash?: string, isAdmin?: boolean }>} [options.users]
- * @param {number} [options.sessionTtlMs]
- * @param {{ windowMs?: number, maxAttempts?: number, blockDurationMs?: number }} [options.loginRateLimit]
- * @returns {(req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => Promise<void>}
- */
-export function createRequestHandler({
-  store,
-  templateStore,
-  snippetStore,
-  quickSnippetStore,
-  highlightConfigStore,
-  userStore,
-  publicDir,
-  sessionStore: providedSessionStore,
-  users,
-  sessionTtlMs = DEFAULT_SESSION_TTL_MS,
-  loginRateLimit,
-} = {}) {
-  const planStore = store ?? new JsonPlanStore();
-  const templateStoreInstance = templateStore ?? new JsonTemplateStore();
-  const teamSnippetStore = snippetStore ?? new JsonSnippetStore();
-  const dataDir = getDataDirectory();
-  const localQuickSnippetStore =
-    quickSnippetStore ??
-    new JsonSnippetStore({ storageFile: path.join(dataDir, QUICK_SNIPPET_FILE_NAME) });
-  const localHighlightConfigStore =
-    highlightConfigStore ??
-    new JsonHighlightConfigStore({ storageFile: path.join(dataDir, HIGHLIGHT_CONFIG_FILE_NAME) });
-  const localUserStore = userStore ?? new JsonUserStore({ storageFile: path.join(dataDir, USER_FILE_NAME) });
-  const defaultDir = path.join(CURRENT_DIR, "..", "public");
-  const rootDir = path.resolve(publicDir ?? defaultDir);
-  const sessionStore = providedSessionStore ?? new SessionStore({ defaultTtlMs: sessionTtlMs });
-  const userRegistry = buildUserRegistry(users);
-  const loginRateLimiter = new LoginRateLimiter(loginRateLimit);
-
-  let requestCounter = 0;
-
-  return async (req, res) => {
-    const start = process.hrtime.bigint();
-    const method = (req.method ?? "GET").toUpperCase();
-    let authContext = { user: req.user ?? null, isAdmin: Boolean(req.isAdmin), token: null };
-    const requestId = ++requestCounter;
-    const requestLogger = createRequestLogger({ req: requestId });
-    let pathForLogging = req.url ?? "<unknown>";
-
-  attachRequestUser(req);
-
-  res.once("finish", () => {
-    const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
-    const status = res.statusCode ?? 0;
-      const level =
-        isApiRequest(pathForLogging) || isHealthCheckRequest(pathForLogging) ? "info" : "debug";
-      const formattedDuration = Number.isFinite(durationMs)
-        ? durationMs.toFixed(1)
-        : "0.0";
-      requestLogger[level](
-        "%s %s -> %d (%s ms)",
-        method,
-        pathForLogging,
-        status,
-        formattedDuration,
-      );
-    });
-
-    res.once("error", (error) => {
-      const message = error instanceof Error ? error.stack ?? error.message : String(error);
-      requestLogger.error("Antwortfehler für %s %s: %s", method, pathForLogging, message);
-    });
-
-    const host = req.headers?.host ?? "localhost";
-    let url;
-    try {
-      url = new URL(req.url ?? "/", `http://${host}`);
-      pathForLogging = url.pathname;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      requestLogger.warn("Ungültige Anfrage-URL '%s': %s", req.url ?? "<unknown>", message);
-      if (!res.headersSent) {
-        sendJson(
-          res,
-          400,
-          buildErrorPayload(
-            "invalid-url",
-            "Ungültige Anfrage-URL.",
-            undefined,
-            "Die angeforderte Adresse konnte nicht verarbeitet werden.",
-          ),
-          { method, headers: buildApiHeaders() },
-        );
-      } else {
-        res.end();
-      }
-      return;
-    }
-
-    try {
-      if (sessionStore) {
-        await sessionStore.pruneExpired();
-      }
-      authContext = await resolveAuthContext(req, sessionStore, requestLogger);
-      if (authContext.user) {
-        req.user = authContext.user;
-        rememberKnownUser(authContext.user);
-      }
-      if (authContext.isAdmin !== undefined) {
-        req.isAdmin = authContext.isAdmin;
-      }
-      req.access = resolveAccess(req.user, req.isAdmin);
-
-      if (isHealthCheckRequest(url.pathname)) {
-        await handleHealthRequest(
-          req,
-          res,
-          url,
-          {
-            planStore,
-            templateStore: templateStoreInstance,
-            teamSnippetStore,
-            quickSnippetStore: localQuickSnippetStore,
-            highlightConfigStore: localHighlightConfigStore,
-            userStore: localUserStore,
-          },
-          { method, logger: requestLogger },
-        );
-        return;
-      }
-
-      if (isApiRequest(url.pathname)) {
-        await handleApiRequest(
-          req,
-          res,
-          url,
-          planStore,
-          templateStoreInstance,
-          teamSnippetStore,
-          localQuickSnippetStore,
-          localHighlightConfigStore,
-          localUserStore,
-          req.headers?.origin ?? "",
-          {
-            method,
-            logger: requestLogger,
-            auth: authContext,
-            sessionStore,
-            userRegistry,
-            loginRateLimiter,
-            sessionTtlMs,
-          },
-        );
-        return;
-      }
-
-      const isAuthenticated = Boolean(authContext.user);
-      const isHtml = isHtmlPageRequest(url.pathname);
-      const loginRequested = isLoginPath(url.pathname);
-      if (!isAuthenticated && isHtml && !loginRequested) {
-        res.writeHead(302, {
-          Location: buildLoginRedirectTarget(url.pathname, url.search, "login-required"),
-          "Cache-Control": "no-store",
-          ...STATIC_SECURITY_HEADERS,
-        });
-        res.end();
-        return;
-      }
-
-      if (isAuthenticated && loginRequested) {
-        res.writeHead(302, {
-          Location: resolvePostLoginRedirect(url),
-          "Cache-Control": "no-store",
-          ...STATIC_SECURITY_HEADERS,
-        });
-        res.end();
-        return;
-      }
-
-      await serveStatic(req, res, url, rootDir);
-    } catch (error) {
-      const message = error instanceof Error ? error.stack ?? error.message : String(error ?? "");
-      requestLogger.error("Unerwarteter Fehler für %s %s: %s", method, pathForLogging, message);
-      if (!res.headersSent) {
-        sendJson(
-          res,
-          500,
-          buildErrorPayload(
-            "internal-error",
-            "Interner Serverfehler",
-            undefined,
-            "Die Anfrage konnte nicht abgeschlossen werden. Laden Sie die Seite neu und versuchen Sie es erneut.",
-          ),
-          { method, headers: buildApiHeaders() },
-        );
-      } else {
-        res.end();
-      }
-    }
-  };
-}
-
-/**
- * Creates an HTTP server with graceful shutdown hooks and store lifecycle
- * management. The returned server listens for requests when `.listen()` is
- * invoked by the caller.
- *
- * @param {object} [options]
- * @param {import("./stores/json-plan-store.js").JsonPlanStore} [options.store]
- * @param {import("./stores/json-template-store.js").JsonTemplateStore} [options.templateStore]
- * @param {import("./stores/json-snippet-store.js").JsonSnippetStore} [options.snippetStore]
- * @param {import("./stores/json-snippet-store.js").JsonSnippetStore} [options.quickSnippetStore]
- * @param {import("./stores/json-highlight-config-store.js").JsonHighlightConfigStore} [options.highlightConfigStore]
- * @param {import("./stores/json-user-store.js").JsonUserStore} [options.userStore]
- * @param {string} [options.publicDir]
- * @param {string[]} [options.gracefulShutdownSignals]
- * @returns {import("node:http").Server}
- */
-export function createServer(options = {}) {
-  const runtimeConfig = options.runtimeConfig ?? buildRuntimeConfig();
-  setActiveRuntimeConfig(runtimeConfig);
-  const dataDir = getDataDirectory();
-  const store = options.store ?? new JsonPlanStore();
-  const templateStore = options.templateStore ?? new JsonTemplateStore();
-  const snippetStore = options.snippetStore ?? new JsonSnippetStore();
-  const quickSnippetStore =
-    options.quickSnippetStore ??
-    new JsonSnippetStore({ storageFile: path.join(dataDir, QUICK_SNIPPET_FILE_NAME) });
-  const highlightConfigStore =
-    options.highlightConfigStore ??
-    new JsonHighlightConfigStore({ storageFile: path.join(dataDir, HIGHLIGHT_CONFIG_FILE_NAME) });
-  const userStore =
-    options.userStore ?? new JsonUserStore({ storageFile: path.join(dataDir, USER_FILE_NAME) });
-  const publicDir = options.publicDir;
-  const sessionTtlMs = options.sessionTtlMs ?? DEFAULT_SESSION_TTL_MS;
-  const loginRateLimit = options.loginRateLimit;
-  const gracefulShutdownSignals = options.gracefulShutdownSignals ?? ["SIGINT", "SIGTERM"];
-  const users = options.users;
-  const activeSessionStore = options.sessionStore ?? new SessionStore({ defaultTtlMs: sessionTtlMs });
-  const handler = createRequestHandler({
-    store,
-    templateStore,
-    snippetStore,
-    quickSnippetStore,
-    highlightConfigStore,
-    userStore,
-    publicDir,
-    sessionStore: activeSessionStore,
-    users,
-    sessionTtlMs,
-    loginRateLimit,
-  });
-
-  ensureSeedUsers(userStore, runtimeConfig.credentials).catch((error) => {
-    logger.error(
-      "Seed-Benutzer konnten nicht erzeugt werden: %s",
-      error instanceof Error ? error.stack ?? error.message : String(error ?? ""),
-    );
-  });
-
-  const server = createHttpServer(handler);
-
-  const signalHandlers = new Map();
-  let shuttingDown = false;
-  let closePromise;
-
-  const closeStoreSafely = () => {
-    if (closePromise) {
-      return closePromise;
-    }
-    closePromise = (async () => {
       try {
-        await store.close();
-        await templateStore.close();
-        if (snippetStore && typeof snippetStore.close === "function") {
-          await snippetStore.close();
+        const { plan, etag } = await this.services.planService.updatePlan(planId, body, {
+          expectedEtag: ifMatch,
+          userId: ctx.authUser?.id,
+        });
+        if (!plan) {
+          throw new HttpError(404, "Plan nicht gefunden");
         }
-        if (quickSnippetStore && typeof quickSnippetStore.close === "function") {
-          await quickSnippetStore.close();
-        }
-        if (highlightConfigStore && typeof highlightConfigStore.close === "function") {
-          await highlightConfigStore.close();
-        }
-        if (activeSessionStore && typeof activeSessionStore.close === "function") {
-          await activeSessionStore.close();
-        }
+        sendApiJson(res, 200, plan, { origin, allowedOrigins, headers: headers({ ETag: etag }) });
       } catch (error) {
-        logger.error("Fehler beim Schließen der Stores: %s", error);
-        throw error;
-      }
-    })();
-    return closePromise;
-  };
-
-  const removeSignalHandlers = () => {
-    for (const [signal, listener] of signalHandlers.entries()) {
-      process.off(signal, listener);
-    }
-    signalHandlers.clear();
-  };
-
-  server.on("close", () => {
-    removeSignalHandlers();
-    closeStoreSafely().catch(() => {});
-  });
-
-  const closeServer = () =>
-    new Promise((resolve, reject) => {
-      server.close((error) => {
-        if (error) {
-          reject(error);
-        } else {
-          resolve();
-        }
-      });
-    });
-
-  if (Array.isArray(gracefulShutdownSignals) && gracefulShutdownSignals.length > 0) {
-    for (const signal of gracefulShutdownSignals) {
-      const listener = async () => {
-        if (shuttingDown) {
+        if (error instanceof PlanConflictError) {
+          sendApiJson(
+            res,
+            412,
+            { error: { message: error.message, details: { currentPlan: error.currentPlan } } },
+            { origin, allowedOrigins, headers: headers({ ETag: buildPlanEtag(error.currentPlan) }) },
+          );
           return;
         }
-        shuttingDown = true;
-        logger.warn("%s empfangen, Server wird beendet …", signal);
-        try {
-          await closeServer();
-          await closeStoreSafely();
-          removeSignalHandlers();
-          logger.info("Server wurde sauber beendet.");
-          process.exit(0);
-        } catch (error) {
-          logger.error("Fehler beim geordneten Shutdown: %s", error);
-          removeSignalHandlers();
-          process.exit(1);
+        if (error instanceof PlanValidationError) {
+          throw new HttpError(400, localizePlanValidationMessage(error.message));
         }
-      };
-      process.on(signal, listener);
-      signalHandlers.set(signal, listener);
+        throw error;
+      }
+      return;
     }
+
+    if (method === "DELETE") {
+      const ifMatch = req.headers["if-match"];
+      if (!ifMatch) {
+        throw new HttpError(428, "If-Match Header erforderlich", { code: "missing-precondition" });
+      }
+      try {
+        const result = await this.services.planService.deletePlan(planId, {
+          expectedEtag: ifMatch,
+        });
+        if (!result.deleted) {
+          const current = await this.services.planService.getPlanWithEtag(planId);
+          if (!current) {
+            throw new HttpError(404, "Plan nicht gefunden");
+          }
+          sendApiJson(
+            res,
+            412,
+            { error: { message: "Plan wurde bereits geändert.", details: { currentPlan: current.plan } } },
+            { origin, allowedOrigins, headers: headers({ ETag: current.etag }) },
+          );
+          return;
+        }
+        sendApiEmpty(res, 204, { origin, allowedOrigins, headers: headers({}) });
+      } catch (error) {
+        if (error instanceof PlanConflictError) {
+          sendApiJson(
+            res,
+            412,
+            { error: { message: error.message, details: { currentPlan: error.currentPlan } } },
+            { origin, allowedOrigins, headers: headers({ ETag: buildPlanEtag(error.currentPlan) }) },
+          );
+          return;
+        }
+        throw error;
+      }
+      return;
+    }
+
+    if (method === "OPTIONS") {
+      sendApiEmpty(res, 204, { origin, allowedOrigins });
+      return;
+    }
+
+    throw new HttpError(405, "Methode nicht erlaubt");
+  }
+
+  async handleTemplateRoutes(req, res, ctx, meta) {
+    const { headers, origin, allowedOrigins } = meta;
+    const method = (req.method ?? "GET").toUpperCase();
+    const pathParts = ctx.url.pathname.split("/").filter(Boolean);
+    const hasId = pathParts.length === 3;
+    requireAuthenticated(ctx);
+
+    if (!hasId) {
+      if (method === "GET" || method === "HEAD") {
+        const templates = await this.services.templateService.listTemplates();
+        sendApiJson(
+          res,
+          200,
+          templates.map((entry) => entry.template),
+          { origin, allowedOrigins, headers: headers({}), method },
+        );
+        return;
+      }
+      if (method === "POST") {
+        const body = await readJsonBody(req);
+        try {
+          const { template, etag } = await this.services.templateService.createTemplate(body);
+          sendApiJson(res, 201, template, {
+            origin,
+            allowedOrigins,
+            headers: headers({ ETag: etag }),
+          });
+        } catch (error) {
+          if (error instanceof TemplateValidationError) {
+            throw new HttpError(400, error.message);
+          }
+          throw error;
+        }
+        return;
+      }
+      if (method === "OPTIONS") {
+        sendApiEmpty(res, 204, { origin, allowedOrigins });
+        return;
+      }
+      throw new HttpError(405, "Methode nicht erlaubt");
+    }
+
+    const templateId = decodeURIComponent(pathParts[2]);
+    if (method === "GET" || method === "HEAD") {
+      const { template, etag } = await this.services.templateService.getTemplate(templateId);
+      if (!template) {
+        throw new HttpError(404, "Vorlage nicht gefunden");
+      }
+      if (etagMatches(req.headers["if-none-match"], etag)) {
+        sendApiEmpty(res, 304, { origin, allowedOrigins, headers: headers({ ETag: etag }) });
+        return;
+      }
+      sendApiJson(res, 200, template, {
+        origin,
+        allowedOrigins,
+        headers: headers({ ETag: etag }),
+        method,
+      });
+      return;
+    }
+
+    if (method === "PUT") {
+      const body = await readJsonBody(req);
+      try {
+        const { template, etag } = await this.services.templateService.updateTemplate(templateId, body);
+        if (!template) {
+          throw new HttpError(404, "Vorlage nicht gefunden");
+        }
+        sendApiJson(res, 200, template, { origin, allowedOrigins, headers: headers({ ETag: etag }) });
+      } catch (error) {
+        if (error instanceof TemplateValidationError) {
+          throw new HttpError(400, error.message);
+        }
+        throw error;
+      }
+      return;
+    }
+
+    if (method === "DELETE") {
+      const deleted = await this.services.templateService.deleteTemplate(templateId);
+      if (!deleted) {
+        throw new HttpError(404, "Vorlage nicht gefunden");
+      }
+      sendApiEmpty(res, 204, { origin, allowedOrigins, headers: headers({}) });
+      return;
+    }
+
+    if (method === "OPTIONS") {
+      sendApiEmpty(res, 204, { origin, allowedOrigins });
+      return;
+    }
+
+    throw new HttpError(405, "Methode nicht erlaubt");
+  }
+
+  async handleSnippetRoutes(req, res, ctx, meta) {
+    const { headers, origin, allowedOrigins } = meta;
+    const method = (req.method ?? "GET").toUpperCase();
+    requireAuthenticated(ctx);
+    if (method === "GET" || method === "HEAD") {
+      const library = await this.services.snippetService.getLibrary();
+      sendApiJson(res, 200, library, { origin, allowedOrigins, headers: headers({}), method });
+      return;
+    }
+    if (method === "PUT") {
+      const body = await readJsonBody(req);
+      try {
+        const saved = await this.services.snippetService.replaceLibrary(body);
+        sendApiJson(res, 200, saved, { origin, allowedOrigins, headers: headers({}) });
+      } catch (error) {
+        const code = error.code ?? "invalid-snippet-payload";
+        sendApiJson(res, 400, { error: { code, message: error.message } }, { origin, allowedOrigins });
+      }
+      return;
+    }
+    if (method === "OPTIONS") {
+      sendApiEmpty(res, 204, { origin, allowedOrigins });
+      return;
+    }
+    throw new HttpError(405, "Methode nicht erlaubt");
+  }
+
+  async handleHighlightRoutes(req, res, ctx, meta) {
+    const { headers, origin, allowedOrigins } = meta;
+    const method = (req.method ?? "GET").toUpperCase();
+    requireAuthenticated(ctx);
+    if (method === "GET" || method === "HEAD") {
+      const config = await this.services.highlightConfigService.getConfig();
+      sendApiJson(res, 200, config, { origin, allowedOrigins, headers: headers({}), method });
+      return;
+    }
+    if (method === "PUT") {
+      const body = await readJsonBody(req);
+      const updated = await this.services.highlightConfigService.updateConfig(body);
+      sendApiJson(res, 200, updated, { origin, allowedOrigins, headers: headers({}) });
+      return;
+    }
+    if (method === "OPTIONS") {
+      sendApiEmpty(res, 204, { origin, allowedOrigins });
+      return;
+    }
+    throw new HttpError(405, "Methode nicht erlaubt");
+  }
+
+  async handleBackupRoutes(req, res, ctx, meta) {
+    const { headers, origin, allowedOrigins } = meta;
+    const method = (req.method ?? "GET").toUpperCase();
+    requireAuthenticated(ctx);
+    if (method === "GET" || method === "HEAD") {
+      const backup = await this.services.planService.exportBackup();
+      sendApiJson(
+        res,
+        200,
+        { ...backup, planCount: backup.data?.plans?.length ?? 0 },
+        { origin, allowedOrigins, headers: headers({}), method },
+      );
+      return;
+    }
+    if (method === "POST") {
+      const body = await readJsonBody(req);
+      try {
+        const restored = await this.services.planService.importBackup(body);
+        sendApiJson(
+          res,
+          200,
+          {
+            success: true,
+            planCount: restored?.plans?.length ?? body?.data?.plans?.length ?? 0,
+            ...restored,
+          },
+          { origin, allowedOrigins, headers: headers({}) },
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        sendApiJson(res, 400, { error: { message } }, { origin, allowedOrigins });
+      }
+      return;
+    }
+    if (method === "OPTIONS") {
+      sendApiEmpty(res, 204, { origin, allowedOrigins });
+      return;
+    }
+    throw new HttpError(405, "Methode nicht erlaubt");
+  }
+
+  async handleUserRoutes(req, res, ctx, meta) {
+    const { headers, origin, allowedOrigins } = meta;
+    const method = (req.method ?? "GET").toUpperCase();
+    if (!ctx.authUser || !(ctx.authUser.role === "admin" || (ctx.authUser.roles ?? []).includes("admin"))) {
+      throw new HttpError(403, "Nur Admins dürfen Benutzer abrufen.");
+    }
+    if (method === "GET" || method === "HEAD") {
+      const users = await this.services.userService.listUsers();
+      sendApiJson(res, 200, users, { origin, allowedOrigins, headers: headers({}), method });
+      return;
+    }
+    if (method === "OPTIONS") {
+      sendApiEmpty(res, 204, { origin, allowedOrigins });
+      return;
+    }
+    throw new HttpError(405, "Methode nicht erlaubt");
+  }
+
+  async handleStatic(req, res, ctx) {
+    const safePath = sanitizePath(this.publicDir, ctx.url.pathname);
+    if (!safePath) {
+      sendEmpty(res, 403, { headers: STATIC_SECURITY_HEADERS });
+      return;
+    }
+
+    let filePath = safePath;
+    let fileStat;
+    let attemptedFallback = false;
+
+    while (true) {
+      try {
+        fileStat = await stat(filePath);
+        if (fileStat.isDirectory()) {
+          filePath = path.join(filePath, "index.html");
+          continue;
+        }
+        break;
+      } catch (error) {
+        if (!attemptedFallback && (req.method === "GET" || req.method === "HEAD")) {
+          filePath = path.join(this.publicDir, "index.html");
+          attemptedFallback = true;
+          continue;
+        }
+        sendEmpty(res, 404, { headers: STATIC_SECURITY_HEADERS });
+        return;
+      }
+    }
+
+    const method = req.method ?? "GET";
+    const mime = mapExtension(filePath);
+    const etag = `"${fileStat.size.toString(16)}-${Math.floor(fileStat.mtimeMs).toString(16)}"`;
+    const cacheHeaders = {
+      "Last-Modified": fileStat.mtime.toUTCString(),
+      ETag: etag,
+      "Cache-Control": resolveCacheControl(filePath),
+    };
+
+    const notModifiedHeaders = { ...cacheHeaders, ...STATIC_SECURITY_HEADERS };
+    if (isRequestFresh(req.headers ?? {}, etag, fileStat.mtimeMs)) {
+      res.writeHead(304, notModifiedHeaders);
+      res.end();
+      return;
+    }
+
+    const headers = {
+      ...cacheHeaders,
+      "Content-Type": mime,
+      "Content-Length": fileStat.size,
+    };
+    const responseHeaders = { ...headers, ...STATIC_SECURITY_HEADERS };
+
+    if (method === "HEAD") {
+      res.writeHead(200, responseHeaders);
+      res.end();
+      return;
+    }
+
+    if (method !== "GET") {
+      sendEmpty(res, 405, { headers: STATIC_SECURITY_HEADERS });
+      return;
+    }
+
+    const stream = createReadStream(filePath);
+    stream.once("open", () => {
+      res.writeHead(200, responseHeaders);
+    });
+    stream.once("error", (error) => {
+      if (!res.headersSent) {
+        const status = error?.code === "ENOENT" ? 404 : 500;
+        sendEmpty(res, status, { headers: STATIC_SECURITY_HEADERS });
+      } else {
+        res.destroy(error);
+      }
+    });
+    res.once("close", () => {
+      stream.destroy();
+    });
+    stream.pipe(res);
+  }
+}
+
+function createServer(options = {}) {
+  const config = options.config ?? runtimeConfig;
+  const publicDir = options.publicDir ?? DEFAULT_PUBLIC_DIR;
+
+  const planStore = options.store ?? new JsonPlanStore();
+  const templateStore = options.templateStore ?? new JsonTemplateStore();
+  const snippetStore = options.snippetStore ?? new JsonSnippetStore();
+  const highlightConfigStore = options.highlightConfigStore ?? new JsonHighlightConfigStore();
+  const sessionStore =
+    options.sessionStore ??
+    new SessionStore({
+      storageFile: path.join(config.paths.dataDir, "sessions.json"),
+      defaultTtlMs: config.security.session.ttlMs,
+    });
+
+  const userStore = options.userStore ?? new JsonUserStore();
+
+  const seedUsers = options.users ?? Object.values(config.security.defaultUsers ?? {});
+  const userService = new UserService({
+    store: userStore,
+    defaults: seedUsers,
+  });
+  if (!options.users) {
+    awaitPromise(userService.ensureSeedUsers(seedUsers));
+  }
+
+  const planService = new PlanService({ store: planStore });
+  const templateService = new TemplateService({ store: templateStore });
+  const snippetService = new SnippetService({ store: snippetStore });
+  const highlightConfigService = new HighlightConfigService({ store: highlightConfigStore });
+  const authService = new AuthService({
+    userService,
+    rateLimit: config.security.loginRateLimit,
+  });
+
+  const app = new HttpApplication({
+    config,
+    services: {
+      planService,
+      templateService,
+      snippetService,
+      highlightConfigService,
+      authService,
+      sessionStore,
+      planStore,
+      templateStore,
+      snippetStore,
+      highlightConfigStore,
+      userService,
+    },
+    publicDir,
+  });
+
+  const server = createHttpServer((req, res) => {
+    app.handle(req, res);
+  });
+
+  server.on("close", async () => {
+    await planStore?.close?.();
+    await templateStore?.close?.();
+    await snippetStore?.close?.();
+    await highlightConfigStore?.close?.();
+    await sessionStore?.close?.();
+  });
+
+  const gracefulSignals = options.gracefulShutdownSignals ?? ["SIGTERM", "SIGINT"];
+  for (const signal of gracefulSignals) {
+    process.once(signal, async () => {
+      logger.info("Schließe Server aufgrund von %s", signal);
+      server.close();
+      await planStore?.close?.();
+      await templateStore?.close?.();
+      await snippetStore?.close?.();
+      await highlightConfigStore?.close?.();
+      await sessionStore?.close?.();
+    });
   }
 
   return server;
 }
+
+function awaitPromise(promise) {
+  if (promise && typeof promise.then === "function") {
+    promise.catch((error) => {
+      logger.warn("Initial seed failed: %s", error instanceof Error ? error.message : String(error));
+    });
+  }
+}
+
+export { createServer, HttpApplication };

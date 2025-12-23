@@ -9,7 +9,7 @@ import {
   PlanValidationError,
   StorageIntegrityError,
 } from "../stores/json-plan-store.js";
-import { RuntimeConfigError, buildRuntimeConfig } from "../config/runtime-config.js";
+import { runtimeConfig } from "../config/runtime-config.js";
 
 const EXIT_SUCCESS = 0;
 const EXIT_VALIDATION = 1;
@@ -295,7 +295,9 @@ async function main() {
   }
 
   const parsed = parseCommandArguments(commandArgs);
-  const store = new JsonPlanStore(storageFile ? { storageFile } : undefined);
+  const resolvedStorageFile =
+    storageFile ?? path.join(runtimeConfig.paths.dataDir, "plans.json");
+  const store = new JsonPlanStore({ storageFile: resolvedStorageFile });
 
   try {
     const exitCode = await runCommand(command, parsed, store, jsonOutput);
