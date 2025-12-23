@@ -19,13 +19,19 @@ import {
 import { JsonHighlightConfigStore } from "./stores/json-highlight-config-store.js";
 import { JsonUserStore, UserValidationError } from "./stores/json-user-store.js";
 import { DATA_DIR } from "./config.js";
+import {
+  DEFAULT_ALLOWED_ORIGINS,
+  DEFAULT_DEV_CREDENTIALS,
+  buildRuntimeConfig,
+} from "./config/runtime-config.js";
 import { logger, createRequestLogger } from "./logger.js";
 import { SessionStore } from "./sessions/session-store.js";
 
 const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const DEFAULT_QUICK_SNIPPET_FILE = path.join(DATA_DIR, "quick-snippets.json");
-const DEFAULT_HIGHLIGHT_CONFIG_FILE = path.join(DATA_DIR, "highlight-config.json");
-const DEFAULT_USER_FILE = path.join(DATA_DIR, "users.json");
+const QUICK_SNIPPET_FILE_NAME = "quick-snippets.json";
+const HIGHLIGHT_CONFIG_FILE_NAME = "highlight-config.json";
+const USER_FILE_NAME = "users.json";
+let activeRuntimeConfig = null;
 
 class HttpError extends Error {
   constructor(status, message, { expose = true, code = null, hint = null } = {}) {
@@ -50,21 +56,37 @@ const MIME_TYPES = {
   ".md": "text/markdown; charset=utf-8",
 };
 
-const DEFAULT_ALLOWED_ORIGINS = Object.freeze(["http://localhost:3000"]);
-const JSON_SPACING = process.env.NODE_ENV === "development" ? 2 : 0;
 const DEFAULT_SESSION_TTL_MS = 1000 * 60 * 60 * 12; // 12h
 const SESSION_COOKIE_NAME = "nextplanner_session";
-const DEFAULT_ADMIN_USERNAME = process.env.NEXTPLANNER_ADMIN_USER ?? "admin";
-const DEFAULT_ADMIN_PASSWORD = process.env.NEXTPLANNER_ADMIN_PASSWORD ?? "Admin1234!";
-const DEFAULT_EDITOR_USERNAME = process.env.NEXTPLANNER_EDITOR_USER ?? "coach";
-const DEFAULT_EDITOR_PASSWORD = process.env.NEXTPLANNER_EDITOR_PASSWORD ?? "CoachPower#2024";
-const DEFAULT_USER_USERNAME = process.env.NEXTPLANNER_USER ?? "athlete";
-const DEFAULT_USER_PASSWORD = process.env.NEXTPLANNER_USER_PASSWORD ?? "AthleteReady#2024";
 const LOGIN_RATE_LIMIT_DEFAULTS = Object.freeze({
   windowMs: 1000 * 60 * 5,
   maxAttempts: 5,
   blockDurationMs: 1000 * 60 * 5,
 });
+
+function setActiveRuntimeConfig(config) {
+  activeRuntimeConfig = config;
+}
+
+function getActiveRuntimeConfig() {
+  return activeRuntimeConfig;
+}
+
+function getAllowedOrigins() {
+  return getActiveRuntimeConfig()?.allowedOrigins ?? DEFAULT_ALLOWED_ORIGINS;
+}
+
+function getSeedCredentials() {
+  return getActiveRuntimeConfig()?.credentials ?? DEFAULT_DEV_CREDENTIALS;
+}
+
+function getJsonSpacing() {
+  return getActiveRuntimeConfig()?.nodeEnv === "development" ? 2 : 0;
+}
+
+function getDataDirectory() {
+  return getActiveRuntimeConfig()?.dataDir ?? DATA_DIR;
+}
 
 /**
  * Serialises JSON responses using pretty-printing only in development mode.
@@ -74,23 +96,12 @@ const LOGIN_RATE_LIMIT_DEFAULTS = Object.freeze({
  * @returns {string}
  */
 function stringifyJson(payload) {
-  if (JSON_SPACING > 0) {
-    return JSON.stringify(payload, null, JSON_SPACING);
+  const spacing = getJsonSpacing();
+  if (spacing > 0) {
+    return JSON.stringify(payload, null, spacing);
   }
   return JSON.stringify(payload);
 }
-
-function parseAllowedOrigins(value) {
-  if (!value) {
-    return DEFAULT_ALLOWED_ORIGINS;
-  }
-  return value
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean);
-}
-
-const ALLOWED_ORIGINS = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
 
 function hashPassword(password) {
   return createHash("sha256").update(String(password ?? "")).digest();
@@ -121,13 +132,14 @@ function normalizeUserRecord(user) {
 
 function buildUserRegistry(users) {
   const registry = new Map();
+  const fallbackCredentials = getSeedCredentials();
   const normalizedUsers =
     Array.isArray(users) && users.length > 0
       ? users
       : [
           {
-            username: DEFAULT_ADMIN_USERNAME,
-            password: DEFAULT_ADMIN_PASSWORD,
+            username: fallbackCredentials.admin?.username,
+            password: fallbackCredentials.admin?.password,
             isAdmin: true,
           },
         ];
@@ -215,11 +227,11 @@ function isSecureRequest(req) {
 }
 
 function shouldUseSecureCookies(req) {
-  const flag = (process.env.COOKIE_SECURE ?? "").toString().toLowerCase();
-  if (flag === "true") {
+  const secureFlag = getActiveRuntimeConfig()?.secureCookies;
+  if (secureFlag === true) {
     return true;
   }
-  if (flag === "false") {
+  if (secureFlag === false) {
     return false;
   }
   return isSecureRequest(req);
@@ -379,10 +391,11 @@ function appendVary(value, field) {
 }
 
 function selectCorsOrigin(origin) {
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+  const allowedOrigins = getAllowedOrigins();
+  if (origin && allowedOrigins.includes(origin)) {
     return origin;
   }
-  return ALLOWED_ORIGINS[0] ?? origin ?? "";
+  return allowedOrigins[0] ?? origin ?? "";
 }
 
 function withCorsHeaders(headers = {}, origin) {
@@ -799,17 +812,7 @@ function buildHealthPayload(checks) {
   };
 }
 
-async function ensureSeedUsers(
-  userStore,
-  {
-    adminUsername = process.env.ADMIN_USER ?? DEFAULT_ADMIN_USERNAME,
-    adminPassword = process.env.ADMIN_PASSWORD ?? DEFAULT_ADMIN_PASSWORD,
-    editorUsername = DEFAULT_EDITOR_USERNAME,
-    editorPassword = DEFAULT_EDITOR_PASSWORD,
-    userUsername = DEFAULT_USER_USERNAME,
-    userPassword = DEFAULT_USER_PASSWORD,
-  } = {},
-) {
+async function ensureSeedUsers(userStore, seedCredentials = getSeedCredentials()) {
   if (
     !userStore ||
     typeof userStore.createUser !== "function" ||
@@ -818,7 +821,14 @@ async function ensureSeedUsers(
     return;
   }
 
-  const seeds = [
+  const adminUsername = seedCredentials?.admin?.username ?? "";
+  const adminPassword = seedCredentials?.admin?.password ?? "";
+  const editorUsername = seedCredentials?.editor?.username ?? "";
+  const editorPassword = seedCredentials?.editor?.password ?? "";
+  const userUsername = seedCredentials?.user?.username ?? "";
+  const userPassword = seedCredentials?.user?.password ?? "";
+
+  const seedUsers = [
     { username: adminUsername, password: adminPassword, roles: ["admin"], label: "Admin" },
     { username: editorUsername, password: editorPassword, roles: ["editor"], label: "Editor" },
     { username: userUsername, password: userPassword, roles: ["user"], label: "User" },
@@ -830,7 +840,7 @@ async function ensureSeedUsers(
     }))
     .filter((seed) => seed.username && seed.password);
 
-  for (const seed of seeds) {
+  for (const seed of seedUsers) {
     try {
       const existing = await userStore.findByUsername(seed.username);
       if (existing) {
@@ -1439,7 +1449,7 @@ async function handleApiRequest(
     return;
   }
 
-  if (!isSafeMethod && hasSessionCookie && requestOrigin && !ALLOWED_ORIGINS.includes(requestOrigin)) {
+  if (!isSafeMethod && hasSessionCookie && requestOrigin && !getAllowedOrigins().includes(requestOrigin)) {
     handleApiError(
       res,
       new HttpError(403, "CSRF-Schutz: Ursprung nicht erlaubt", {
@@ -2467,11 +2477,14 @@ export function createRequestHandler({
   const planStore = store ?? new JsonPlanStore();
   const templateStoreInstance = templateStore ?? new JsonTemplateStore();
   const teamSnippetStore = snippetStore ?? new JsonSnippetStore();
+  const dataDir = getDataDirectory();
   const localQuickSnippetStore =
-    quickSnippetStore ?? new JsonSnippetStore({ storageFile: DEFAULT_QUICK_SNIPPET_FILE });
+    quickSnippetStore ??
+    new JsonSnippetStore({ storageFile: path.join(dataDir, QUICK_SNIPPET_FILE_NAME) });
   const localHighlightConfigStore =
-    highlightConfigStore ?? new JsonHighlightConfigStore({ storageFile: DEFAULT_HIGHLIGHT_CONFIG_FILE });
-  const localUserStore = userStore ?? new JsonUserStore();
+    highlightConfigStore ??
+    new JsonHighlightConfigStore({ storageFile: path.join(dataDir, HIGHLIGHT_CONFIG_FILE_NAME) });
+  const localUserStore = userStore ?? new JsonUserStore({ storageFile: path.join(dataDir, USER_FILE_NAME) });
   const defaultDir = path.join(CURRENT_DIR, "..", "public");
   const rootDir = path.resolve(publicDir ?? defaultDir);
   const sessionStore = providedSessionStore ?? new SessionStore({ defaultTtlMs: sessionTtlMs });
@@ -2658,24 +2671,26 @@ export function createRequestHandler({
  * @returns {import("node:http").Server}
  */
 export function createServer(options = {}) {
-  const {
-    store = new JsonPlanStore(),
-    templateStore = new JsonTemplateStore(),
-    snippetStore = new JsonSnippetStore(),
-    quickSnippetStore = new JsonSnippetStore({ storageFile: DEFAULT_QUICK_SNIPPET_FILE }),
-    highlightConfigStore = new JsonHighlightConfigStore({
-      storageFile: DEFAULT_HIGHLIGHT_CONFIG_FILE,
-    }),
-    userStore = new JsonUserStore(),
-    publicDir,
-    sessionStore,
-    users,
-    sessionTtlMs = DEFAULT_SESSION_TTL_MS,
-    loginRateLimit,
-    gracefulShutdownSignals = ["SIGINT", "SIGTERM"],
-  } = options;
-  const activeSessionStore =
-    sessionStore ?? new SessionStore({ defaultTtlMs: sessionTtlMs });
+  const runtimeConfig = options.runtimeConfig ?? buildRuntimeConfig();
+  setActiveRuntimeConfig(runtimeConfig);
+  const dataDir = getDataDirectory();
+  const store = options.store ?? new JsonPlanStore();
+  const templateStore = options.templateStore ?? new JsonTemplateStore();
+  const snippetStore = options.snippetStore ?? new JsonSnippetStore();
+  const quickSnippetStore =
+    options.quickSnippetStore ??
+    new JsonSnippetStore({ storageFile: path.join(dataDir, QUICK_SNIPPET_FILE_NAME) });
+  const highlightConfigStore =
+    options.highlightConfigStore ??
+    new JsonHighlightConfigStore({ storageFile: path.join(dataDir, HIGHLIGHT_CONFIG_FILE_NAME) });
+  const userStore =
+    options.userStore ?? new JsonUserStore({ storageFile: path.join(dataDir, USER_FILE_NAME) });
+  const publicDir = options.publicDir;
+  const sessionTtlMs = options.sessionTtlMs ?? DEFAULT_SESSION_TTL_MS;
+  const loginRateLimit = options.loginRateLimit;
+  const gracefulShutdownSignals = options.gracefulShutdownSignals ?? ["SIGINT", "SIGTERM"];
+  const users = options.users;
+  const activeSessionStore = options.sessionStore ?? new SessionStore({ defaultTtlMs: sessionTtlMs });
   const handler = createRequestHandler({
     store,
     templateStore,
@@ -2690,7 +2705,7 @@ export function createServer(options = {}) {
     loginRateLimit,
   });
 
-  ensureSeedUsers(userStore).catch((error) => {
+  ensureSeedUsers(userStore, runtimeConfig.credentials).catch((error) => {
     logger.error(
       "Seed-Benutzer konnten nicht erzeugt werden: %s",
       error instanceof Error ? error.stack ?? error.message : String(error ?? ""),
