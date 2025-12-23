@@ -137,6 +137,7 @@ export async function apiRequest(
       headers: finalHeaders,
       body,
       signal: controller?.signal,
+      credentials: "include",
     });
   } catch (error) {
     if (controller && error?.name === "AbortError") {
