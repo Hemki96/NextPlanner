@@ -173,8 +173,11 @@ function parseCookies(header = "") {
     }, {});
 }
 
-function buildSessionCookie(token, expiresAt) {
-  const parts = [`${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`, "HttpOnly", "Secure", "SameSite=Lax", "Path=/"];
+function buildSessionCookie(token, expiresAt, { secure = true } = {}) {
+  const parts = [`${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`, "HttpOnly", "SameSite=Lax", "Path=/"];
+  if (secure) {
+    parts.push("Secure");
+  }
   const expiresDate = new Date(expiresAt);
   if (!Number.isNaN(expiresDate.getTime())) {
     const maxAgeSeconds = Math.max(0, Math.floor((expiresDate.getTime() - Date.now()) / 1000));
@@ -184,8 +187,12 @@ function buildSessionCookie(token, expiresAt) {
   return parts.join("; ");
 }
 
-function buildExpiredSessionCookie() {
-  return `${SESSION_COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
+function buildExpiredSessionCookie({ secure = true } = {}) {
+  const parts = [`${SESSION_COOKIE_NAME}=`, "HttpOnly", "SameSite=Lax", "Path=/", "Max-Age=0"];
+  if (secure) {
+    parts.push("Secure");
+  }
+  return parts.join("; ");
 }
 
 function getClientIp(req) {
@@ -197,6 +204,25 @@ function getClientIp(req) {
     }
   }
   return req.socket?.remoteAddress ?? "unknown";
+}
+
+function isSecureRequest(req) {
+  const forwardedProto = (req.headers?.["x-forwarded-proto"] ?? "").toString().toLowerCase();
+  if (forwardedProto === "https") {
+    return true;
+  }
+  return Boolean(req.socket?.encrypted);
+}
+
+function shouldUseSecureCookies(req) {
+  const flag = (process.env.COOKIE_SECURE ?? "").toString().toLowerCase();
+  if (flag === "true") {
+    return true;
+  }
+  if (flag === "false") {
+    return false;
+  }
+  return isSecureRequest(req);
 }
 
 class LoginRateLimiter {
@@ -1503,7 +1529,10 @@ async function handleApiRequest(
         isAdmin: verifiedUser.isAdmin,
         ttlMs: sessionTtlMs,
       });
-      const cookie = buildSessionCookie(session.token, session.expiresAt);
+      const cookieSecure = shouldUseSecureCookies(req);
+      const cookie = buildSessionCookie(session.token, session.expiresAt, {
+        secure: cookieSecure,
+      });
       sendApiJson(
         res,
         200,
@@ -1546,9 +1575,10 @@ async function handleApiRequest(
       if (authContext.token) {
         await sessionStore.deleteSession(authContext.token);
       }
+      const cookieSecure = shouldUseSecureCookies(req);
       sendApiEmpty(res, 204, {
         origin: requestOrigin,
-        headers: { "Set-Cookie": buildExpiredSessionCookie() },
+        headers: { "Set-Cookie": buildExpiredSessionCookie({ secure: cookieSecure }) },
       });
     } catch (error) {
       handleApiError(res, error, method, requestOrigin, logOptions);
