@@ -9,6 +9,7 @@ import {
   PlanValidationError,
   StorageIntegrityError,
 } from "../stores/json-plan-store.js";
+import { RuntimeConfigError, buildRuntimeConfig } from "../config/runtime-config.js";
 
 const EXIT_SUCCESS = 0;
 const EXIT_VALIDATION = 1;
@@ -274,6 +275,16 @@ async function main() {
   if (argv.length === 0 || argv.includes("--help") || argv.includes("-h")) {
     printUsage();
     process.exit(argv.length === 0 ? EXIT_VALIDATION : EXIT_SUCCESS);
+  }
+
+  try {
+    buildRuntimeConfig();
+  } catch (error) {
+    if (error instanceof RuntimeConfigError) {
+      console.error(error.message);
+      process.exit(EXIT_VALIDATION);
+    }
+    throw error;
   }
 
   const { storageFile, jsonOutput, rest } = splitGlobalOptions(argv);
