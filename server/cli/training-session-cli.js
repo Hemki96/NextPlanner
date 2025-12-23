@@ -4,6 +4,7 @@ import path from "node:path";
 import process from "node:process";
 
 import { aggregateTrainingData, normalizeSessions, DEFAULT_THRESHOLDS } from "../metrics/aggregation.js";
+import { RuntimeConfigError, buildRuntimeConfig } from "../config/runtime-config.js";
 
 const EXIT_SUCCESS = 0;
 const EXIT_ERROR = 1;
@@ -158,6 +159,15 @@ async function main() {
   if (!command || options.help) {
     printUsage();
     process.exit(EXIT_SUCCESS);
+  }
+  try {
+    buildRuntimeConfig();
+  } catch (error) {
+    if (error instanceof RuntimeConfigError) {
+      console.error(error.message);
+      process.exit(EXIT_ERROR);
+    }
+    throw error;
   }
   if (!options.input) {
     console.error("--input ist erforderlich.");
