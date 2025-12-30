@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import fs from "node:fs";
+import path from "node:path";
+import { describe, it, mock } from "node:test";
 
-import { buildRuntimeConfig } from "../server/config/runtime-config.js";
+import { DEFAULT_DATA_DIR, buildRuntimeConfig } from "../server/config/runtime-config.js";
 
 describe("runtime config validation", () => {
   it("fällt auf Standardwerte zurück und setzt Entwicklungs-Defaults", () => {
@@ -39,5 +41,28 @@ describe("runtime config validation", () => {
         return message.includes("Invalid runtime config") && message.includes("PORT") && message.includes("SESSION_TTL_MS");
       },
     );
+  });
+
+  it("fällt auf das Default-Datenverzeichnis zurück, wenn das konfigurierte nicht beschreibbar ist", () => {
+    const originalMkdirSync = fs.mkdirSync;
+    const blockedPath = path.join("/", "data");
+    const mkdirMock = mock.method(fs, "mkdirSync", (dir, options) => {
+      if (dir === blockedPath) {
+        const error = new Error("permission denied");
+        error.code = "EACCES";
+        throw error;
+      }
+      return originalMkdirSync(dir, options);
+    });
+
+    try {
+      const config = buildRuntimeConfig({ NEXTPLANNER_DATA_DIR: blockedPath, NODE_ENV: "development" });
+      assert.equal(config.paths.dataDir, DEFAULT_DATA_DIR);
+      assert.ok(
+        (config.warnings ?? []).some((warning) => warning.includes(blockedPath) && warning.includes(DEFAULT_DATA_DIR)),
+      );
+    } finally {
+      mkdirMock.mock.restore();
+    }
   });
 });
