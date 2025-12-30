@@ -203,6 +203,30 @@ aufgeteilt:
 Styles liegen gebündelt in `public/css/main.css`. Öffne `public/index.html` direkt im
 Browser oder starte den Server (`npm start`), um Änderungen sofort zu testen.
 
+## Architektur (Server)
+
+Der Node-Server ist in klar abgegrenzte Bausteine gegliedert, damit Routen, Middleware und
+Persistenz getrennt getestet werden können:
+
+```
+server/
+  app/                   # Composition Root und Request-Pipeline
+    index.js             # createApp: verdrahtet Middleware, Router, Fehlerbehandlung
+    request-context.js   # Context-Objekt (Cookies, Session-Helper, Logger)
+    middleware/          # z. B. JSON-Body-Parser
+    router/              # Router-Pipeline (baut auf server/routes/* auf)
+    auth/                # Header-basierte User-Extraktion
+    stores/json-store.js # generischer JSON-Store mit atomischen Writes
+  sessions/session-store.js # nutzt json-store für persistente Sessions
+  routes/                # Feature-Routen (API + statische Assets)
+  services/              # Business-Logik (Plans, Templates, Snippets, Users, Auth)
+  stores/                # JSON-basierte Datenspeicher pro Feature
+```
+
+`server/app.js` instanziiert Stores und Services, erzeugt mit `createApp` die
+Request-Pipeline und startet den HTTP-Server. Das Session-Handling nutzt nun atomische
+Dateischreibvorgänge, um Race-Conditions und teilweise persistierte Cookies zu vermeiden.
+
 ## Tests
 
 Automatisierte Tests stellen sicher, dass Parser und Zeit-Helfer bei Erweiterungen stabil
