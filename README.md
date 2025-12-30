@@ -72,6 +72,11 @@ Du hast zwei gleichwertige Möglichkeiten, die Anwendung während der Entwicklun
 1. Führe die vorhandene Testsuite direkt im Terminal mit `npm test` aus. VS Code zeigt Fehler und Assertion-Meldungen im Terminal an.
 2. Konfiguriere optional eine Task unter **Terminal → Konfigurierte Tasks**, um `npm test` regelmäßig per Tastenkürzel (`Strg/Cmd + Shift + B`) zu starten.
 3. Aktiviere ESLint/Prettier, damit du beim Speichern Format- und Stilhinweise erhältst. Über **Einstellungen → Format on Save** kannst du automatische Formatierungen aktivieren.
+4. End-to-End-Checks mit Playwright/Axe:
+   - `npm run test:e2e` startet einen flüchtigen Test-Server und prüft Login-, Planner- und Kalender-Flows im Browser.
+   - `npm run test:a11y` führt die Axe-Analyse gegen Login, Kalender und Planner aus (schwerwiegende/„critical“-/„serious“-Fälle).
+   - Playwright-Browser müssen ggf. mit `npx playwright install --with-deps` (oder `npm run test:setup:playwright`) installiert werden.
+   - Die GitHub-Action `.github/workflows/e2e-and-a11y.yml` führt Unit-, E2E- und A11y-Checks automatisch aus.
 
 ### 7. Empfohlener Arbeitsablauf
 

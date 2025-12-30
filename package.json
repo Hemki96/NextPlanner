@@ -7,10 +7,17 @@
     "dev": "node server/server.js",
     "start": "node server/server.js",
     "test": "node --test",
+    "test:e2e": "playwright test",
+    "test:a11y": "playwright test tests/e2e/accessibility.e2e.js",
+    "test:setup:playwright": "npx playwright install --with-deps",
     "lint:js": "node scripts/lint-js.js",
     "lint:css": "node scripts/lint-css.js",
     "fmt": "node scripts/fmt.js",
     "plan:cli": "node server/cli/plan-cli.js",
     "sessions:cli": "node server/cli/training-session-cli.js"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.0",
+    "@playwright/test": "^1.49.1"
   }
 }
