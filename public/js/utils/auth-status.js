@@ -18,10 +18,17 @@ export async function fetchAuthStatus() {
   inflight = (async () => {
     try {
       const { data } = await get("/api/auth/me");
+      const username = data?.username ?? data?.name ?? null;
+      const roles = Array.isArray(data?.roles) ? data.roles : [];
+      const isAdmin =
+        data?.isAdmin === true ||
+        roles.includes("admin") ||
+        data?.role === "admin" ||
+        false;
       const status = {
-        isAdmin: Boolean(data?.isAdmin),
-        authenticated: Boolean(data?.authenticated ?? data?.isAdmin),
-        username: data?.username ?? null,
+        isAdmin,
+        authenticated: Boolean(data?.authenticated ?? isAdmin || data?.id || username),
+        username,
       };
       cachedStatus = status;
       return status;
