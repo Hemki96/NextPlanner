@@ -29,11 +29,24 @@ function appendVary(value, field) {
   return Array.from(vary).join(", ");
 }
 
+function isLoopbackOrigin(origin) {
+  if (!origin) return false;
+  try {
+    const { hostname } = new URL(origin);
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch {
+    return false;
+  }
+}
+
 function selectCorsOrigin(origin, allowedOrigins) {
   if (!allowedOrigins || allowedOrigins.length === 0) {
     return origin ?? "";
   }
   if (origin && allowedOrigins.includes(origin)) {
+    return origin;
+  }
+  if (origin && isLoopbackOrigin(origin)) {
     return origin;
   }
   return allowedOrigins[0] ?? origin ?? "";

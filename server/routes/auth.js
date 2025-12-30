@@ -61,14 +61,22 @@ function createAuthRouter({ authService }) {
         sendApiEmpty(ctx.res, 401, { origin, allowedOrigins, headers: ctx.withCookies() });
         return true;
       }
+      const roles = ctx.authUser.roles ?? [];
+      const role = ctx.authUser.role ?? roles[0] ?? "user";
+      const username = ctx.authUser.username ?? ctx.authUser.name ?? ctx.authUser.id;
+      const isAdmin = roles.includes("admin") || ctx.authUser.isAdmin === true || role === "admin";
+
       sendApiJson(
         ctx.res,
         200,
         {
           id: ctx.authUser.id,
-          name: ctx.authUser.name ?? ctx.authUser.username ?? ctx.authUser.id,
-          role: ctx.authUser.role ?? (ctx.authUser.roles ?? [])[0] ?? "user",
-          roles: ctx.authUser.roles ?? [],
+          username,
+          name: ctx.authUser.name ?? username,
+          role,
+          roles,
+          isAdmin,
+          authenticated: true,
         },
         { origin, allowedOrigins, headers: ctx.withCookies(), method },
       );
