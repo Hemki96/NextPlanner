@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -74,6 +75,39 @@ function resolveDataDir(value) {
   return path.resolve(PROJECT_ROOT, value);
 }
 
+function isPermissionError(error) {
+  return error?.code === "EACCES" || error?.code === "EPERM";
+}
+
+function ensureWritableDataDir(requestedDir, fallbackDir, warnings, errors) {
+  try {
+    fs.mkdirSync(requestedDir, { recursive: true });
+    fs.accessSync(requestedDir, fs.constants.W_OK);
+    return requestedDir;
+  } catch (error) {
+    if (isPermissionError(error) && fallbackDir && requestedDir !== fallbackDir) {
+      try {
+        fs.mkdirSync(fallbackDir, { recursive: true });
+        fs.accessSync(fallbackDir, fs.constants.W_OK);
+        warnings.push(
+          `Configured data directory "${requestedDir}" is not writable (${error.code ?? "EACCES"}). Falling back to "${fallbackDir}". ` +
+            "Set NEXTPLANNER_DATA_DIR (or DATA_DIR) to a writable path to persist data outside the project folder.",
+        );
+        return fallbackDir;
+      } catch (fallbackError) {
+        const reason = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+        errors.push(
+          `Configured data directory "${requestedDir}" is not writable (${error.code ?? "EACCES"}), and fallback "${fallbackDir}" is not usable: ${reason}.`,
+        );
+        return requestedDir;
+      }
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    errors.push(`Data directory "${requestedDir}" cannot be used: ${reason}`);
+    return requestedDir;
+  }
+}
+
 function validateDefaultCredentials(env, isProduction, errors) {
   const adminUser = env.NEXTPLANNER_ADMIN_USER ?? env.ADMIN_USER ?? "admin";
   const adminPassword =
@@ -108,6 +142,7 @@ function buildRuntimeConfig(env = process.env) {
   const isProduction = nodeEnv === "production";
   const isDevelopment = nodeEnv === "development";
   const errors = [];
+  const warnings = [];
   const safeParse = (label, fn) => {
     try {
       return fn();
@@ -151,7 +186,8 @@ function buildRuntimeConfig(env = process.env) {
 
   const defaults = validateDefaultCredentials(env, isProduction, errors);
 
-  const dataDir = resolveDataDir(env.NEXTPLANNER_DATA_DIR ?? env.DATA_DIR);
+  const resolvedDataDir = resolveDataDir(env.NEXTPLANNER_DATA_DIR ?? env.DATA_DIR);
+  const dataDir = ensureWritableDataDir(resolvedDataDir, DEFAULT_DATA_DIR, warnings, errors);
 
   if (errors.length > 0) {
     const unique = Array.from(new Set(errors));
@@ -183,6 +219,7 @@ function buildRuntimeConfig(env = process.env) {
       dataDir,
       defaultDataDir: DEFAULT_DATA_DIR,
     },
+    warnings: Object.freeze([...new Set(warnings)]),
   };
 }
 

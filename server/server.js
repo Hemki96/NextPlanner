@@ -8,6 +8,12 @@ import { RuntimeConfigError, buildRuntimeConfig } from "./config/runtime-config.
 const port = runtimeConfig.server.port ?? 3000;
 const server = createServer({ config: runtimeConfig });
 
+if (runtimeConfig.warnings?.length) {
+  for (const warning of runtimeConfig.warnings) {
+    logger.warn(warning);
+  }
+}
+
 let hasRetriedWithDynamicPort = false;
 let currentPort = port;
 
