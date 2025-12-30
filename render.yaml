@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: nextplanner
+    env: node
+    plan: free
+    buildCommand: ""
+    startCommand: "npm start"
+    autoDeploy: true
+    healthCheckPath: /readyz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXTPLANNER_DATA_DIR
+        value: /data
+      - key: NEXTPLANNER_ADMIN_PASSWORD
+        generateValue: true
+      - key: NEXTPLANNER_EDITOR_PASSWORD
+        generateValue: true
+      - key: NEXTPLANNER_USER_PASSWORD
+        generateValue: true
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
