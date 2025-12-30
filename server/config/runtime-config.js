@@ -3,7 +3,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(CURRENT_DIR, "..");
+const PROJECT_ROOT = path.resolve(CURRENT_DIR, "..", "..");
 const DEFAULT_DATA_DIR = path.join(PROJECT_ROOT, "data");
 const SESSION_COOKIE_NAME = "nextplanner_session";
 
