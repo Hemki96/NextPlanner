@@ -26,10 +26,23 @@ class PlannerController {
       parsedAt: null,
     };
     this.textarea = null;
+    // Merkt sich den aktuell geplanten Render-Aufruf, damit eingehende Events vorhandene Frames abbrechen können.
+    this.updateHandle = null;
+    // Nutzt requestAnimationFrame, um die UI-Updates an die Browser-Renderzyklen zu koppeln.
+    this.schedule =
+      typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => setTimeout(callback, 150);
+    // Pendant zum Abbrechen geplanter Updates (Fallback: clearTimeout).
+    this.cancelSchedule =
+      typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function"
+        ? window.cancelAnimationFrame.bind(window)
+        : (handle) => clearTimeout(handle);
   }
 
   init({ textarea, initialText = "" } = {}) {
     this.textarea = textarea ?? null;
+    // Stellt sicher, dass im Textfeld ein gültiges Grundgerüst steht (Platzhaltertext etc.).
     if (this.textarea) {
       ensurePlanSkeleton(this.textarea);
       if (typeof initialText === "string" && initialText.length > 0) {
@@ -43,6 +56,7 @@ class PlannerController {
 
   setText(text) {
     this.state.text = text ?? "";
+    // Synchronisiert den sichtbaren Text mit dem internen Status.
     if (this.textarea) {
       this.textarea.value = this.state.text;
     }
@@ -50,10 +64,12 @@ class PlannerController {
   }
 
   updateSummary() {
+    // Aktualisiert den Highlighter auf Basis des aktuellen Textes.
     this.views.planHighlighter.setText(this.state.text);
     const plan = this.parsePlan(this.state.text);
     this.state.plan = plan;
     this.state.parsedAt = Date.now();
+    // Rendert alle UI-Sektionen mit den neuen Aggregaten.
     this.renderSummary(plan, this.domRefs);
     this.views.validationPanel.update(plan.issues ?? []);
     this.views.templateCapture.update(plan);
@@ -62,8 +78,22 @@ class PlannerController {
   }
 
   handleInput(text) {
-    this.setText(text);
-    this.updateSummary();
+    const nextText = text ?? "";
+    // Frühzeitiger Ausstieg: identischer Text benötigt kein erneutes Parsen.
+    if (nextText === this.state.text) {
+      return;
+    }
+    // Speichert das Draft sofort, damit ein Reload keinen Inhalt verliert.
+    this.setText(nextText);
+    // Abbreche ggf. geplante Render-Zyklen, um nur den aktuellsten Stand zu verarbeiten.
+    if (this.updateHandle) {
+      this.cancelSchedule(this.updateHandle);
+    }
+    // Schiebe das Re-Parsing auf den nächsten Frame, um Back-to-Back-Events zu bündeln.
+    this.updateHandle = this.schedule(() => {
+      this.updateHandle = null;
+      this.updateSummary();
+    });
   }
 
   refreshHighlight() {
@@ -71,6 +101,7 @@ class PlannerController {
   }
 
   async loadPlanFromQuery(searchParams, { documentRef = document, historyRef = window.history } = {}) {
+    // API-Load nur, wenn ein Backend verfügbar ist (Offline-Modus ansonsten).
     if (!this.planService.canUseApi()) {
       return;
     }
@@ -81,6 +112,7 @@ class PlannerController {
       return;
     }
 
+    // Lädt den Plan vom Server und spiegelt ihn in Editor und Titel wider.
     const plan = await this.planService.fetchPlan(lookupId);
     if (!plan?.content) {
       return;
