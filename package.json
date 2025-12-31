@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node server/server.js",
+    "dev:env": "node scripts/start-dev.js",
     "start": "node server/server.js",
     "test": "node --test",
     "test:e2e": "playwright test",

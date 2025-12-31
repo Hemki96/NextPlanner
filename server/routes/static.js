@@ -104,8 +104,9 @@ function createStaticRouter({ publicDir }) {
 
     const isLoginPage = safePath.endsWith(`${path.sep}login.html`) || safePath.endsWith("login.html");
     const isHtmlRequest = safePath.toLowerCase().endsWith(".html");
+    const devAuthEnabled = Boolean(ctx.config?.security?.devAuth?.enabled);
 
-    if (isHtmlRequest && !isLoginPage && !ctx.authUser) {
+    if (isHtmlRequest && !isLoginPage && !ctx.authUser && !devAuthEnabled) {
       const next = `${ctx.url.pathname ?? ""}${ctx.url.search ?? ""}`;
       const params = new URLSearchParams({ reason: "login-required" });
       if (next.startsWith("/")) {

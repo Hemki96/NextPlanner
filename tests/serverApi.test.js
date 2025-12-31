@@ -11,6 +11,7 @@ import { JsonSnippetStore } from "../server/stores/json-snippet-store.js";
 import { JsonTemplateStore } from "../server/stores/json-template-store.js";
 import { JsonHighlightConfigStore } from "../server/stores/json-highlight-config-store.js";
 import { createServer } from "../server/app.js";
+import { buildRuntimeConfig } from "../server/config/runtime-config.js";
 import { SessionStore } from "../server/sessions/session-store.js";
 import { sanitizeQuickSnippetGroups } from "../public/js/utils/snippet-storage.js";
 
@@ -736,5 +737,92 @@ describe("Plan API", () => {
       lastStatus = response.status;
     }
     assert.equal(lastStatus, 429);
+  });
+});
+
+describe("Dev Auth API", () => {
+  let server;
+  let baseUrl;
+  let tempDir;
+  let planStore;
+  let templateStore;
+  let snippetStore;
+  let highlightStore;
+  let sessionStore;
+
+  before(async () => {
+    const temp = createTempStore();
+    tempDir = temp.dir;
+    planStore = temp.store;
+    snippetStore = temp.snippetStore;
+    templateStore = temp.templateStore;
+    highlightStore = temp.highlightStore;
+    sessionStore = new SessionStore({ storageFile: path.join(tempDir, "sessions.json") });
+
+    const config = buildRuntimeConfig({
+      NODE_ENV: "development",
+      NEXTPLANNER_ENV: "dev",
+      NEXTPLANNER_DATA_DIR: tempDir,
+    });
+    server = createServer({
+      config,
+      store: planStore,
+      templateStore,
+      snippetStore,
+      highlightConfigStore: highlightStore,
+      publicDir: path.join(repoRoot, "public"),
+      sessionStore,
+      users: [],
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const address = server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    baseUrl = `http://127.0.0.1:${port}`;
+  });
+
+  after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+    await planStore?.close();
+    await snippetStore?.close();
+    await templateStore?.close();
+    await highlightStore?.close();
+    await sessionStore?.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("liefert Dev-Auth-Metadaten ohne Sitzung", async () => {
+    const response = await fetch(`${baseUrl}/api/auth/me`);
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.authenticated, false);
+    assert.equal(payload.devAuth?.enabled, true);
+    assert.ok(Array.isArray(payload.devAuth?.users));
+    assert.ok(payload.devAuth.users.some((user) => user.username === "admin"));
+  });
+
+  it("erstellt Sessions über den Dev-Login-Endpunkt", async () => {
+    const loginResponse = await fetch(`${baseUrl}/api/auth/dev-login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "coach", password: "Test123" }),
+    });
+    assert.equal(loginResponse.status, 200);
+    const cookie = loginResponse.headers.get("set-cookie");
+    assert.ok(cookie?.includes("nextplanner_session"));
+
+    const meResponse = await fetch(`${baseUrl}/api/auth/me`, { headers: { Cookie: cookie ?? "" } });
+    assert.equal(meResponse.status, 200);
+    const profile = await meResponse.json();
+    assert.equal(profile.authenticated, true);
+    assert.equal(profile.username, "coach");
+    assert.equal(profile.devAuth?.enabled, true);
+  });
+
+  it("liefert HTML-Seiten ohne Weiterleitung im DEV-Profil", async () => {
+    const response = await fetch(`${baseUrl}/planner.html`, { redirect: "manual" });
+    assert.equal(response.status, 200);
+    const text = await response.text();
+    assert.ok(text.includes("<!DOCTYPE html>"));
   });
 });

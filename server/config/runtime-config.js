@@ -16,6 +16,9 @@ class RuntimeConfigError extends Error {
 }
 
 const DEFAULT_ALLOWED_ORIGINS = Object.freeze(["http://localhost:3000"]);
+const DEFAULT_ENVIRONMENT = "poet";
+const DEV_ENVIRONMENT = "dev";
+const DEV_ENV_DEFAULT_PASSWORD = "Test123";
 
 const DEFAULTS = Object.freeze({
   port: 3000,
@@ -26,6 +29,29 @@ const DEFAULTS = Object.freeze({
     blockDurationMs: 1000 * 60 * 5,
   },
 });
+
+function resolveEnvironment(env) {
+  const raw =
+    env.NEXTPLANNER_ENV ??
+    env.NEXTPLANNER_ENVIRONMENT ??
+    env.NEXTPLANNER_PROFILE ??
+    env.APP_ENV ??
+    env.APP_ENVIRONMENT ??
+    env.RUNTIME_ENVIRONMENT ??
+    DEFAULT_ENVIRONMENT;
+
+  const normalized = String(raw ?? "").trim().toLowerCase();
+  if (!normalized) {
+    return DEFAULT_ENVIRONMENT;
+  }
+  if (normalized === DEV_ENVIRONMENT || normalized === "development") {
+    return DEV_ENVIRONMENT;
+  }
+  if (normalized === DEFAULT_ENVIRONMENT || normalized === "production") {
+    return DEFAULT_ENVIRONMENT;
+  }
+  throw new Error("NEXTPLANNER_ENV muss 'dev' oder 'poet' sein.");
+}
 
 function parseIntEnv(name, value, { min = null } = {}) {
   if (value === undefined || value === null || value === "") {
@@ -108,19 +134,21 @@ function ensureWritableDataDir(requestedDir, fallbackDir, warnings, errors) {
   }
 }
 
-function validateDefaultCredentials(env, isProduction, errors) {
+function validateDefaultCredentials(env, { isProduction, devEnvironment }, errors) {
   const adminUser = env.NEXTPLANNER_ADMIN_USER ?? env.ADMIN_USER ?? "admin";
   const adminPassword =
     env.NEXTPLANNER_ADMIN_PASSWORD ??
     env.ADMIN_PASSWORD ??
-    (isProduction ? "" : "Admin1234!");
+    (devEnvironment ? DEV_ENV_DEFAULT_PASSWORD : isProduction ? "" : "Admin1234!");
   const editorUser = env.NEXTPLANNER_EDITOR_USER ?? "coach";
-  const editorPassword = env.NEXTPLANNER_EDITOR_PASSWORD ?? (isProduction ? "" : "CoachPower#2024");
+  const editorPassword =
+    env.NEXTPLANNER_EDITOR_PASSWORD ?? (devEnvironment ? DEV_ENV_DEFAULT_PASSWORD : isProduction ? "" : "CoachPower#2024");
   const userUser = env.NEXTPLANNER_USER ?? "athlete";
   const userPassword =
-    env.NEXTPLANNER_USER_PASSWORD ?? (isProduction ? "" : "AthleteReady#2024");
+    env.NEXTPLANNER_USER_PASSWORD ??
+    (devEnvironment ? DEV_ENV_DEFAULT_PASSWORD : isProduction ? "" : "AthleteReady#2024");
 
-  if (isProduction) {
+  if (isProduction && !devEnvironment) {
     const missing = [];
     if (!adminPassword) missing.push("NEXTPLANNER_ADMIN_PASSWORD");
     if (!editorPassword) missing.push("NEXTPLANNER_EDITOR_PASSWORD");
@@ -141,6 +169,8 @@ function buildRuntimeConfig(env = process.env) {
   const nodeEnv = env.NODE_ENV ?? "development";
   const isProduction = nodeEnv === "production";
   const isDevelopment = nodeEnv === "development";
+  const environment = resolveEnvironment(env);
+  const devEnvironment = environment === DEV_ENVIRONMENT;
   const errors = [];
   const warnings = [];
   const safeParse = (label, fn) => {
@@ -184,7 +214,7 @@ function buildRuntimeConfig(env = process.env) {
 
   const cookieSecureOverride = parseBooleanEnv(env.COOKIE_SECURE);
 
-  const defaults = validateDefaultCredentials(env, isProduction, errors);
+  const defaults = validateDefaultCredentials(env, { isProduction, devEnvironment }, errors);
 
   const resolvedDataDir = resolveDataDir(env.NEXTPLANNER_DATA_DIR ?? env.DATA_DIR);
   const dataDir = ensureWritableDataDir(resolvedDataDir, DEFAULT_DATA_DIR, warnings, errors);
@@ -199,6 +229,8 @@ function buildRuntimeConfig(env = process.env) {
       nodeEnv,
       isProduction,
       isDevelopment,
+      environment,
+      devEnvironment,
     },
     server: {
       port,
@@ -213,6 +245,16 @@ function buildRuntimeConfig(env = process.env) {
       },
       loginRateLimit,
       defaultUsers: defaults,
+      devAuth: {
+        enabled: devEnvironment,
+        environment,
+        defaultPassword: devEnvironment ? DEV_ENV_DEFAULT_PASSWORD : null,
+        users: Object.values(defaults).map((user) => ({
+          username: user.username,
+          roles: user.roles ?? [],
+          isAdmin: user.roles?.includes("admin"),
+        })),
+      },
     },
     paths: {
       projectRoot: PROJECT_ROOT,
