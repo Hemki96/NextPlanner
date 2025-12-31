@@ -1,5 +1,6 @@
 import { initAdminNavigation } from "./utils/admin-nav.js";
 import { fetchAuthStatus, resetAuthStatusCache } from "./utils/auth-status.js";
+import { buildLoginRedirectUrl, isLoginPath, resolvePostLoginTarget } from "./utils/auth-redirect.js";
 import { setStatus } from "./utils/status.js";
 
 const AUTH_CHANGED_EVENT = "nextplanner:auth-changed";
@@ -39,12 +40,52 @@ async function renderAuthIndicator() {
   }
 }
 
+async function enforceAuthGuards() {
+  if (typeof window === "undefined" || !window.location) {
+    return false;
+  }
+
+  let status;
+  try {
+    status = await fetchAuthStatus();
+  } catch {
+    status = { authenticated: false };
+  }
+  const authenticated = Boolean(status?.authenticated);
+  const pathname = window.location.pathname ?? "";
+  const onLoginPage = isLoginPath(pathname);
+
+  if (!authenticated && !onLoginPage) {
+    const redirectUrl = buildLoginRedirectUrl({ location: window.location, reason: "login-required" });
+    window.location.replace(redirectUrl);
+    return true;
+  }
+
+  if (authenticated && onLoginPage) {
+    const target = resolvePostLoginTarget(window.location.search, "/index.html");
+    if (target && target !== pathname) {
+      window.location.replace(target);
+      return true;
+    }
+  }
+
+  return false;
+}
+
 initAdminNavigation();
-renderAuthIndicator();
+(async () => {
+  const redirected = await enforceAuthGuards();
+  if (!redirected) {
+    await renderAuthIndicator();
+  }
+})();
 
 if (typeof window !== "undefined") {
   window.addEventListener(AUTH_CHANGED_EVENT, async () => {
     resetAuthStatusCache();
-    await renderAuthIndicator();
+    const redirected = await enforceAuthGuards();
+    if (!redirected) {
+      await renderAuthIndicator();
+    }
   });
 }

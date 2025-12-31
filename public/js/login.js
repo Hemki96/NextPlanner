@@ -1,6 +1,7 @@
 import { post } from "./utils/api-client.js";
 import { fetchAuthStatus, resetAuthStatusCache } from "./utils/auth-status.js";
 import { initAdminNavigation } from "./utils/admin-nav.js";
+import { resolvePostLoginTarget } from "./utils/auth-redirect.js";
 import { setStatus } from "./utils/status.js";
 
 const AUTH_CHANGED_EVENT = "nextplanner:auth-changed";
@@ -25,12 +26,7 @@ function showRedirectReason() {
 }
 
 function resolveRedirectTarget() {
-  const params = new URLSearchParams(window.location.search);
-  const target = params.get("next");
-  if (target && target.startsWith("/")) {
-    return target;
-  }
-  return "/index.html";
+  return resolvePostLoginTarget(window.location.search, "/index.html");
 }
 
 function announceAuthChange() {
