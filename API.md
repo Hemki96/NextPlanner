@@ -6,7 +6,7 @@ Alle Endpunkte werden über den integrierten HTTP-Server unter `http://localhost
 
 - **Authentifizierung**: Alle API-Aufrufe (außer Health-Checks sowie `/api/auth/login` und `/api/auth/logout`) erfordern eine gültige Session. Das Login setzt ein `HttpOnly`, `Secure`, `SameSite=Lax`-Cookie (`nextplanner_session`), das bei jedem API-Call mitgesendet werden muss.
 - **Content Negotiation**: Clients senden standardmäßig `Accept: application/json`; bei Request-Bodys ist `Content-Type: application/json` Pflicht.
-- **Caching & ETag**: Ressourcen liefern starke SHA-256-ETags. Mutierende Requests (`PUT`, `DELETE`) **müssen** `If-Match` enthalten. Der Client speichert den letzten ETag je Ressource.
+- **Caching & ETag**: Ressourcen liefern starke SHA-256-ETags. Mutierende Requests (`PUT`, `DELETE`) **müssen** `If-Match` enthalten, sofern die Ressource ETags bereitstellt (Pläne, Templates, Highlight-Konfiguration). Der Client speichert den letzten ETag je Ressource.
 - **CORS**: `Access-Control-Allow-Origin` wird auf den erlaubten Ursprung gesetzt (Standard: `http://localhost:3000`).
 - **Fehlercodes**: 400 (Validierung), 404 (nicht gefunden), 409 (semantischer Konflikt), 412 (ETag-Mismatch), 422 (Schemafehler), 500 (unerwartet).
 - **Brute-Force-Schutz**: Login-Fehlversuche werden pro IP/Benutzer mit einem kurzen Zeitfenster gedrosselt und können temporär `429 Too Many Requests` auslösen.
@@ -121,6 +121,76 @@ Ersetzt die Team-Snippets vollständig.
 - Erwartet `{ groups: [...] }` oder direkt ein Array von Gruppen. Jede Anfrage wird sanitisiert; fehlende Felder erhalten Default-Werte, leere Gruppen werden entfernt.
 - `200 OK` mit bereinigter Bibliothek. `updatedAt` erhöht sich nur bei tatsächlichen Änderungen – No-Ops liefern den bisherigen Snapshot.
 - `400`, wenn keine Array-Struktur erkannt wird (`error.code = "invalid-snippet-payload"`).
+
+## `GET /api/templates`
+
+Listet alle Vorlagen.
+
+- `200 OK` mit einem Array von Template-Objekten (`id`, `type`, `title`, `notes`, `content`, `tags`, `createdAt`, `updatedAt`) und ETag pro Eintrag im Header.
+- `401`, wenn keine gültige Session vorliegt.
+
+`HEAD /api/templates` liefert dieselben Header ohne Body.
+
+## `POST /api/templates`
+
+Erstellt eine neue Vorlage.
+
+- Erwartet ein Template-Objekt mit `type` (`Block`, `Set` oder `Runde`), `title`, `content`, optional `notes` und `tags`.
+- `201 Created` mit Template-Body und `ETag`.
+- `400`, wenn Pflichtfelder fehlen oder ungültig sind.
+
+## `GET /api/templates/{id}`
+
+Liefert eine konkrete Vorlage.
+
+- `200 OK` mit Template + `ETag`.
+- `304 Not Modified`, wenn `If-None-Match` das aktuelle ETag enthält.
+- `404`, wenn die ID unbekannt ist.
+
+`HEAD` verhält sich analog ohne Body.
+
+## `PUT /api/templates/{id}`
+
+Aktualisiert eine Vorlage vollständig.
+
+- Erfordert `If-Match`; bei fehlendem oder abweichendem ETag gibt es `412 Precondition Failed`.
+- `200 OK` mit aktualisierter Vorlage + `ETag`.
+- `404`, wenn die ID unbekannt ist.
+
+## `DELETE /api/templates/{id}`
+
+Löscht eine Vorlage.
+
+- Erfordert `If-Match`; bei fehlendem oder abweichendem ETag gibt es `412 Precondition Failed`.
+- `204 No Content` bei Erfolg.
+- `404`, wenn die ID unbekannt ist.
+
+## `GET /api/highlight-config`
+
+Gibt die Highlight-Konfiguration zurück (`intensities`, `equipment`, `updatedAt`).
+
+- `200 OK` mit `ETag`.
+- `304 Not Modified`, wenn `If-None-Match` das aktuelle ETag enthält.
+- `401`, wenn keine gültige Session vorliegt.
+
+`HEAD` verhält sich analog ohne Body.
+
+## `PUT /api/highlight-config`
+
+Ersetzt die Highlight-Konfiguration.
+
+- Erwartet `{ intensities: string[], equipment: string[] }` (Duplikate/Leereinträge werden bereinigt).
+- Erfordert `If-Match`; bei fehlendem oder abweichendem ETag gibt es `412 Precondition Failed`.
+- `200 OK` mit bereinigter Konfiguration + `ETag`.
+- `401`, wenn keine gültige Session vorliegt.
+
+## `GET /api/users`
+
+Listet alle Benutzerkonten.
+
+- Nur für Admins (`403`, wenn Rolle fehlt).
+- `200 OK` mit User-Array (`id`, `username`, `roles`).
+- `401`, wenn keine gültige Session vorliegt.
 
 ## `GET /api/backups`
 

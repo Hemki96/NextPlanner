@@ -59,8 +59,16 @@ function createTemplatesRouter({ templateService }) {
     }
 
     const templateId = decodeURIComponent(pathParts[2]);
+    const { template: existingTemplate, etag: currentEtag } =
+      method === "PUT" || method === "DELETE" ? await templateService.getTemplate(templateId) : { template: null, etag: null };
+    if ((method === "PUT" || method === "DELETE") && !existingTemplate) {
+      throw new HttpError(404, "Vorlage nicht gefunden");
+    }
+
     if (method === "GET" || method === "HEAD") {
-      const { template, etag } = await templateService.getTemplate(templateId);
+      const { template, etag } = existingTemplate
+        ? { template: existingTemplate, etag: currentEtag }
+        : await templateService.getTemplate(templateId);
       if (!template) {
         throw new HttpError(404, "Vorlage nicht gefunden");
       }
@@ -78,11 +86,15 @@ function createTemplatesRouter({ templateService }) {
     }
 
     if (method === "PUT") {
+      const ifMatch = ctx.req.headers["if-match"];
+      if (!ifMatch) {
+        throw new HttpError(412, "If-Match-Header wird benötigt.");
+      }
+      if (!etagMatches(ifMatch, currentEtag)) {
+        throw new HttpError(412, "If-Match stimmt nicht mit aktueller Version überein.");
+      }
       try {
         const { template, etag } = await templateService.updateTemplate(templateId, ctx.body ?? {});
-        if (!template) {
-          throw new HttpError(404, "Vorlage nicht gefunden");
-        }
         sendApiJson(ctx.res, 200, template, { origin, allowedOrigins, headers: ctx.withCookies({ ETag: etag }) });
       } catch (error) {
         if (error instanceof TemplateValidationError) {
@@ -94,10 +106,14 @@ function createTemplatesRouter({ templateService }) {
     }
 
     if (method === "DELETE") {
-      const deleted = await templateService.deleteTemplate(templateId);
-      if (!deleted) {
-        throw new HttpError(404, "Vorlage nicht gefunden");
+      const ifMatch = ctx.req.headers["if-match"];
+      if (!ifMatch) {
+        throw new HttpError(412, "If-Match-Header wird benötigt.");
       }
+      if (!etagMatches(ifMatch, currentEtag)) {
+        throw new HttpError(412, "If-Match stimmt nicht mit aktueller Version überein.");
+      }
+      const deleted = await templateService.deleteTemplate(templateId);
       sendApiEmpty(ctx.res, 204, { origin, allowedOrigins, headers: ctx.withCookies() });
       return true;
     }

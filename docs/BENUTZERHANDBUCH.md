@@ -14,11 +14,13 @@ NextPlanner ist ein webbasiertes Tool, mit dem Schwimmtrainer:innen komplette Tr
 - **Plan-Kalender**, **Vorlagen**, **Einstellungen** und **Backups**: Zusätzliche Ansichten für Terminübersichten, Template-Verwaltung, Editor-Optionen inklusive Highlight-Konfiguration sowie Datensicherung.
 
 ## Kalenderübersicht und Planverwaltung
-Der Einstiegspunkt `index.html` bündelt den Plan-Kalender. Er lädt alle gespeicherten Einheiten über die REST-API, ordnet sie nach Datum und visualisiert die Tagesbelegung direkt im Grid.【F:public/js/calendar.js†L214-L335】【F:public/js/calendar.js†L383-L459】 Für ausgewählte Tage zeigt die rechte Spalte jede Einheit inklusive Fokus, optionalen Notizen und drei Aktionen an:
+Der Einstiegspunkt `index.html` bündelt den Plan-Kalender. Er lädt alle gespeicherten Einheiten über die REST-API, ordnet sie nach Datum und visualisiert die Tagesbelegung direkt im Grid.【F:public/js/calendar.js†L214-L335】【F:public/js/calendar.js†L383-L459】 Für ausgewählte Tage zeigt die rechte Spalte jede Einheit inklusive Fokus, optionalen Notizen und fünf Aktionen/Optionen an:
 
 - **Im Planner öffnen** öffnet den gespeicherten Plan mit vollständiger ID im Editor, um Inhalte weiter zu bearbeiten.【F:public/js/calendar.js†L433-L437】
 - **Plan duplizieren** erzeugt einen Planner-Link mit vorbefülltem Datum, Fokus und Startzeit, sodass vorhandene Workouts schnell an neue Termine angepasst werden können.【F:public/js/calendar.js†L345-L365】【F:public/js/calendar.js†L439-L443】
 - **Plan löschen** blendet eine Sicherheitsabfrage ein und sendet anschließend einen HEAD- und DELETE-Request an `/api/plans/{id}`. Der HEAD-Aufruf speichert den aktuellen ETag, der DELETE-Request nutzt ihn automatisch im `If-Match`-Header. Nach erfolgreicher Antwort wird der lokale Zustand aktualisiert, die Kalenderansicht neu gerendert und der Statusbereich informiert über den entfernten Plan.【F:public/js/calendar.js†L50-L127】【F:public/js/calendar.js†L445-L455】
+- **Letztes Training übernehmen** kopiert den jüngsten gespeicherten Plan auf das aktuell ausgewählte Datum und öffnet ihn im Planner, inklusive übernommener Startzeit und Fokus.【F:public/js/calendar.js†L886-L923】
+- **Woche exportieren (Word/PDF)** erzeugt für die ausgewählte Kalenderwoche ein Word- bzw. PDF-Dokument mit Übersichtstabellen und Details zu allen Einheiten zwischen Montag und Sonntag.【F:public/js/calendar.js†L828-L884】
 
 Fehlgeschlagene Löschversuche (z. B. wegen Offline-Betrieb oder ETag-Konflikten) werden im Statusbereich prominent als Warnung bzw. Fehler ausgegeben, während 404-Antworten die Übersicht ohne Abbruch synchronisieren. Der farblich hervorgehobene Button nutzt die neue `danger-button`-Klasse für eine deutliche Abgrenzung gegenüber den sekundären Aktionen.【F:public/js/calendar.js†L112-L124】【F:public/css/main.css†L203-L230】
 
