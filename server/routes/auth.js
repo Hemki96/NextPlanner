@@ -20,14 +20,24 @@ function createAuthRouter({ authService }) {
       const username = ctx.body?.username;
       const password = ctx.body?.password;
       const ip = ctx.req.socket?.remoteAddress ?? "unknown";
-      const user = await authService.login(username, password, { ip });
-      await ctx.session.issue(user);
-      sendApiJson(
-        ctx.res,
-        200,
-        { id: user.id, username: user.username, roles: user.roles },
-        { origin, allowedOrigins, headers: ctx.withCookies() },
-      );
+      try {
+        const user = await authService.login(username, password, { ip });
+        await ctx.session.issue(user);
+        ctx.logger?.info("Login erfolgreich für Benutzer %s von %s", user.username, ip);
+        sendApiJson(
+          ctx.res,
+          200,
+          { id: user.id, username: user.username, roles: user.roles },
+          { origin, allowedOrigins, headers: ctx.withCookies() },
+        );
+      } catch (error) {
+        const reason =
+          error instanceof HttpError
+            ? `${error.status ?? "n/a"} ${error.code ?? "http-error"}${error.hint ? ` (${error.hint})` : ""}`
+            : error?.message ?? "unbekannter Fehler";
+        ctx.logger?.warn("Login fehlgeschlagen für Benutzer %s von %s: %s", username ?? "<leer>", ip, reason);
+        throw error;
+      }
       return true;
     }
 

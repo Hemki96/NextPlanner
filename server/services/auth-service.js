@@ -66,18 +66,28 @@ class AuthService {
   }
 
   async login(username, password, { ip }) {
-    const check = this.limiter.check(ip, username);
+    const trimmedUsername = typeof username === "string" ? username.trim() : "";
+    const normalizedPassword = typeof password === "string" ? password : "";
+
+    if (!trimmedUsername || !normalizedPassword) {
+      throw new HttpError(400, "Benutzername und Passwort werden benötigt.", {
+        code: "missing-credentials",
+        hint: "Mindestens ein Anmeldefeld war leer.",
+      });
+    }
+
+    const check = this.limiter.check(ip, trimmedUsername);
     if (!check.allowed) {
       throw new HttpError(429, "Zu viele fehlgeschlagene Anmeldeversuche. Bitte warten Sie kurz.", {
         code: "rate-limit",
       });
     }
-    const user = await this.userService.verifyCredentials(username, password);
+    const user = await this.userService.verifyCredentials(trimmedUsername, normalizedPassword);
     if (!user) {
-      this.limiter.recordFailure(ip, username);
+      this.limiter.recordFailure(ip, trimmedUsername);
       throw new HttpError(401, "Ungültige Zugangsdaten.", { code: "invalid-credentials" });
     }
-    this.limiter.recordSuccess(ip, username);
+    this.limiter.recordSuccess(ip, trimmedUsername);
     return user;
   }
 }
