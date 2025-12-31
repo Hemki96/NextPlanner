@@ -12,6 +12,8 @@ describe("runtime config validation", () => {
     assert.ok(config.paths.dataDir.endsWith("data"));
     assert.deepEqual(config.server.allowedOrigins, ["http://localhost:3000"]);
     assert.equal(config.security.session.ttlMs > 0, true);
+    assert.equal(config.env.environment, "poet");
+    assert.equal(config.security.devAuth.enabled, false);
   });
 
   it("erzwingt sichere Passwörter in Produktion", () => {
@@ -64,5 +66,18 @@ describe("runtime config validation", () => {
     } finally {
       mkdirMock.mock.restore();
     }
+  });
+
+  it("aktiviert Dev-Auth mit fixem Passwort im dev-Environment", () => {
+    const config = buildRuntimeConfig({ NODE_ENV: "development", NEXTPLANNER_ENV: "dev" });
+    assert.equal(config.env.devEnvironment, true);
+    assert.equal(config.security.devAuth.enabled, true);
+    assert.equal(config.security.devAuth.defaultPassword, "Test123");
+    const devUsers = config.security.devAuth.users.map((user) => user.username);
+    assert.deepEqual(devUsers.sort(), ["admin", "athlete", "coach"].sort());
+  });
+
+  it("wirft bei unbekannten Environment-Profilen", () => {
+    assert.throws(() => buildRuntimeConfig({ NEXTPLANNER_ENV: "staging" }), /NEXTPLANNER_ENV/);
   });
 });

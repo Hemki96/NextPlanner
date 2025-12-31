@@ -2,6 +2,7 @@ import { initAdminNavigation } from "./utils/admin-nav.js";
 import { fetchAuthStatus, resetAuthStatusCache } from "./utils/auth-status.js";
 import { buildLoginRedirectUrl, isLoginPath, resolvePostLoginTarget } from "./utils/auth-redirect.js";
 import { setStatus } from "./utils/status.js";
+import { renderDevAuthControls } from "./utils/dev-auth.js";
 
 const AUTH_CHANGED_EVENT = "nextplanner:auth-changed";
 
@@ -22,17 +23,21 @@ function ensureAuthIndicator() {
   return indicator;
 }
 
-async function renderAuthIndicator() {
+async function renderAuthIndicator(status) {
   const indicator = ensureAuthIndicator();
   if (!indicator) {
     return;
   }
   try {
-    const status = await fetchAuthStatus();
-    if (status?.authenticated) {
-      setStatus(indicator, `Angemeldet als ${status.username ?? "Nutzer"}.`, "success");
+    const resolvedStatus = status ?? (await fetchAuthStatus());
+    if (resolvedStatus?.authenticated) {
+      const suffix = resolvedStatus.devAuth?.enabled ? " (DEV)" : "";
+      setStatus(indicator, `Angemeldet als ${resolvedStatus.username ?? "Nutzer"}${suffix}.`, "success");
     } else {
-      setStatus(indicator, "Nicht angemeldet.", "warning");
+      const message = resolvedStatus?.devAuth?.enabled
+        ? "DEV-Modus aktiv: Nutzer wählen, um anzumelden."
+        : "Nicht angemeldet.";
+      setStatus(indicator, message, "warning");
     }
   } catch (error) {
     const message = error?.message ?? "Anmeldestatus konnte nicht abgerufen werden.";
@@ -55,6 +60,11 @@ async function enforceAuthGuards() {
   const pathname = window.location.pathname ?? "";
   const onLoginPage = isLoginPath(pathname);
 
+  if (!authenticated && status?.devAuth?.enabled) {
+    await renderDevAuthControls(status);
+    return false;
+  }
+
   if (!authenticated && !onLoginPage) {
     const redirectUrl = buildLoginRedirectUrl({ location: window.location, reason: "login-required" });
     window.location.replace(redirectUrl);
@@ -76,7 +86,9 @@ initAdminNavigation();
 (async () => {
   const redirected = await enforceAuthGuards();
   if (!redirected) {
-    await renderAuthIndicator();
+    const status = await fetchAuthStatus();
+    await renderAuthIndicator(status);
+    await renderDevAuthControls(status);
   }
 })();
 
@@ -85,7 +97,9 @@ if (typeof window !== "undefined") {
     resetAuthStatusCache();
     const redirected = await enforceAuthGuards();
     if (!redirected) {
-      await renderAuthIndicator();
+      const status = await fetchAuthStatus();
+      await renderAuthIndicator(status);
+      await renderDevAuthControls(status);
     }
   });
 }

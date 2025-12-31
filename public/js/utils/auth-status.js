@@ -4,7 +4,29 @@ let cachedStatus = null;
 let inflight = null;
 
 function buildDefaultStatus() {
-  return { isAdmin: false, authenticated: false, username: null };
+  return { isAdmin: false, authenticated: false, username: null, devAuth: { enabled: false } };
+}
+
+function normalizeDevAuth(devAuth) {
+  if (!devAuth || typeof devAuth !== "object") {
+    return { enabled: false };
+  }
+  const users = Array.isArray(devAuth.users)
+    ? devAuth.users
+        .map((user) => ({
+          username: user?.username,
+          roles: Array.isArray(user?.roles) ? user.roles : [],
+          isAdmin: Boolean(user?.isAdmin || (user?.roles ?? []).includes("admin")),
+        }))
+        .filter((user) => typeof user.username === "string" && user.username.trim())
+    : [];
+
+  return {
+    enabled: Boolean(devAuth.enabled),
+    environment: devAuth.environment ?? null,
+    defaultPassword: devAuth.defaultPassword ?? null,
+    users,
+  };
 }
 
 export async function fetchAuthStatus() {
@@ -29,6 +51,7 @@ export async function fetchAuthStatus() {
         isAdmin,
         authenticated: Boolean(data?.authenticated ?? isAdmin || data?.id || username),
         username,
+        devAuth: normalizeDevAuth(data?.devAuth),
       };
       cachedStatus = status;
       return status;
