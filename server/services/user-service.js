@@ -1,9 +1,9 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
-import { JsonUserStore, UserValidationError } from "../stores/json-user-store.js";
+import { JsonUserStore, UserValidationError, validatePasswordPolicy } from "../stores/json-user-store.js";
 
-function hashPassword(password) {
-  return createHash("sha256").update(String(password ?? "")).digest();
+function hashPassword(password, username = "") {
+  return createHash("sha256").update(`${username}:${String(password ?? "")}`).digest();
 }
 
 function normalizeUserRecord(user) {
@@ -11,13 +11,18 @@ function normalizeUserRecord(user) {
     return null;
   }
   const username = user.username.trim();
+  try {
+    validatePasswordPolicy(user.password ?? "");
+  } catch {
+    return null;
+  }
   let passwordHash = null;
   if (user.passwordHash) {
     passwordHash = Buffer.isBuffer(user.passwordHash)
       ? user.passwordHash
       : Buffer.from(String(user.passwordHash), "hex");
   } else if (typeof user.password === "string" && user.password.trim()) {
-    passwordHash = hashPassword(user.password);
+    passwordHash = hashPassword(user.password, username);
   }
   if (!passwordHash) {
     return null;
@@ -114,7 +119,7 @@ class UserService {
     if (!record) {
       return null;
     }
-    const attempted = hashPassword(password);
+    const attempted = hashPassword(password, trimmedUsername);
     if (record.passwordHash.length !== attempted.length) {
       return null;
     }

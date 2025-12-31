@@ -40,11 +40,9 @@ function createServices(config, options = {}) {
     store: userStore,
     defaults: seedUsers,
   });
-  if (!options.users) {
-    userService.ensureSeedUsers(seedUsers).catch((error) => {
-      logger.warn("Initial seed failed: %s", error instanceof Error ? error.message : String(error));
-    });
-  }
+  userService.ensureSeedUsers(seedUsers).catch((error) => {
+    logger.warn("Initial seed failed: %s", error instanceof Error ? error.message : String(error));
+  });
 
   return {
     services: {

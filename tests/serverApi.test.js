@@ -41,7 +41,7 @@ describe("Plan API", () => {
   let highlightStore;
   let sessionStore;
   let authCookie;
-  const adminCredentials = { username: "test-admin", password: "passw0rd", isAdmin: true };
+  const adminCredentials = { username: "test-admin", password: "Passw0rd!1", isAdmin: true };
 
   function authHeaders(headers = {}) {
     if (!authCookie) {
@@ -109,6 +109,15 @@ describe("Plan API", () => {
   it("verweigert API-Aufrufe ohne Sitzung", async () => {
     const response = await fetch(`${baseUrl}/api/plans`);
     assert.equal(response.status, 401);
+  });
+
+  it("liefert 404 und JSON für unbekannte API-Pfade", async () => {
+    const response = await authFetch(`${baseUrl}/api/unknown/route`);
+    assert.equal(response.status, 404);
+    const contentType = response.headers.get("content-type") ?? "";
+    assert.ok(contentType.includes("application/json"));
+    const payload = await response.json();
+    assert.equal(payload?.error?.code, "http-404");
   });
 
   it("ermöglicht Logout und erneutes Login", async () => {
@@ -813,7 +822,7 @@ describe("Dev Auth API", () => {
     const loginResponse = await fetch(`${baseUrl}/api/auth/dev-login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: "coach", password: "Test123" }),
+      body: JSON.stringify({ username: "coach", password: "DevPass123!" }),
     });
     assert.equal(loginResponse.status, 200);
     const cookie = loginResponse.headers.get("set-cookie");

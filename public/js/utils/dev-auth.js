@@ -45,8 +45,8 @@ function ensurePanel() {
     </label>
     <div class="form-field">
       <span>Passwort</span>
-      <input type="password" value="Test123" data-dev-auth-password aria-label="Dev Passwort" />
-      <p class="help-text">Im DEV-Modus ist das Passwort immer "Test123".</p>
+      <input type="password" value="DevPass123!" data-dev-auth-password aria-label="Dev Passwort" />
+      <p class="help-text">Im DEV-Modus ist das Passwort immer "DevPass123!".</p>
     </div>
     <div class="form-actions">
       <button type="submit" class="primary-button" data-dev-auth-submit>Anmelden</button>
