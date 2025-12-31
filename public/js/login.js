@@ -1,4 +1,4 @@
-import { post } from "./utils/api-client.js";
+import { describeApiError, post } from "./utils/api-client.js";
 import { fetchAuthStatus, resetAuthStatusCache } from "./utils/auth-status.js";
 import { initAdminNavigation } from "./utils/admin-nav.js";
 import { resolvePostLoginTarget } from "./utils/auth-redirect.js";
@@ -74,7 +74,8 @@ async function handleLogin(event) {
     setStatus(dom.status, "Erfolgreich angemeldet. Weiterleitung...", "success");
     window.location.assign(resolveRedirectTarget());
   } catch (error) {
-    setStatus(dom.status, error?.message ?? "Anmeldung fehlgeschlagen.", "error");
+    const message = describeApiError(error) ?? "Anmeldung fehlgeschlagen.";
+    setStatus(dom.status, message, "error");
     dom.password.value = "";
     focusUsername();
   }
