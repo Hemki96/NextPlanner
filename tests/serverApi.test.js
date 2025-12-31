@@ -388,6 +388,7 @@ describe("Plan API", () => {
     });
 
     assert.equal(createResponse.status, 201);
+    const createEtag = createResponse.headers.get("etag");
     const created = await createResponse.json();
     assert.ok(typeof created.id === "string" && created.id.length > 0);
     assert.equal(created.type, "Block");
@@ -404,16 +405,21 @@ describe("Plan API", () => {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
+        "If-Match": createEtag,
       },
       body: JSON.stringify(updatePayload),
     });
 
     assert.equal(updateResponse.status, 200);
+    const updateEtag = updateResponse.headers.get("etag");
     const updated = await updateResponse.json();
     assert.equal(updated.title, "Sprintblock #1");
 
     const deleteResponse = await authFetch(`${baseUrl}/api/templates/${encodeURIComponent(created.id)}`, {
       method: "DELETE",
+      headers: {
+        "If-Match": updateEtag,
+      },
     });
     assert.equal(deleteResponse.status, 204);
 
@@ -547,6 +553,7 @@ describe("Plan API", () => {
   it("verwaltet die Highlight-Konfiguration über die API", async () => {
     const initialResponse = await authFetch(`${baseUrl}/api/highlight-config`);
     assert.equal(initialResponse.status, 200);
+    const initialEtag = initialResponse.headers.get("etag");
     const initial = await initialResponse.json();
     assert.ok(Array.isArray(initial.intensities));
     assert.ok(initial.intensities.length > 0);
@@ -556,6 +563,7 @@ describe("Plan API", () => {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
+        "If-Match": initialEtag,
       },
       body: JSON.stringify({
         intensities: [" en1 ", "EN1", "Sprint"],

@@ -6,11 +6,11 @@ Dieses Dokument beschreibt das Datenschema für Einheiten und Wochenpläne, die 
 
 | Feld | Typ | Beschreibung |
 | --- | --- | --- |
-| `id` | Zahl | Eindeutige ID (innerhalb des Plans oder der Datenquelle). |
+| `id` | String/Zahl | Eindeutige ID (innerhalb des Plans oder der Datenquelle). |
 | `date` | ISO-String | Datum der Einheit (YYYY-MM-DD). |
 | `title` | String | Kurzer Titel/Label. |
 | `primaryStroke` | String | Primärlage (z. B. Freistil, Brust, Delfin, Lagen). |
-| `distanceMeters` | Zahl | Gesamtdistanz der Einheit in Metern. |
+| `distanceMeters` | Zahl | Gesamtdistanz der Einheit in Metern (muss exakt der Summe der Zonen entsprechen). |
 | `plannedMinutes` | Zahl | Geplante Gesamtdauer in Minuten. |
 | `zoneMeters` | Objekt | Aufteilung nach Zonen `Z1`–`Z5` (Meter je Zone, Summe = `distanceMeters`). |
 | `zoneShare` | Objekt | Optional; Prozentanteile pro Zone. Falls nicht gesetzt, wird aus `zoneMeters` berechnet. |
@@ -24,7 +24,7 @@ Dieses Dokument beschreibt das Datenschema für Einheiten und Wochenpläne, die 
 
 **Validierungsregeln**
 
-- `distanceMeters` muss ≥ Summe aller `zoneMeters`; empfohlen: identisch.
+- `distanceMeters` muss exakt der Summe aller `zoneMeters` entsprechen; Abweichungen führen zu einem Fehler.
 - `keySetMeters` muss genau `zoneMeters.Z3 + zoneMeters.Z4 + zoneMeters.Z5` entsprechen.
 - `techniqueMeters` ≤ `distanceMeters`; Anteil wird separat ausgewiesen.
 - `longestBlockMeters` ≤ `distanceMeters` und sollte ein Key- oder Race-Pace-Block sein.
@@ -170,4 +170,3 @@ Beide Sätze sind mit der CLI validierbar und können direkt in das Aggregations
 - Fehlende Deload-Wochen → alle 3–4 Wochen 20–30 % Drop bei Volumen **und** Qualitätsmetern planen.
 - Keine Race-Pace-Sets → mindestens 1×/Woche im Build, alle 2 Wochen im Deload sicherstellen.
 - Technikblöcke vergessen → pro Woche mind. 10 % Technikmeter, nicht nur im Einschwimmen verstecken.
-
