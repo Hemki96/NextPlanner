@@ -18,7 +18,8 @@ class RuntimeConfigError extends Error {
 const DEFAULT_ALLOWED_ORIGINS = Object.freeze(["http://localhost:3000"]);
 const DEFAULT_ENVIRONMENT = "poet";
 const DEV_ENVIRONMENT = "dev";
-const DEV_ENV_DEFAULT_PASSWORD = "Test123";
+const DEV_ENV_DEFAULT_PASSWORD = "DevPass123!";
+const DEFAULT_USERS_DISABLED_FLAGS = ["NEXTPLANNER_DISABLE_DEFAULT_USERS", "DISABLE_DEFAULT_USERS"];
 
 const DEFAULTS = Object.freeze({
   port: 3000,
@@ -171,6 +172,9 @@ function buildRuntimeConfig(env = process.env) {
   const isDevelopment = nodeEnv === "development";
   const environment = resolveEnvironment(env);
   const devEnvironment = environment === DEV_ENVIRONMENT;
+  const disableDefaultUsers = DEFAULT_USERS_DISABLED_FLAGS.some(
+    (flag) => parseBooleanEnv(env[flag]) === true,
+  );
   const errors = [];
   const warnings = [];
   const safeParse = (label, fn) => {
@@ -214,7 +218,9 @@ function buildRuntimeConfig(env = process.env) {
 
   const cookieSecureOverride = parseBooleanEnv(env.COOKIE_SECURE);
 
-  const defaults = validateDefaultCredentials(env, { isProduction, devEnvironment }, errors);
+  const defaults = disableDefaultUsers
+    ? {}
+    : validateDefaultCredentials(env, { isProduction, devEnvironment }, errors);
 
   const resolvedDataDir = resolveDataDir(env.NEXTPLANNER_DATA_DIR ?? env.DATA_DIR);
   const dataDir = ensureWritableDataDir(resolvedDataDir, DEFAULT_DATA_DIR, warnings, errors);
@@ -246,9 +252,9 @@ function buildRuntimeConfig(env = process.env) {
       loginRateLimit,
       defaultUsers: defaults,
       devAuth: {
-        enabled: devEnvironment,
+        enabled: devEnvironment && !disableDefaultUsers,
         environment,
-        defaultPassword: devEnvironment ? DEV_ENV_DEFAULT_PASSWORD : null,
+        defaultPassword: devEnvironment && !disableDefaultUsers ? DEV_ENV_DEFAULT_PASSWORD : null,
         users: Object.values(defaults).map((user) => ({
           username: user.username,
           roles: user.roles ?? [],

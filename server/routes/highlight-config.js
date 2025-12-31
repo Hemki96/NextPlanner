@@ -9,6 +9,15 @@ function requireAuth(ctx) {
   }
 }
 
+function requireJson(ctx) {
+  const contentType = ctx.req.headers?.["content-type"] ?? "";
+  if (!/^application\/json/i.test(contentType)) {
+    throw new HttpError(415, "Content-Type muss application/json sein", {
+      hint: "Setzen Sie den Header 'Content-Type' auf 'application/json', um JSON-Daten zu senden.",
+    });
+  }
+}
+
 function createHighlightConfigRouter({ highlightConfigService }) {
   return async function highlightRouter(ctx) {
     if (ctx.url.pathname !== "/api/highlight-config") {
@@ -41,6 +50,7 @@ function createHighlightConfigRouter({ highlightConfigService }) {
     }
 
     if (method === "PUT") {
+      requireJson(ctx);
       const { config: current, etag: currentEtag } = await highlightConfigService.getConfigWithEtag();
       const ifMatch = ctx.req.headers["if-match"];
       if (!ifMatch) {

@@ -65,7 +65,12 @@ function resolveCacheControl(filePath) {
 }
 
 function sanitizePath(rootDir, requestedPath) {
-  const decoded = decodeURIComponent(requestedPath);
+  let decoded;
+  try {
+    decoded = decodeURIComponent(requestedPath);
+  } catch {
+    return null;
+  }
   let normalized = path.normalize(decoded);
 
   if (normalized === path.sep || normalized === "." || normalized === "") {
@@ -92,6 +97,10 @@ function sanitizePath(rootDir, requestedPath) {
 
 function createStaticRouter({ publicDir }) {
   return async function staticRouter(ctx) {
+    if (ctx.url.pathname.startsWith("/api/")) {
+      return false;
+    }
+
     const safePath = sanitizePath(publicDir, ctx.url.pathname);
     if (!safePath) {
       sendEmpty(ctx.res, 403, { headers: STATIC_SECURITY_HEADERS });

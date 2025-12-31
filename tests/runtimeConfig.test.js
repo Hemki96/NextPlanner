@@ -72,12 +72,23 @@ describe("runtime config validation", () => {
     const config = buildRuntimeConfig({ NODE_ENV: "development", NEXTPLANNER_ENV: "dev" });
     assert.equal(config.env.devEnvironment, true);
     assert.equal(config.security.devAuth.enabled, true);
-    assert.equal(config.security.devAuth.defaultPassword, "Test123");
+    assert.equal(config.security.devAuth.defaultPassword, "DevPass123!");
     const devUsers = config.security.devAuth.users.map((user) => user.username);
     assert.deepEqual(devUsers.sort(), ["admin", "athlete", "coach"].sort());
   });
 
   it("wirft bei unbekannten Environment-Profilen", () => {
     assert.throws(() => buildRuntimeConfig({ NEXTPLANNER_ENV: "staging" }), /NEXTPLANNER_ENV/);
+  });
+
+  it("deaktiviert Default-User und Dev-Auth über Flag", () => {
+    const config = buildRuntimeConfig({
+      NODE_ENV: "production",
+      NEXTPLANNER_ENV: "poet",
+      NEXTPLANNER_DISABLE_DEFAULT_USERS: "true",
+    });
+    assert.deepEqual(config.security.defaultUsers, {});
+    assert.equal(config.security.devAuth.enabled, false);
+    assert.equal(config.security.devAuth.users.length, 0);
   });
 });
