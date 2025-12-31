@@ -573,8 +573,23 @@ describe("Plan API", () => {
     assert.deepEqual(reloaded.equipment, ["Brett", "Paddles"]);
   });
 
+  it("leitet HTML-Seiten ohne Sitzung auf die Login-Seite um", async () => {
+    authCookie = "";
+    const response = await fetch(`${baseUrl}/planner.html`, { redirect: "manual" });
+    assert.equal(response.status, 302);
+    const location = response.headers.get("location");
+    assert.ok(location?.startsWith("/login.html"));
+    const url = new URL(location, baseUrl);
+    assert.equal(url.pathname, "/login.html");
+    assert.equal(url.searchParams.get("reason"), "login-required");
+    assert.equal(url.searchParams.get("next"), "/planner.html");
+
+    const relogin = await login();
+    assert.equal(relogin.status, 200);
+  });
+
   it("liefert statische Dateien gestreamt mit Cache-Headern", async () => {
-    const response = await fetch(`${baseUrl}/index.html`);
+    const response = await authFetch(`${baseUrl}/index.html`);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("cache-control"), "public, max-age=60");
     assert.ok(response.headers.get("etag"));
@@ -589,20 +604,20 @@ describe("Plan API", () => {
   });
 
   it("beantwortet konditionelle Anfragen mit 304, wenn Assets unverändert sind", async () => {
-    const initial = await fetch(`${baseUrl}/index.html`);
+    const initial = await authFetch(`${baseUrl}/index.html`);
     assert.equal(initial.status, 200);
     const etag = initial.headers.get("etag");
     const lastModified = initial.headers.get("last-modified");
 
     if (etag) {
-      const conditional = await fetch(`${baseUrl}/index.html`, {
+      const conditional = await authFetch(`${baseUrl}/index.html`, {
         headers: { "If-None-Match": etag },
       });
       assert.equal(conditional.status, 304);
       assert.equal(conditional.headers.get("etag"), etag);
       assert.equal(await conditional.text(), "");
 
-      const headConditional = await fetch(`${baseUrl}/index.html`, {
+      const headConditional = await authFetch(`${baseUrl}/index.html`, {
         method: "HEAD",
         headers: { "If-None-Match": etag },
       });
@@ -612,7 +627,7 @@ describe("Plan API", () => {
     }
 
     if (lastModified) {
-      const conditionalSince = await fetch(`${baseUrl}/index.html`, {
+      const conditionalSince = await authFetch(`${baseUrl}/index.html`, {
         headers: { "If-Modified-Since": lastModified },
       });
       assert.equal(conditionalSince.status, 304);
