@@ -1,8 +1,15 @@
+// Diese Datei fasst alle Regeln zusammen, mit denen die Anwendung ihre
+// Laufzeitkonfiguration aus Umgebungsvariablen und sinnvollen Standards
+// ableitet. Alle Schritte sind ausführlich dokumentiert, damit auch
+// Einsteiger:innen verstehen, warum bestimmte Entscheidungen getroffen werden.
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+// Basispfade: Wir leiten den Projektstamm aus dem aktuellen Speicherort ab.
+// Dadurch bleibt der Code robust, selbst wenn das Repository an einem anderen
+// Ort ausgecheckt wird.
 const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(CURRENT_DIR, "..", "..");
 const DEFAULT_DATA_DIR = path.join(PROJECT_ROOT, "data");
@@ -15,6 +22,8 @@ class RuntimeConfigError extends Error {
   }
 }
 
+// Konstanten, die immer gleich bleiben und den Sicherheits- bzw. UX-Rahmen
+// vorgeben. Durch Object.freeze werden versehentliche Änderungen verhindert.
 const DEFAULT_ALLOWED_ORIGINS = Object.freeze(["http://localhost:3000"]);
 const DEFAULT_ENVIRONMENT = "poet";
 const DEV_ENVIRONMENT = "dev";
@@ -22,8 +31,11 @@ const DEV_ENV_DEFAULT_PASSWORD = "DevPass123!";
 const DEFAULT_USERS_DISABLED_FLAGS = ["NEXTPLANNER_DISABLE_DEFAULT_USERS", "DISABLE_DEFAULT_USERS"];
 
 const DEFAULTS = Object.freeze({
+  // Standard-Port, falls kein anderer Wert gesetzt ist.
   port: 3000,
+  // Lebensdauer einer Session in Millisekunden (12 Stunden).
   sessionTtlMs: 1000 * 60 * 60 * 12,
+  // Rate-Limit für Login-Versuche, um Brute-Force-Angriffe einzudämmen.
   loginRateLimit: {
     windowMs: 1000 * 60 * 5,
     maxAttempts: 5,
@@ -31,6 +43,9 @@ const DEFAULTS = Object.freeze({
   },
 });
 
+// Ermittelt, ob wir in einer produktionsähnlichen oder Entwicklungsumgebung
+// laufen. Mehrere Variablennamen werden unterstützt, damit die Anwendung in
+// unterschiedlichen Deployments flexibel konfiguriert werden kann.
 function resolveEnvironment(env) {
   const raw =
     env.NEXTPLANNER_ENV ??
@@ -54,6 +69,9 @@ function resolveEnvironment(env) {
   throw new Error("NEXTPLANNER_ENV muss 'dev' oder 'poet' sein.");
 }
 
+// Wandelt eine Umgebungsvariable in eine Zahl um und validiert sie. So
+// verhindern wir, dass fehlerhafte Eingaben unbemerkt in die Konfiguration
+// gelangen.
 function parseIntEnv(name, value, { min = null } = {}) {
   if (value === undefined || value === null || value === "") {
     return null;
@@ -68,6 +86,9 @@ function parseIntEnv(name, value, { min = null } = {}) {
   return parsed;
 }
 
+// Konvertiert Textwerte wie "true" oder "false" in echte Booleans. Andere
+// Eingaben bleiben bewusst unverändert (null), damit sie später leicht erkannt
+// werden können.
 function parseBooleanEnv(value) {
   if (typeof value !== "string") {
     return null;
@@ -83,6 +104,8 @@ function parseBooleanEnv(value) {
 }
 
 function parseAllowedOrigins(value) {
+  // Gibt eine Liste erlaubter Ursprünge (CORS) zurück. Leere Eingaben führen zu
+  // den Standardwerten für lokale Nutzung.
   if (!value) {
     return DEFAULT_ALLOWED_ORIGINS;
   }
@@ -93,6 +116,9 @@ function parseAllowedOrigins(value) {
 }
 
 function resolveDataDir(value) {
+  // Wandelt einen optionalen Pfad für den Datenordner in einen absoluten Pfad
+  // um. Dadurch spielt das aktuelle Arbeitsverzeichnis keine Rolle und der
+  // Datenpfad ist eindeutig.
   if (!value) {
     return DEFAULT_DATA_DIR;
   }
@@ -103,10 +129,14 @@ function resolveDataDir(value) {
 }
 
 function isPermissionError(error) {
+  // Prüft gezielt, ob ein Fehler auf fehlende Dateiberechtigungen hinweist.
   return error?.code === "EACCES" || error?.code === "EPERM";
 }
 
 function ensureWritableDataDir(requestedDir, fallbackDir, warnings, errors) {
+  // Stellt sicher, dass der gewünschte Datenordner existiert und beschreibbar
+  // ist. Scheitert dies, versuchen wir einen Fallback und sammeln Warnungen,
+  // damit Administrator:innen die Konfiguration nachziehen können.
   try {
     fs.mkdirSync(requestedDir, { recursive: true });
     fs.accessSync(requestedDir, fs.constants.W_OK);
@@ -136,6 +166,9 @@ function ensureWritableDataDir(requestedDir, fallbackDir, warnings, errors) {
 }
 
 function validateDefaultCredentials(env, { isProduction, devEnvironment }, errors) {
+  // Liest Standard-Zugangsdaten aus der Umgebung oder nutzt nachvollziehbare
+  // Default-Passwörter. In Produktion erzwingen wir, dass sichere Passwörter
+  // gesetzt wurden, um ungeschützte Konten zu vermeiden.
   const adminUser = env.NEXTPLANNER_ADMIN_USER ?? env.ADMIN_USER ?? "admin";
   const adminPassword =
     env.NEXTPLANNER_ADMIN_PASSWORD ??
@@ -167,6 +200,8 @@ function validateDefaultCredentials(env, { isProduction, devEnvironment }, error
 }
 
 function buildRuntimeConfig(env = process.env) {
+  // Kernfunktion: Sie sammelt alle Eingaben, validiert sie und erzeugt ein
+  // strukturiertes Konfigurationsobjekt, das der Rest des Servers nutzt.
   const nodeEnv = env.NODE_ENV ?? "development";
   const isProduction = nodeEnv === "production";
   const isDevelopment = nodeEnv === "development";
@@ -178,6 +213,8 @@ function buildRuntimeConfig(env = process.env) {
   const errors = [];
   const warnings = [];
   const safeParse = (label, fn) => {
+    // Hilfsfunktion, um Fehlermeldungen zu sammeln, ohne den gesamten Vorgang
+    // zu unterbrechen. So können wir alle Probleme auf einmal melden.
     try {
       return fn();
     } catch (error) {
@@ -226,10 +263,15 @@ function buildRuntimeConfig(env = process.env) {
   const dataDir = ensureWritableDataDir(resolvedDataDir, DEFAULT_DATA_DIR, warnings, errors);
 
   if (errors.length > 0) {
+    // Alle gesammelten Fehler werden gebündelt gemeldet, damit Nutzer:innen
+    // sofort sehen, welche Einstellungen angepasst werden müssen.
     const unique = Array.from(new Set(errors));
     throw new RuntimeConfigError(`Invalid runtime config:\n- ${unique.join("\n- ")}`);
   }
 
+  // Endergebnis: ein Konfigurationsobjekt mit klar getrennten Bereichen. Die
+  // Warnungen werden eingefroren, damit sie nicht versehentlich verändert
+  // werden.
   return {
     env: {
       nodeEnv,

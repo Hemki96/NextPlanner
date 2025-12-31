@@ -1,3 +1,7 @@
+// Kernstück der HTTP-Anwendung: Hier werden eingehende Requests vorbereitet,
+// mit Session-Informationen versehen und an die Router-Pipeline weitergegeben.
+// Die Kommentare erklären alle Zwischenschritte, damit auch Personen mit wenig
+// Erfahrung den Ablauf nachvollziehen können.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -15,6 +19,9 @@ const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PUBLIC_DIR = path.join(CURRENT_DIR, "..", "public");
 
 function resolveSecureCookieFlag(config, req) {
+  // Bestimmt, ob Cookies als "secure" markiert werden sollen. Wird kein
+  // expliziter Wert gesetzt, orientiert sich die Entscheidung am eingehenden
+  // Protokoll (http vs. https).
   const flag = config.security.session.secureCookies;
   if (flag === true) return true;
   if (flag === false) return false;
@@ -24,6 +31,8 @@ function resolveSecureCookieFlag(config, req) {
 }
 
 function attachSessionUser(ctx) {
+  // Überträgt die Informationen aus der Session in das Request-Context-Objekt,
+  // damit spätere Schritte wie Autorisierung darauf zugreifen können.
   if (!ctx.req.session) return;
   ctx.authUser = {
     id: ctx.req.session.userId ?? ctx.req.session.username,
@@ -37,6 +46,8 @@ function attachSessionUser(ctx) {
 }
 
 function attachHeaderUserFallback(ctx) {
+  // Fallback für automatisierte Tests oder interne Aufrufe: Der Benutzer kann
+  // auch per Custom-Header übergeben werden, falls keine Session existiert.
   if (ctx.authUser) return;
   const headerUser = extractRequestUser(ctx.req);
   if (headerUser) {
@@ -52,6 +63,8 @@ function createApp({
   routerFactory = createRouterPipeline,
   sessionMiddlewareFactory = createHttpSessionMiddleware,
 } = {}) {
+  // Übergibt Services, Config und Middleware-Fabriken. Fehlende Abhängigkeiten
+  // werden bewusst früh erkannt, um Startfehler klar zu kommunizieren.
   if (!services) {
     throw new Error("services are required to create the application");
   }
@@ -65,6 +78,9 @@ function createApp({
   const routeRequest = routerFactory({ services, publicDir });
 
   async function handle(req, res) {
+    // Herzstück der Request-Verarbeitung: baut Kontext, führt Middleware aus
+    // und übergibt den Request an die Router-Logik. Jede Phase ist mit einem
+    // try/catch umschlossen, um Fehlermeldungen kontrolliert zu versenden.
     res.locals = { jsonSpacing: config.server.jsonSpacing };
     const requestLogger = createRequestLogger({
       method: req.method,
@@ -87,6 +103,7 @@ function createApp({
         await parseApiJsonBody(ctx);
         const handled = await routeRequest(ctx);
         if (!handled) {
+          // Erreicht, wenn kein Router den Pfad bedienen konnte.
           throw new HttpError(404, "Endpoint nicht gefunden");
         }
       });
@@ -109,6 +126,7 @@ function createApp({
         sendEmpty(res, status);
       }
     } finally {
+      // Einfache Metrik: Wie lange hat der Request gedauert?
       const durationMs = Date.now() - startedAt;
       requestLogger.info("Request beendet mit Status %s nach %dms", res.statusCode ?? "-", durationMs);
     }

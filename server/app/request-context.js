@@ -1,3 +1,6 @@
+// Baut ein Kontextobjekt für jeden eingehenden Request. Der Kontext sammelt
+// nützliche Helfer (z. B. Cookies setzen, Session ausstellen) und hält
+// Referenzen auf Konfiguration, Logger und Services.
 import { buildExpiredSessionCookie, buildSessionCookie } from "../sessions/http-session-middleware.js";
 
 function createRequestContext({ req, res, config, services, logger, sessionMiddleware }) {
@@ -15,6 +18,10 @@ function createRequestContext({ req, res, config, services, logger, sessionMiddl
     origin: req.headers?.origin,
     session: {
       issue: async (user) => {
+        // Erstellt eine neue Session für den angegebenen Benutzer und legt den
+        // Session-Cookie am Response ab. Gleichzeitig wird der Kontext mit den
+        // Benutzerinformationen gefüllt, sodass nachfolgende Logik darauf
+        // zugreifen kann.
         const session = await services.sessionStore.createSession({
           userId: user.id ?? user.username,
           username: user.username,
@@ -43,6 +50,8 @@ function createRequestContext({ req, res, config, services, logger, sessionMiddl
         return session;
       },
       clear: async () => {
+        // Löscht die aktuelle Session und fügt einen abgelaufenen Cookie hinzu,
+        // damit der Browser die lokale Session vergisst.
         if (req.session?.token) {
           await services.sessionStore.deleteSession(req.session.token);
         }
