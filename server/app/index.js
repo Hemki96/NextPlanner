@@ -2,6 +2,7 @@
 // mit Session-Informationen versehen und an die Router-Pipeline weitergegeben.
 // Die Kommentare erklären alle Zwischenschritte, damit auch Personen mit wenig
 // Erfahrung den Ablauf nachvollziehen können.
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -43,6 +44,12 @@ function attachSessionUser(ctx) {
     isAdmin: (ctx.req.session.roles ?? []).includes("admin") || ctx.req.session.isAdmin,
   };
   ctx.services.userService.remember?.(ctx.authUser);
+  if (ctx.baseLogger?.child) {
+    ctx.logger = ctx.baseLogger.child({
+      user: ctx.authUser.username ?? ctx.authUser.id,
+      roles: (ctx.authUser.roles ?? []).join(",") || undefined,
+    });
+  }
 }
 
 function attachHeaderUserFallback(ctx) {
@@ -53,6 +60,12 @@ function attachHeaderUserFallback(ctx) {
   if (headerUser) {
     ctx.authUser = headerUser;
     ctx.services.userService.remember?.(headerUser);
+    if (ctx.baseLogger?.child) {
+      ctx.logger = ctx.baseLogger.child({
+        user: ctx.authUser.username ?? ctx.authUser.id,
+        roles: (ctx.authUser.roles ?? []).join(",") || undefined,
+      });
+    }
   }
 }
 
@@ -82,10 +95,15 @@ function createApp({
     // und übergibt den Request an die Router-Logik. Jede Phase ist mit einem
     // try/catch umschlossen, um Fehlermeldungen kontrolliert zu versenden.
     res.locals = { jsonSpacing: config.server.jsonSpacing };
+    const requestId = req.headers?.["x-request-id"] ?? randomUUID();
+    const pathname = req.url ? new URL(req.url, "http://localhost").pathname : "/";
     const requestLogger = createRequestLogger({
       method: req.method,
-      path: req.url ? new URL(req.url, "http://localhost").pathname : "/",
+      path: pathname,
+      reqId: requestId,
+      remote: req.socket?.remoteAddress,
     });
+    res.setHeader("x-request-id", requestId);
     const startedAt = Date.now();
     const ctx = createRequestContext({
       req,
@@ -93,6 +111,7 @@ function createApp({
       config,
       services,
       logger: requestLogger,
+      requestId,
       sessionMiddleware,
     });
 

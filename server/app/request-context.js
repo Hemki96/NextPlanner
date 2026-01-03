@@ -3,7 +3,7 @@
 // Referenzen auf Konfiguration, Logger und Services.
 import { buildExpiredSessionCookie, buildSessionCookie } from "../sessions/http-session-middleware.js";
 
-function createRequestContext({ req, res, config, services, logger, sessionMiddleware }) {
+function createRequestContext({ req, res, config, services, logger, sessionMiddleware, requestId }) {
   const ctx = {
     req,
     res,
@@ -11,6 +11,8 @@ function createRequestContext({ req, res, config, services, logger, sessionMiddl
     config,
     services,
     logger,
+    baseLogger: logger,
+    requestId,
     cookies: [],
     withCookies: (extra = {}) => (ctx.cookies.length > 0 ? { ...extra, "Set-Cookie": ctx.cookies } : extra),
     state: {},
@@ -47,6 +49,12 @@ function createRequestContext({ req, res, config, services, logger, sessionMiddl
           isAdmin: (session.roles ?? []).includes("admin") || session.isAdmin,
         };
         services.userService.remember?.(ctx.authUser);
+        if (ctx.baseLogger?.child) {
+          ctx.logger = ctx.baseLogger.child({
+            user: ctx.authUser.username ?? ctx.authUser.id,
+            roles: (ctx.authUser.roles ?? []).join(",") || undefined,
+          });
+        }
         return session;
       },
       clear: async () => {
@@ -63,6 +71,7 @@ function createRequestContext({ req, res, config, services, logger, sessionMiddl
         );
         req.session = null;
         ctx.authUser = null;
+        ctx.logger = ctx.baseLogger ?? ctx.logger;
       },
     },
   };
