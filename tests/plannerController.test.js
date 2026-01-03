@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import { PlannerController } from "../public/js/controllers/planner-controller.js";
 
 describe("PlannerController", () => {
-  it("aktualisiert Zustand und rendert bei Eingaben", () => {
+  it("aktualisiert Zustand und rendert bei Eingaben", async () => {
     const renderCalls = [];
     let savedDraft = "";
     let highlightedText = "";
@@ -42,6 +42,7 @@ describe("PlannerController", () => {
     const textarea = { value: "" };
     controller.init({ textarea, initialText: "seed" });
     controller.handleInput("next");
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
     assert.equal(controller.state.text, "next");
     assert.equal(textarea.value, "next");

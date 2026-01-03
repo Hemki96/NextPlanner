@@ -97,6 +97,12 @@ function createAuthRouter({ authService }) {
       const username = ctx.body?.username;
       const password = ctx.body?.password;
       const ip = ctx.req.socket?.remoteAddress ?? "unknown";
+      ctx.logger?.info(
+        "Login-Versuch gestartet für Benutzer %s von %s (Body %s)",
+        username ?? "<leer>",
+        ip,
+        ctx.body ? "vorhanden" : "fehlt",
+      );
       try {
         const user = await authService.login(username, password, { ip });
         await ctx.session.issue(user);
