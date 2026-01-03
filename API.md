@@ -9,7 +9,6 @@ Alle Endpunkte werden über den integrierten HTTP-Server unter `http://localhost
 - **Caching & ETag**: Ressourcen liefern starke SHA-256-ETags. Mutierende Requests (`PUT`, `DELETE`) **müssen** `If-Match` enthalten, sofern die Ressource ETags bereitstellt (Pläne, Templates, Highlight-Konfiguration). Der Client speichert den letzten ETag je Ressource.
 - **CORS**: `Access-Control-Allow-Origin` wird auf den erlaubten Ursprung gesetzt (Standard: `http://localhost:3000`).
 - **Fehlercodes**: 400 (Validierung), 404 (nicht gefunden), 409 (semantischer Konflikt), 412 (ETag-Mismatch), 422 (Schemafehler), 500 (unerwartet).
-- **Brute-Force-Schutz**: Login-Fehlversuche werden pro IP/Benutzer mit einem kurzen Zeitfenster gedrosselt und können temporär `429 Too Many Requests` auslösen.
 
 ## Authentifizierung
 
@@ -18,7 +17,6 @@ Alle Endpunkte werden über den integrierten HTTP-Server unter `http://localhost
 Meldet einen Benutzer an. Erwartet `{ "username": "…", "password": "…" }` und setzt ein Session-Cookie (`nextplanner_session`, `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`). Der Response-Body enthält die User-Metadaten (`username`, `isAdmin`) und das Ablaufdatum der Session.
 
 - `401 Unauthorized` bei ungültigen Credentials.
-- `429 Too Many Requests` bei zu vielen Fehlversuchen innerhalb des Rate-Limit-Fensters.
 
 ### `POST /api/auth/logout`
 

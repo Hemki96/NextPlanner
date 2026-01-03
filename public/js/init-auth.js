@@ -2,7 +2,6 @@ import { initAdminNavigation } from "./utils/admin-nav.js";
 import { fetchAuthStatus, resetAuthStatusCache } from "./utils/auth-status.js";
 import { buildLoginRedirectUrl, isLoginPath, resolvePostLoginTarget } from "./utils/auth-redirect.js";
 import { setStatus } from "./utils/status.js";
-import { renderDevAuthControls } from "./utils/dev-auth.js";
 
 const AUTH_CHANGED_EVENT = "nextplanner:auth-changed";
 
@@ -31,13 +30,9 @@ async function renderAuthIndicator(status) {
   try {
     const resolvedStatus = status ?? (await fetchAuthStatus());
     if (resolvedStatus?.authenticated) {
-      const suffix = resolvedStatus.devAuth?.enabled ? " (DEV)" : "";
-      setStatus(indicator, `Angemeldet als ${resolvedStatus.username ?? "Nutzer"}${suffix}.`, "success");
+      setStatus(indicator, `Angemeldet als ${resolvedStatus.username ?? "Nutzer"}.`, "success");
     } else {
-      const message = resolvedStatus?.devAuth?.enabled
-        ? "DEV-Modus aktiv: Nutzer wählen, um anzumelden."
-        : "Nicht angemeldet.";
-      setStatus(indicator, message, "warning");
+      setStatus(indicator, "Nicht angemeldet.", "warning");
     }
   } catch (error) {
     const message = error?.message ?? "Anmeldestatus konnte nicht abgerufen werden.";
@@ -59,11 +54,6 @@ async function enforceAuthGuards() {
   const authenticated = Boolean(status?.authenticated);
   const pathname = window.location.pathname ?? "";
   const onLoginPage = isLoginPath(pathname);
-
-  if (!authenticated && status?.devAuth?.enabled) {
-    await renderDevAuthControls(status);
-    return false;
-  }
 
   if (!authenticated && !onLoginPage) {
     const redirectUrl = buildLoginRedirectUrl({ location: window.location, reason: "login-required" });
@@ -88,7 +78,6 @@ initAdminNavigation();
   if (!redirected) {
     const status = await fetchAuthStatus();
     await renderAuthIndicator(status);
-    await renderDevAuthControls(status);
   }
 })();
 
@@ -99,7 +88,6 @@ if (typeof window !== "undefined") {
     if (!redirected) {
       const status = await fetchAuthStatus();
       await renderAuthIndicator(status);
-      await renderDevAuthControls(status);
     }
   });
 }

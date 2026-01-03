@@ -9,13 +9,7 @@ Dieses Dokument fasst zusammen, welche Bereiche der Anwendung nach dem Login err
 
 ## Standardbenutzer
 
-Bei leerem bzw. neuem Benutzerspeicher legt der Server automatisch drei Konten an. Die Zugangsdaten lassen sich über Umgebungsvariablen anpassen.
-
-| Benutzername | Passwort (Standard) | Rolle    | Anpassbare Variablen                          |
-| ------------ | ------------------- | -------- | --------------------------------------------- |
-| `admin`      | `Admin1234!`        | `admin`  | `ADMIN_USER`, `ADMIN_PASSWORD` (bzw. `NEXTPLANNER_ADMIN_*`) |
-| `coach`      | `CoachPower#2024`   | `editor` | `NEXTPLANNER_EDITOR_USER`, `NEXTPLANNER_EDITOR_PASSWORD`     |
-| `athlete`    | `AthleteReady#2024` | `user`   | `NEXTPLANNER_USER`, `NEXTPLANNER_USER_PASSWORD`              |
+Der Login ist bewusst schlank gehalten: Es gibt genau einen konfigurierbaren Account. Setze dafür `NEXTPLANNER_LOGIN_USER` und `NEXTPLANNER_LOGIN_PASSWORD` (Pflicht in Produktion). Ohne Passwort startet der Server nicht im Produktionsmodus.
 
 ## Rechte je Rolle und Bereich
 

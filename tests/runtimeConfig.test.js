@@ -12,8 +12,8 @@ describe("runtime config validation", () => {
     assert.ok(config.paths.dataDir.endsWith("data"));
     assert.deepEqual(config.server.allowedOrigins, ["http://localhost:3000"]);
     assert.equal(config.security.session.ttlMs > 0, true);
-    assert.equal(config.env.environment, "poet");
-    assert.equal(config.security.devAuth.enabled, false);
+    assert.equal(config.env.isDevelopment, true);
+    assert.equal(config.security.defaultUsers.admin.username, "admin");
   });
 
   it("erzwingt sichere Passwörter in Produktion", () => {
@@ -21,7 +21,7 @@ describe("runtime config validation", () => {
       () =>
         buildRuntimeConfig({
           NODE_ENV: "production",
-          NEXTPLANNER_ADMIN_USER: "admin",
+          NEXTPLANNER_LOGIN_USER: "admin",
         }),
       /Missing required credentials/i,
     );
@@ -34,13 +34,16 @@ describe("runtime config validation", () => {
           NODE_ENV: "production",
           PORT: "abc",
           SESSION_TTL_MS: "-5",
-          NEXTPLANNER_ADMIN_PASSWORD: "",
-          NEXTPLANNER_EDITOR_PASSWORD: "",
-          NEXTPLANNER_USER_PASSWORD: "",
+          NEXTPLANNER_LOGIN_PASSWORD: "",
         }),
       (error) => {
         const message = error instanceof Error ? error.message : String(error);
-        return message.includes("Invalid runtime config") && message.includes("PORT") && message.includes("SESSION_TTL_MS");
+        return (
+          message.includes("Invalid runtime config") &&
+          message.includes("PORT") &&
+          message.includes("SESSION_TTL_MS") &&
+          message.includes("NEXTPLANNER_LOGIN_PASSWORD")
+        );
       },
     );
   });
@@ -68,27 +71,13 @@ describe("runtime config validation", () => {
     }
   });
 
-  it("aktiviert Dev-Auth mit fixem Passwort im dev-Environment", () => {
-    const config = buildRuntimeConfig({ NODE_ENV: "development", NEXTPLANNER_ENV: "dev" });
-    assert.equal(config.env.devEnvironment, true);
-    assert.equal(config.security.devAuth.enabled, true);
-    assert.equal(config.security.devAuth.defaultPassword, "DevPass123!");
-    const devUsers = config.security.devAuth.users.map((user) => user.username);
-    assert.deepEqual(devUsers.sort(), ["admin", "athlete", "coach"].sort());
-  });
-
-  it("wirft bei unbekannten Environment-Profilen", () => {
-    assert.throws(() => buildRuntimeConfig({ NEXTPLANNER_ENV: "staging" }), /NEXTPLANNER_ENV/);
-  });
-
-  it("deaktiviert Default-User und Dev-Auth über Flag", () => {
+  it("erlaubt eigene Zugangsdaten für den Admin", () => {
     const config = buildRuntimeConfig({
       NODE_ENV: "production",
-      NEXTPLANNER_ENV: "poet",
-      NEXTPLANNER_DISABLE_DEFAULT_USERS: "true",
+      NEXTPLANNER_LOGIN_USER: "root",
+      NEXTPLANNER_LOGIN_PASSWORD: "SicheresPasswort!",
     });
-    assert.deepEqual(config.security.defaultUsers, {});
-    assert.equal(config.security.devAuth.enabled, false);
-    assert.equal(config.security.devAuth.users.length, 0);
+    assert.equal(config.security.defaultUsers.admin.username, "root");
+    assert.equal(config.security.defaultUsers.admin.password, "SicheresPasswort!");
   });
 });
