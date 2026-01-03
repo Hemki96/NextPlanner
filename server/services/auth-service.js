@@ -38,6 +38,7 @@ class LoginRateLimiter {
   recordFailure(ip, username) {
     const { keys, now } = this.check(ip, username);
     let blockedUntil = null;
+    let highestCount = 0;
     for (const key of keys) {
       const entry = this.buckets.get(key);
       const withinWindow = entry ? now - entry.firstAttempt <= this.windowMs : false;
@@ -49,8 +50,13 @@ class LoginRateLimiter {
       if (blocked && (!blockedUntil || blocked > blockedUntil)) {
         blockedUntil = blocked;
       }
+      if (count > highestCount) {
+        highestCount = count;
+      }
     }
-    return blockedUntil;
+    const remainingAttempts = Math.max(0, this.maxAttempts - highestCount);
+    const retryAfterSeconds = blockedUntil ? Math.max(1, Math.ceil((blockedUntil - now) / 1000)) : null;
+    return { blockedUntil, remainingAttempts, attempts: highestCount, retryAfterSeconds };
   }
 
   recordSuccess(ip, username) {
@@ -68,6 +74,9 @@ class AuthService {
   }
 
   async login(username, password, { ip }) {
+    if (typeof this.userService?.waitForSeedUsers === "function") {
+      await this.userService.waitForSeedUsers();
+    }
     const trimmedUsername = typeof username === "string" ? username.trim() : "";
     const normalizedPassword = typeof password === "string" ? password : "";
 
@@ -80,14 +89,28 @@ class AuthService {
 
     const check = this.limiter.check(ip, trimmedUsername);
     if (!check.allowed) {
+      const retryAfterSeconds = Math.max(1, Math.ceil(((check.blockedUntil ?? check.now) - check.now) / 1000));
       throw new HttpError(429, "Zu viele fehlgeschlagene Anmeldeversuche. Bitte warten Sie kurz.", {
         code: "rate-limit",
+        hint: `Login vorübergehend gesperrt. Bitte ${retryAfterSeconds} Sekunden warten.`,
       });
     }
     const user = await this.userService.verifyCredentials(trimmedUsername, normalizedPassword);
     if (!user) {
-      this.limiter.recordFailure(ip, trimmedUsername);
-      throw new HttpError(401, "Ungültige Zugangsdaten.", { code: "invalid-credentials" });
+      const failure = this.limiter.recordFailure(ip, trimmedUsername);
+      const remaining = failure?.remainingAttempts ?? null;
+      const blockedHint =
+        failure?.blockedUntil && failure?.retryAfterSeconds
+          ? `Login gesperrt. Bitte ${failure.retryAfterSeconds} Sekunden warten.`
+          : null;
+      const remainingHint =
+        typeof remaining === "number" && remaining >= 0
+          ? `Noch ${remaining} Versuch(e), bevor der Login gesperrt wird.`
+          : null;
+      throw new HttpError(401, "Ungültige Zugangsdaten.", {
+        code: failure?.blockedUntil ? "rate-limit" : "invalid-credentials",
+        hint: blockedHint ?? remainingHint ?? undefined,
+      });
     }
     this.limiter.recordSuccess(ip, trimmedUsername);
     return user;

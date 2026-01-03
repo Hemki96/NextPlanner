@@ -3,6 +3,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
 import { JsonUserStore, UserValidationError, validatePasswordPolicy } from "../stores/json-user-store.js";
+import { logger } from "../logger.js";
 
 function hashPassword(password, username = "") {
   return createHash("sha256").update(`${username}:${String(password ?? "")}`).digest();
@@ -53,23 +54,41 @@ class UserService {
     this.store = store;
     this.registry = buildUserRegistry(defaults);
     this.knownUsers = new Map();
+    this.seedInitialized = false;
+    this.seedPromise = Promise.resolve();
   }
 
   async ensureSeedUsers(seeds = []) {
-    if (!this.store || typeof this.store.createUser !== "function") {
-      return;
+    if (this.seedInitialized) {
+      return this.seedPromise;
     }
-    for (const seed of seeds) {
-      if (!seed.username || !seed.password) continue;
-      const existing = await this.store.findByUsername(seed.username);
-      if (existing) continue;
-      await this.store.createUser({
-        username: seed.username,
-        password: seed.password,
-        roles: seed.roles ?? [],
-        active: true,
-      });
-    }
+    this.seedInitialized = true;
+    this.seedPromise = (async () => {
+      if (!this.store || typeof this.store.createUser !== "function") {
+        return;
+      }
+      logger.info("Prüfe Seed-User (%d Einträge)", seeds.length);
+      for (const seed of seeds) {
+        if (!seed.username || !seed.password) continue;
+        const existing = await this.store.findByUsername(seed.username);
+        if (existing) {
+          logger.debug("Seed-User existiert bereits: %s", seed.username);
+          continue;
+        }
+        await this.store.createUser({
+          username: seed.username,
+          password: seed.password,
+          roles: seed.roles ?? [],
+          active: true,
+        });
+        logger.info("Seed-User angelegt: %s", seed.username);
+      }
+    })();
+    return this.seedPromise;
+  }
+
+  async waitForSeedUsers() {
+    return this.seedPromise ?? Promise.resolve();
   }
 
   remember(user) {
