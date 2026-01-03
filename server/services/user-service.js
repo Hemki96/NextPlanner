@@ -1,3 +1,5 @@
+// Verwaltet Benutzerkonten, Passwort-Hashes und Validierung. Nutzt
+// timing-sichere Vergleiche für Anmeldungen.
 import { createHash, timingSafeEqual } from "node:crypto";
 
 import { JsonUserStore, UserValidationError, validatePasswordPolicy } from "../stores/json-user-store.js";

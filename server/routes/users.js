@@ -1,3 +1,5 @@
+// Benutzerverwaltung für Admins: listet vorhandene Nutzer. Schutz über die
+// Rollenprüfung, damit sensible Daten nicht an Unbefugte gelangen.
 import { sendApiEmpty, sendApiJson } from "../http/responses.js";
 import { HttpError } from "../http/http-error.js";
 

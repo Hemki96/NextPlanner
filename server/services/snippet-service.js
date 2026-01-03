@@ -1,3 +1,4 @@
+// Verwaltet Textbausteine: Validiert Eingaben und speichert sie im JSON-Store.
 import { sanitizeQuickSnippetGroups } from "../../public/js/utils/snippet-storage.js";
 
 import { JsonSnippetStore } from "../stores/json-snippet-store.js";

@@ -1,3 +1,5 @@
+// Handhabt Anmeldung und Rate-Limits. Kapselt Logik für Fehlermeldungen und
+// Sperrlisten, um Brute-Force-Versuche einzudämmen.
 import { HttpError } from "../http/http-error.js";
 
 class LoginRateLimiter {

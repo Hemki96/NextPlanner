@@ -1,3 +1,6 @@
+// Persistenter Store für Team-Snippets. Nutzt dieselben Sanitizer wie die
+// Client-Seite und stellt sicher, dass nur valide Strukturen gespeichert
+// werden.
 import { promises as fs } from "node:fs";
 import { dirname, join } from "node:path";
 import { isDeepStrictEqual } from "node:util";

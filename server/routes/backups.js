@@ -1,3 +1,6 @@
+// Schnittstellen für Backups: Exportiert alle Pläne und erlaubt das Importieren
+// eines vorher erzeugten Backups. Nur authentifizierte Nutzer:innen dürfen
+// diese Funktionen nutzen.
 import { sendApiEmpty, sendApiJson } from "../http/responses.js";
 import { HttpError } from "../http/http-error.js";
 

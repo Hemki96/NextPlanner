@@ -1,3 +1,4 @@
+// Speichert Benutzer in einer JSON-Datei und validiert Passwörter und Rollen.
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { dirname, join } from "node:path";

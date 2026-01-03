@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// CLI-Werkzeug, um Trainingssessions aus Dateien zu laden, zu normalisieren und
+// Kennzahlen zu berechnen. Dient als Hilfsmittel für Support- und
+// Analysezwecke.
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";

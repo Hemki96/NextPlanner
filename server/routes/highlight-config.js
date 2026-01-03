@@ -1,3 +1,6 @@
+// Endpunkte für die Konfiguration der Text-Hervorhebung. Nutzt ETags und prüft
+// Content-Types, um sicherzustellen, dass nur gültige JSON-Payloads geschrieben
+// werden.
 import { sendApiEmpty, sendApiJson } from "../http/responses.js";
 import { HttpError } from "../http/http-error.js";
 import { etagMatches } from "../http/utils.js";

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// Kommandozeilenwerkzeug, um Pläne zu importieren, exportieren oder zu prüfen,
+// ohne den Webserver zu benutzen. Hilfreich für Backups und Skripting.
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";

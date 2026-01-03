@@ -1,3 +1,6 @@
+// Middleware, die JSON-Bodies für API-Endpunkte einliest und am Kontext
+// ablegt. So müssen die einzelnen Routen sich nicht selbst um das Parsing
+// kümmern und können direkt auf `ctx.body` zugreifen.
 import { readJsonBody } from "../../http/body.js";
 
 const API_JSON_METHODS = new Set(["POST", "PUT", "PATCH"]);

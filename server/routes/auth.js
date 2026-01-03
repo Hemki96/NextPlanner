@@ -1,3 +1,5 @@
+// Authentifizierungsrouten: reguläres Login, Logout und optionale Dev-Login-
+// Unterstützung für lokale Umgebungen.
 import { sendApiEmpty, sendApiJson } from "../http/responses.js";
 import { HttpError } from "../http/http-error.js";
 

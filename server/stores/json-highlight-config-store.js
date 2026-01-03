@@ -1,3 +1,5 @@
+// Persistenter Store für Hervorhebungs-Konfigurationen. Nutzt Defaultwerte aus
+// dem Client und prüft auf inhaltliche Änderungen, bevor geschrieben wird.
 import { promises as fs } from "node:fs";
 import { dirname, join } from "node:path";
 import { isDeepStrictEqual } from "node:util";

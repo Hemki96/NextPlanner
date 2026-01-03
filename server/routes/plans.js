@@ -1,3 +1,6 @@
+// REST-Routen für Trainingspläne: erstellen, lesen, aktualisieren und löschen.
+// Validiert Nutzereingaben und nutzt ETags, um konkurrierende Änderungen
+// sauber abzuwickeln.
 import { sendApiEmpty, sendApiJson } from "../http/responses.js";
 import { HttpError } from "../http/http-error.js";
 import { etagMatches } from "../http/utils.js";

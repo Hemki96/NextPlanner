@@ -1,3 +1,5 @@
+// Service-spezifische Hilfen für Pläne, inklusive ETag-Berechnung und Export
+// von Fehlerklassen aus dem Plan-Store.
 import { createHash } from "node:crypto";
 
 import { PlanConflictError, PlanValidationError } from "../stores/json-plan-store.js";

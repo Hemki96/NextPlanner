@@ -1,3 +1,6 @@
+// Hilfsfunktionen zur ETag-Berechnung. Indem Plan- und Template-Daten in eine
+// kanonische Form gebracht werden, erzeugen wir stabile Hashes, die sich nur
+// ändern, wenn sich relevante Inhalte ändern.
 import { createHash } from "node:crypto";
 
 function sortCanonical(value) {
@@ -16,6 +19,8 @@ function sortCanonical(value) {
 }
 
 function canonicalizePlan(plan) {
+  // Reduziert einen Plan auf die Felder, die für den ETag relevant sind, und
+  // sortiert sie, damit die Reihenfolge der Eigenschaften keine Rolle spielt.
   const canonicalPlan = {
     id: plan.id,
     title: plan.title,
@@ -32,6 +37,8 @@ function canonicalizePlan(plan) {
 }
 
 function canonicalizeTemplate(template) {
+  // Entsprechende Normalisierung für Templates. Arrays werden kopiert, damit
+  // versehentliche Mutationen nicht zurückwirken.
   const canonicalTemplate = {
     id: template.id,
     type: template.type,
@@ -46,6 +53,8 @@ function canonicalizeTemplate(template) {
 }
 
 function buildEtagFromCanonical(canonicalValue) {
+  // Bildet aus dem kanonischen JSON einen SHA-256-Hash und verpackt ihn als
+  // gültigen ETag-String.
   const hash = createHash("sha256").update(canonicalValue).digest("hex");
   return `"${hash}"`;
 }
