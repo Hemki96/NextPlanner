@@ -1,3 +1,5 @@
+// Speichert und verwaltet Sitzungen in einer JSON-Datei. Enthält Normalisierung,
+// Bereinigung abgelaufener Sessions und eine API zum Erstellen/Löschen.
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 

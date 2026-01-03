@@ -1,3 +1,5 @@
+// JSON-Store für Pläne. Validiert Eingaben, legt Backups an und schützt vor
+// konkurrierenden Änderungen über ETags.
 import { constants, promises as fs } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { isDeepStrictEqual } from "node:util";

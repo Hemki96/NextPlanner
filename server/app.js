@@ -1,3 +1,6 @@
+// Zentrale Startlogik des Servers. Hier werden alle Services, Stores und der
+// HTTP-Server zusammengesetzt. Die Kommentare erläutern jeden Schritt für
+// Personen, die wenig Erfahrung mit Node.js haben.
 import { createServer as createHttpServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,10 +22,16 @@ import { JsonSnippetStore } from "./stores/json-snippet-store.js";
 import { JsonTemplateStore } from "./stores/json-template-store.js";
 import { JsonUserStore } from "./stores/json-user-store.js";
 
+// Pfadberechnung für statische Dateien. Wir leiten den Ordner relativ zu dieser
+// Datei ab, damit der Server auch aus anderen Arbeitsverzeichnissen gestartet
+// werden kann.
 const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PUBLIC_PATH = path.join(CURRENT_DIR, "..", "public");
 
 function createServices(config, options = {}) {
+  // Erstellt alle benötigten Daten-Stores und Services. Über optionale
+  // Parameter lassen sich Test-Doubles einschleusen, sodass die Funktion leicht
+  // in Tests nutzbar bleibt.
   const planStore = options.store ?? new JsonPlanStore();
   const templateStore = options.templateStore ?? new JsonTemplateStore();
   const snippetStore = options.snippetStore ?? new JsonSnippetStore();
@@ -40,6 +49,8 @@ function createServices(config, options = {}) {
     store: userStore,
     defaults: seedUsers,
   });
+  // Seed-User werden beim Start erzeugt, falls sie noch fehlen. Fehler werden
+  // nur geloggt, damit der Server trotzdem hochfahren kann.
   userService.ensureSeedUsers(seedUsers).catch((error) => {
     logger.warn("Initial seed failed: %s", error instanceof Error ? error.message : String(error));
   });
@@ -63,6 +74,9 @@ function createServices(config, options = {}) {
 }
 
 function createServer(options = {}) {
+  // Baut den HTTP-Server auf und verknüpft ihn mit der Express-ähnlichen App.
+  // Alle Optionen lassen sich überschreiben, sodass Tests oder andere
+  // Laufzeiten flexibel bleiben.
   const config = options.config ?? runtimeConfig;
   const publicDir = options.publicDir ?? DEFAULT_PUBLIC_PATH ?? DEFAULT_PUBLIC_DIR;
 
@@ -70,10 +84,13 @@ function createServer(options = {}) {
   const app = createApp({ config, services, publicDir });
 
   const server = createHttpServer((req, res) => {
+    // Alle Anfragen werden an unsere App-Instanz weitergereicht.
     app.handle(req, res);
   });
 
   server.on("close", async () => {
+    // Falls der Server regulär beendet wird, schließen wir alle Stores, damit
+    // offene Dateien sauber freigegeben werden.
     await stores.planStore?.close?.();
     await stores.templateStore?.close?.();
     await stores.snippetStore?.close?.();
@@ -84,6 +101,8 @@ function createServer(options = {}) {
   const gracefulSignals = options.gracefulShutdownSignals ?? ["SIGTERM", "SIGINT"];
   for (const signal of gracefulSignals) {
     process.once(signal, async () => {
+      // Graceful Shutdown: Bei Systemsignalen schließen wir den Server zuerst
+      // für neue Verbindungen und räumen anschließend Ressourcen auf.
       logger.info("Schließe Server aufgrund von %s", signal);
       server.close();
       await stores.planStore?.close?.();
@@ -99,6 +118,8 @@ function createServer(options = {}) {
 
 class HttpApplication {
   constructor({ config, services, publicDir }) {
+    // Hilfsklasse für Tests: Sie stellt die gleiche Oberfläche wie der echte
+    // Server bereit, nutzt aber keinen eigenen HTTP-Port.
     const app = createApp({ config, services, publicDir });
     this.handle = app.handle;
     this.publicDir = publicDir ?? DEFAULT_PUBLIC_PATH ?? DEFAULT_PUBLIC_DIR;

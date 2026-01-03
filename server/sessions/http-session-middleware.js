@@ -1,3 +1,5 @@
+// Session-Middleware für HTTP: parst Cookies, stellt Sessions bereit und
+// erzwingt einen optionalen Sicherheits-Check je Route.
 import { HttpError } from "../http/http-error.js";
 
 function parseCookies(header = "") {

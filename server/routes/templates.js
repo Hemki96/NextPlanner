@@ -1,3 +1,5 @@
+// API-Routen für Vorlagen (Templates). Zuständig für Auflisten, Anlegen,
+// Aktualisieren und Löschen inklusive ETag-Handling.
 import { sendApiEmpty, sendApiJson } from "../http/responses.js";
 import { HttpError } from "../http/http-error.js";
 import { etagMatches } from "../http/utils.js";

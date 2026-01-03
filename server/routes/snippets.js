@@ -1,3 +1,5 @@
+// Routen für Textbausteine (Snippets). Ermöglicht das Laden und Ersetzen der
+// gesamten Bibliothek, geschützt durch Authentifizierung.
 import { sendApiEmpty, sendApiJson } from "../http/responses.js";
 import { HttpError } from "../http/http-error.js";
 

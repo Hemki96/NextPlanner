@@ -1,3 +1,5 @@
+// ETag-Berechnung und Hilfsfunktionen für Template-Objekte. Exportiert auch
+// Validierungsfehler für Wiederverwendung in Routern.
 import { createHash } from "node:crypto";
 
 import { TemplateValidationError } from "../stores/json-template-store.js";

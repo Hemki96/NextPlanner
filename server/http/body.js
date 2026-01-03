@@ -1,3 +1,6 @@
+// Liest den Body einer Anfrage und erwartet JSON. Enthält Sicherheitsmechanismen
+// wie Größenbegrenzung und Content-Type-Prüfungen, damit der Server nicht mit
+// ungültigen oder zu großen Payloads überflutet wird.
 import { HttpError } from "./http-error.js";
 
 async function readJsonBody(req, { limit = 1_000_000 } = {}) {

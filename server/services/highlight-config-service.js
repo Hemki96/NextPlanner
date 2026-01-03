@@ -1,3 +1,5 @@
+// Berechnet ETags für Highlight-Konfigurationen und stellt Fehlerklassen aus
+// dem zugehörigen Store bereit.
 import { createHash } from "node:crypto";
 
 import { JsonHighlightConfigStore } from "../stores/json-highlight-config-store.js";

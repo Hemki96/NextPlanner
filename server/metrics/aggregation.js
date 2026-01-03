@@ -1,3 +1,5 @@
+// Enthält Berechnungen für Trainingsmetriken (z. B. Monotonie, Deload-Anteile).
+// Liest optional Konfigurationsschwellen aus Dateien.
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -445,4 +447,3 @@ export async function loadSessionsFromFile(filePath, defaults = {}) {
 }
 
 export { DEFAULT_THRESHOLDS };
-

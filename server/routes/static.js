@@ -1,3 +1,6 @@
+// Liefert statische Dateien aus dem Public-Verzeichnis aus. Setzt sinnvolle
+// Security- und Cache-Header und nutzt ETags, um unnötige Datenübertragung zu
+// vermeiden.
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";

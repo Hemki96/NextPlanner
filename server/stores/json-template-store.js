@@ -1,3 +1,5 @@
+// JSON-Store für Vorlagen. Enthält Validierung und ID-Erzeugung und speichert
+// die Daten als Datei im Datenverzeichnis.
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { dirname, join } from "node:path";

@@ -1,3 +1,6 @@
+// Bietet Liveness- und Readiness-Endpunkte sowie einen allgemeinen Gesundheits-
+// Check. Diese Routen werden typischerweise von Load-Balancern oder
+// Orchestrierungssystemen abgefragt.
 import { buildApiHeaders, sendEmpty, sendJson } from "../http/responses.js";
 
 const HEALTH_ENDPOINTS = Object.freeze({
@@ -24,6 +27,7 @@ function createHealthRouter({ services }) {
     }
 
     if (pathname === HEALTH_ENDPOINTS.liveness) {
+      // Liveness prüft nur, ob der Prozess läuft.
       sendJson(
         ctx.res,
         200,
@@ -34,6 +38,8 @@ function createHealthRouter({ services }) {
     }
 
     const checks = [];
+    // Readiness/Health: Wir iterieren über die Daten-Stores und fragen deren
+    // Gesundheit ab, falls sie einen eigenen Check anbieten.
     for (const [name, store] of [
       ["planStore", services.planStore],
       ["templateStore", services.templateStore],
