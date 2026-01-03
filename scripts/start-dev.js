@@ -10,10 +10,8 @@ const SERVER_ENTRY = path.join(CURRENT_DIR, "..", "server", "server.js");
 const env = {
   ...process.env,
   NODE_ENV: process.env.NODE_ENV ?? "development",
-  NEXTPLANNER_ENV: process.env.NEXTPLANNER_ENV ?? "dev",
-  NEXTPLANNER_ADMIN_PASSWORD: process.env.NEXTPLANNER_ADMIN_PASSWORD ?? "DevPass123!",
-  NEXTPLANNER_EDITOR_PASSWORD: process.env.NEXTPLANNER_EDITOR_PASSWORD ?? "DevPass123!",
-  NEXTPLANNER_USER_PASSWORD: process.env.NEXTPLANNER_USER_PASSWORD ?? "DevPass123!",
+  NEXTPLANNER_LOGIN_USER: process.env.NEXTPLANNER_LOGIN_USER ?? "admin",
+  NEXTPLANNER_LOGIN_PASSWORD: process.env.NEXTPLANNER_LOGIN_PASSWORD ?? "DevPass123!",
 };
 
 const child = spawn(process.execPath, [SERVER_ENTRY], {

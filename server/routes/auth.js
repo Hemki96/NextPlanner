@@ -1,30 +1,7 @@
-// Authentifizierungsrouten: reguläres Login, Logout und optionale Dev-Login-
-// Unterstützung für lokale Umgebungen.
+// Authentifizierungsrouten: bieten ein bewusst schlankes Login/Logout sowie
+// einen Status-Endpunkt ohne Dev-Spezialfälle.
 import { sendApiEmpty, sendApiJson } from "../http/responses.js";
 import { HttpError } from "../http/http-error.js";
-
-function buildDevAuthPayload(config) {
-  const devAuth = config?.security?.devAuth;
-  if (!devAuth?.enabled) {
-    return null;
-  }
-  const users = Array.isArray(devAuth.users)
-    ? devAuth.users
-        .map((entry) => ({
-          username: entry?.username,
-          roles: Array.isArray(entry?.roles) ? entry.roles : [],
-          isAdmin: Boolean(entry?.isAdmin || (entry?.roles ?? []).includes("admin")),
-        }))
-        .filter((user) => typeof user.username === "string" && user.username.trim())
-    : [];
-
-  return {
-    enabled: true,
-    environment: devAuth.environment ?? "dev",
-    defaultPassword: devAuth.defaultPassword ?? null,
-    users,
-  };
-}
 
 function createAuthRouter({ authService }) {
   return async function authRouter(ctx) {
@@ -32,58 +9,6 @@ function createAuthRouter({ authService }) {
     const method = (ctx.req.method ?? "GET").toUpperCase();
     const origin = ctx.origin;
     const allowedOrigins = ctx.config.server.allowedOrigins;
-    const devAuthPayload = buildDevAuthPayload(ctx.config);
-
-    if (pathname === "/api/auth/dev-login") {
-      if (!devAuthPayload?.enabled) {
-        sendApiEmpty(ctx.res, 404, { origin, allowedOrigins });
-        return true;
-      }
-      if (method === "OPTIONS") {
-        sendApiEmpty(ctx.res, 204, { origin, allowedOrigins, headers: ctx.withCookies() });
-        return true;
-      }
-      if (method !== "POST") {
-        sendApiEmpty(ctx.res, 405, { origin, allowedOrigins, headers: { Allow: "POST,OPTIONS" } });
-        return true;
-      }
-      const username = typeof ctx.body?.username === "string" ? ctx.body.username.trim() : "";
-      const password = typeof ctx.body?.password === "string" ? ctx.body.password : "";
-      if (!username) {
-        throw new HttpError(400, "Benutzername wird benötigt.");
-      }
-      const selected = devAuthPayload.users.find((user) => user.username === username);
-      if (!selected) {
-        throw new HttpError(404, "Unbekannter Dev-Benutzer.", { code: "unknown-user" });
-      }
-      if (devAuthPayload.defaultPassword) {
-        if (!password) {
-          throw new HttpError(400, "Passwort wird benötigt.", { code: "missing-dev-password" });
-        }
-        if (password !== devAuthPayload.defaultPassword) {
-          throw new HttpError(401, "Ungültiges Passwort für den Dev-Modus.", { code: "invalid-dev-password" });
-        }
-      }
-      const issued = await ctx.session.issue({
-        id: selected.username,
-        username: selected.username,
-        roles: selected.roles ?? [],
-        isAdmin: selected.isAdmin ?? false,
-      });
-      ctx.logger?.info("Dev-Login erteilt für Benutzer %s", selected.username);
-      sendApiJson(
-        ctx.res,
-        200,
-        {
-          id: issued.userId ?? issued.username,
-          username: issued.username,
-          roles: issued.roles ?? [],
-          devAuth: devAuthPayload,
-        },
-        { origin, allowedOrigins, headers: ctx.withCookies() },
-      );
-      return true;
-    }
 
     if (pathname === "/api/auth/login") {
       if (method === "OPTIONS") {
@@ -104,7 +29,7 @@ function createAuthRouter({ authService }) {
         ctx.body ? "vorhanden" : "fehlt",
       );
       try {
-        const user = await authService.login(username, password, { ip });
+        const user = await authService.login(username, password);
         await ctx.session.issue(user);
         ctx.logger?.info("Login erfolgreich für Benutzer %s von %s", user.username, ip);
         sendApiJson(
@@ -116,7 +41,7 @@ function createAuthRouter({ authService }) {
       } catch (error) {
         const reason =
           error instanceof HttpError
-            ? `${error.status ?? "n/a"} ${error.code ?? "http-error"}${error.hint ? ` (${error.hint})` : ""}`
+            ? `${error.status ?? "n/a"} ${error.code ?? "http-error"}`
             : error?.message ?? "unbekannter Fehler";
         ctx.logger?.warn("Login fehlgeschlagen für Benutzer %s von %s: %s", username ?? "<leer>", ip, reason);
         throw error;
@@ -151,15 +76,6 @@ function createAuthRouter({ authService }) {
         return true;
       }
       if (!ctx.authUser) {
-        if (devAuthPayload?.enabled) {
-          sendApiJson(
-            ctx.res,
-            200,
-            { authenticated: false, devAuth: devAuthPayload },
-            { origin, allowedOrigins, headers: ctx.withCookies(), method },
-          );
-          return true;
-        }
         sendApiEmpty(ctx.res, 401, { origin, allowedOrigins, headers: ctx.withCookies() });
         return true;
       }
@@ -179,7 +95,6 @@ function createAuthRouter({ authService }) {
           roles,
           isAdmin,
           authenticated: true,
-          devAuth: devAuthPayload ?? undefined,
         },
         { origin, allowedOrigins, headers: ctx.withCookies(), method },
       );
