@@ -61,7 +61,7 @@ function createServices(config, options = {}) {
       templateService: new TemplateService({ store: templateStore }),
       snippetService: new SnippetService({ store: snippetStore }),
       highlightConfigService: new HighlightConfigService({ store: highlightConfigStore }),
-      authService: new AuthService({ userService, rateLimit: config.security.loginRateLimit }),
+      authService: new AuthService({ userService }),
       sessionStore,
       planStore,
       templateStore,

@@ -12,7 +12,12 @@ function parseCookies(header = "") {
       if (!name) {
         return acc;
       }
-      acc[name] = rest.join("=");
+      const value = rest.join("=");
+      try {
+        acc[name] = decodeURIComponent(value);
+      } catch {
+        acc[name] = value;
+      }
       return acc;
     }, {});
 }

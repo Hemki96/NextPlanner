@@ -14,6 +14,8 @@ Diese Checkliste fasst alle Schritte zusammen, die für einen stabilen Betrieb
   verdrahten.
 - `NEXTPLANNER_DATA_DIR=/data` (oder eigener Pfad), sofern ein Volume gemountet
   wird. Alternativ kann `DATA_DIR` verwendet werden.
+- `NEXTPLANNER_LOGIN_USER` und **zwingend** `NEXTPLANNER_LOGIN_PASSWORD` für den
+  einzigen Admin-Account setzen.
 - Optional: `LOG_LEVEL` (`error`, `warn`, `info`, `debug`) und `ALLOWED_ORIGINS`
   für Cross-Origin-Anfragen.
 
