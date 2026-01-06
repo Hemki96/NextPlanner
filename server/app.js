@@ -44,15 +44,10 @@ function createServices(config, options = {}) {
     });
   const userStore = options.userStore ?? new JsonUserStore();
 
-  const seedUsers = options.users ?? Object.values(config.security.defaultUsers ?? {});
+  const seedUsers = [];
   const userService = new UserService({
     store: userStore,
     defaults: seedUsers,
-  });
-  // Seed-User werden beim Start erzeugt, falls sie noch fehlen. Fehler werden
-  // nur geloggt, damit der Server trotzdem hochfahren kann.
-  userService.ensureSeedUsers(seedUsers).catch((error) => {
-    logger.warn("Initial seed failed: %s", error instanceof Error ? error.message : String(error));
   });
 
   return {
@@ -61,7 +56,7 @@ function createServices(config, options = {}) {
       templateService: new TemplateService({ store: templateStore }),
       snippetService: new SnippetService({ store: snippetStore }),
       highlightConfigService: new HighlightConfigService({ store: highlightConfigStore }),
-      authService: new AuthService({ userService }),
+      authService: new AuthService(),
       sessionStore,
       planStore,
       templateStore,

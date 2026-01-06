@@ -2,17 +2,18 @@
 // zusätzliche Rate-Limits oder Dev-Sonderfälle.
 import { HttpError } from "../http/http-error.js";
 
+const STATIC_USERS = Object.freeze({
+  admin: { username: "admin", password: "admin", roles: ["admin"] },
+  coach: { username: "coach", password: "coach", roles: ["coach"] },
+  athlet: { username: "athlet", password: "athlet", roles: ["athlet"] },
+});
+
 class AuthService {
-  constructor({ userService }) {
-    this.userService = userService;
-  }
+  constructor() {}
 
   async login(username, password) {
-    if (typeof this.userService?.waitForSeedUsers === "function") {
-      await this.userService.waitForSeedUsers();
-    }
     const trimmedUsername = typeof username === "string" ? username.trim() : "";
-    const normalizedPassword = typeof password === "string" ? password : "";
+    const normalizedPassword = typeof password === "string" ? password.trim() : "";
 
     if (!trimmedUsername || !normalizedPassword) {
       throw new HttpError(400, "Benutzername und Passwort werden benötigt.", {
@@ -20,13 +21,18 @@ class AuthService {
       });
     }
 
-    const user = await this.userService.verifyCredentials(trimmedUsername, normalizedPassword);
-    if (!user) {
+    const user = STATIC_USERS[trimmedUsername];
+    if (!user || normalizedPassword !== user.password) {
       throw new HttpError(401, "Ungültige Zugangsdaten.", { code: "invalid-credentials" });
     }
 
-    return user;
+    return {
+      id: user.username,
+      username: user.username,
+      roles: user.roles,
+      isAdmin: user.roles.includes("admin"),
+    };
   }
 }
 
-export { AuthService };
+export { AuthService, STATIC_USERS };

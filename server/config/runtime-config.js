@@ -99,23 +99,11 @@ function ensureWritableDataDir(requestedDir, fallbackDir, warnings, errors) {
   }
 }
 
-function validateDefaultCredentials(env, isProduction, errors) {
-  const username = env.NEXTPLANNER_LOGIN_USER ?? env.ADMIN_USER ?? "admin";
-  const password =
-    env.NEXTPLANNER_LOGIN_PASSWORD ??
-    env.ADMIN_PASSWORD ??
-    (isProduction ? "" : "Admin1234!");
-
-  if (isProduction && !password) {
-    errors.push("Missing required credentials in production. Please set NEXTPLANNER_LOGIN_PASSWORD.");
-  }
-
-  return password
-    ? {
-        admin: { username, password, roles: ["admin"] },
-      }
-    : {};
-}
+const STATIC_USERS = Object.freeze({
+  admin: { username: "admin", password: "admin", roles: ["admin"] },
+  coach: { username: "coach", password: "coach", roles: ["coach"] },
+  athlet: { username: "athlet", password: "athlet", roles: ["athlet"] },
+});
 
 function buildRuntimeConfig(env = process.env) {
   const nodeEnv = env.NODE_ENV ?? "development";
@@ -138,7 +126,7 @@ function buildRuntimeConfig(env = process.env) {
     safeParse("SESSION_TTL_MS", () => parseIntEnv("SESSION_TTL_MS", env.SESSION_TTL_MS, { min: 1000 })) ??
     DEFAULTS.sessionTtlMs;
   const cookieSecureOverride = parseBooleanEnv(env.COOKIE_SECURE);
-  const defaults = validateDefaultCredentials(env, isProduction, errors);
+  const defaults = STATIC_USERS;
   const resolvedDataDir = resolveDataDir(env.NEXTPLANNER_DATA_DIR ?? env.DATA_DIR);
   const dataDir = ensureWritableDataDir(resolvedDataDir, DEFAULT_DATA_DIR, warnings, errors);
 
