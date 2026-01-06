@@ -23,7 +23,8 @@ class AuthService {
 
     const normalizedUsername = trimmedUsername.toLowerCase();
     const user = STATIC_USERS[normalizedUsername];
-    if (!user || normalizedPassword !== user.password) {
+    const normalizedInputPassword = normalizedPassword.toLowerCase();
+    if (!user || normalizedInputPassword !== user.password.toLowerCase()) {
       throw new HttpError(401, "Ungültige Zugangsdaten.", { code: "invalid-credentials" });
     }
 
