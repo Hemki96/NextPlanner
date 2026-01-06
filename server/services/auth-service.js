@@ -21,7 +21,8 @@ class AuthService {
       });
     }
 
-    const user = STATIC_USERS[trimmedUsername];
+    const normalizedUsername = trimmedUsername.toLowerCase();
+    const user = STATIC_USERS[normalizedUsername];
     if (!user || normalizedPassword !== user.password) {
       throw new HttpError(401, "Ungültige Zugangsdaten.", { code: "invalid-credentials" });
     }
