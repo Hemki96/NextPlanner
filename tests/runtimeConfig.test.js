@@ -11,17 +11,10 @@ describe("runtime config validation", () => {
     assert.equal(config.server.port, 3000);
     assert.ok(config.paths.dataDir.endsWith("data"));
     assert.deepEqual(config.server.allowedOrigins, ["http://localhost:3000"]);
-    assert.equal(config.security.session.ttlMs > 0, true);
     assert.equal(config.env.isDevelopment, true);
-    assert.equal(config.security.defaultUsers.admin.username, "admin");
-    assert.equal(config.security.defaultUsers.admin.password, "admin");
-    assert.equal(config.security.defaultUsers.coach.username, "coach");
-    assert.equal(config.security.defaultUsers.coach.password, "coach");
-    assert.equal(config.security.defaultUsers.athlet.username, "athlet");
-    assert.equal(config.security.defaultUsers.athlet.password, "athlet");
   });
 
-  it("ignoriert überschreibende Credential-Umgebungsvariablen und nutzt die statischen Konten", () => {
+  it("ignoriert überschreibende Credential-Umgebungsvariablen", () => {
     const config = buildRuntimeConfig({
       NODE_ENV: "production",
       NEXTPLANNER_LOGIN_USER: "root",
@@ -29,10 +22,8 @@ describe("runtime config validation", () => {
       ADMIN_USER: "something",
       ADMIN_PASSWORD: "else",
     });
-    assert.equal(config.security.defaultUsers.admin.username, "admin");
-    assert.equal(config.security.defaultUsers.admin.password, "admin");
-    assert.equal(config.security.defaultUsers.coach.username, "coach");
-    assert.equal(config.security.defaultUsers.athlet.username, "athlet");
+    assert.equal(config.env.isProduction, true);
+    assert.equal(config.server.port > 0, true);
   });
 
   it("aggregiert Validierungsfehler", () => {
@@ -41,15 +32,10 @@ describe("runtime config validation", () => {
         buildRuntimeConfig({
           NODE_ENV: "production",
           PORT: "abc",
-          SESSION_TTL_MS: "-5",
         }),
       (error) => {
         const message = error instanceof Error ? error.message : String(error);
-        return (
-          message.includes("Invalid runtime config") &&
-          message.includes("PORT") &&
-          message.includes("SESSION_TTL_MS")
-        );
+        return message.includes("Invalid runtime config") && message.includes("PORT");
       },
     );
   });

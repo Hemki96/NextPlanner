@@ -6,12 +6,6 @@ import { HttpError } from "../http/http-error.js";
 import { etagMatches } from "../http/utils.js";
 import { buildHighlightConfigEtag } from "../services/highlight-config-service.js";
 
-function requireAuth(ctx) {
-  if (!ctx.authUser) {
-    throw new HttpError(401, "Authentifizierung erforderlich.");
-  }
-}
-
 function requireJson(ctx) {
   const contentType = ctx.req.headers?.["content-type"] ?? "";
   if (!/^application\/json/i.test(contentType)) {
@@ -34,8 +28,6 @@ function createHighlightConfigRouter({ highlightConfigService }) {
       sendApiEmpty(ctx.res, 204, { origin, allowedOrigins, headers: ctx.withCookies() });
       return true;
     }
-
-    requireAuth(ctx);
 
     if (method === "GET" || method === "HEAD") {
       const { config, etag } = await highlightConfigService.getConfigWithEtag();

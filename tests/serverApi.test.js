@@ -11,7 +11,6 @@ import { JsonSnippetStore } from "../server/stores/json-snippet-store.js";
 import { JsonTemplateStore } from "../server/stores/json-template-store.js";
 import { JsonHighlightConfigStore } from "../server/stores/json-highlight-config-store.js";
 import { createServer } from "../server/app.js";
-import { SessionStore } from "../server/sessions/session-store.js";
 import { sanitizeQuickSnippetGroups } from "../public/js/utils/snippet-storage.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -38,34 +37,9 @@ describe("Plan API", () => {
   let baseUrl;
   let templateStore;
   let highlightStore;
-  let sessionStore;
-  let authCookie;
-  const adminCredentials = { username: "admin", password: "admin", isAdmin: true };
-
-  function authHeaders(headers = {}) {
-    if (!authCookie) {
-      return headers;
-    }
-    return { ...headers, Cookie: authCookie };
-  }
-
-  async function login() {
-    const response = await fetch(`${baseUrl}/api/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        username: adminCredentials.username,
-        password: adminCredentials.password,
-      }),
-    });
-    const cookie = response.headers.get("set-cookie");
-    authCookie = cookie ?? "";
-    return response;
-  }
 
   function authFetch(url, options = {}) {
-    const headers = authHeaders(options.headers ?? {});
-    return fetch(url, { ...options, headers });
+    return fetch(url, options);
   }
 
   before(async () => {
@@ -75,15 +49,12 @@ describe("Plan API", () => {
     snippetStore = temp.snippetStore;
     templateStore = temp.templateStore;
     highlightStore = temp.highlightStore;
-    sessionStore = new SessionStore({ storageFile: path.join(tempDir, "sessions.json") });
     server = createServer({
       store,
       templateStore,
       snippetStore,
       highlightConfigStore: highlightStore,
       publicDir: path.join(repoRoot, "public"),
-      users: [adminCredentials],
-      sessionStore,
     });
     server.listen(0);
     await once(server, "listening");
@@ -91,8 +62,6 @@ describe("Plan API", () => {
     const port = typeof address === "object" && address ? address.port : 0;
     baseUrl = `http://127.0.0.1:${port}`;
 
-    const loginResponse = await login();
-    assert.equal(loginResponse.status, 200);
   });
 
   after(async () => {
@@ -101,13 +70,7 @@ describe("Plan API", () => {
     await snippetStore?.close();
     await templateStore?.close();
     await highlightStore?.close();
-    await sessionStore?.close();
     rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  it("verweigert API-Aufrufe ohne Sitzung", async () => {
-    const response = await fetch(`${baseUrl}/api/plans`);
-    assert.equal(response.status, 401);
   });
 
   it("liefert 404 und JSON für unbekannte API-Pfade", async () => {
@@ -117,18 +80,6 @@ describe("Plan API", () => {
     assert.ok(contentType.includes("application/json"));
     const payload = await response.json();
     assert.equal(payload?.error?.code, "http-404");
-  });
-
-  it("ermöglicht Logout und erneutes Login", async () => {
-    const logoutResponse = await authFetch(`${baseUrl}/api/auth/logout`, { method: "POST" });
-    assert.equal(logoutResponse.status, 204);
-    authCookie = "";
-
-    const afterLogout = await fetch(`${baseUrl}/api/plans`);
-    assert.equal(afterLogout.status, 401);
-
-    const loginResponse = await login();
-    assert.equal(loginResponse.status, 200);
   });
 
   it("legt neue Pläne an und listet sie", async () => {
@@ -167,7 +118,7 @@ describe("Plan API", () => {
     assert.equal(stored.metadata.coach, "Kim");
   });
 
-  it("setzt Audit-Felder bei authentifizierten Requests und liefert Benutzerinfos", async () => {
+  it("setzt Audit-Felder bei Requests und liefert Benutzerinfos", async () => {
     const payload = {
       title: "Audit-Plan",
       content: "Aufwärmen",
@@ -212,17 +163,6 @@ describe("Plan API", () => {
     assert.equal(updated.createdByUserId, "coach-1");
     assert.equal(updated.updatedByUserId, "coach-2");
     assert.notEqual(updated.updatedAt, created.updatedAt);
-
-    const authMe = await fetch(`${baseUrl}/api/auth/me`, {
-      headers: {
-        "X-User-Id": "coach-2",
-        "X-User-Name": "Coach Sam",
-      },
-    });
-    assert.equal(authMe.status, 200);
-    const profile = await authMe.json();
-    assert.equal(profile.id, "coach-2");
-    assert.equal(profile.name, "Coach Sam");
 
     const usersResponse = await fetch(`${baseUrl}/api/users`, {
       headers: {
@@ -590,21 +530,6 @@ describe("Plan API", () => {
     assert.deepEqual(reloaded.equipment, ["Brett", "Paddles"]);
   });
 
-  it("leitet HTML-Seiten ohne Sitzung auf die Login-Seite um", async () => {
-    authCookie = "";
-    const response = await fetch(`${baseUrl}/planner.html`, { redirect: "manual" });
-    assert.equal(response.status, 302);
-    const location = response.headers.get("location");
-    assert.ok(location?.startsWith("/login.html"));
-    const url = new URL(location, baseUrl);
-    assert.equal(url.pathname, "/login.html");
-    assert.equal(url.searchParams.get("reason"), "login-required");
-    assert.equal(url.searchParams.get("next"), "/planner.html");
-
-    const relogin = await login();
-    assert.equal(relogin.status, 200);
-  });
-
   it("liefert statische Dateien gestreamt mit Cache-Headern", async () => {
     const response = await authFetch(`${baseUrl}/index.html`);
     assert.equal(response.status, 200);
@@ -655,13 +580,11 @@ describe("Plan API", () => {
   it("schließt den Store beim Server-Shutdown", async () => {
     const temp = createTempStore();
     const localStore = temp.store;
-    const localSessionStore = new SessionStore({ storageFile: path.join(temp.dir, "sessions.json") });
     const closeMock = mock.method(localStore, "close", async () => {});
     const localServer = createServer({
       store: localStore,
       publicDir: path.join(repoRoot, "public"),
       gracefulShutdownSignals: [],
-      sessionStore: localSessionStore,
     });
     localServer.listen(0);
     await once(localServer, "listening");
@@ -672,7 +595,6 @@ describe("Plan API", () => {
 
     closeMock.mock.restore();
     await localStore.close();
-    await localSessionStore.close();
     rmSync(temp.dir, { recursive: true, force: true });
   });
 

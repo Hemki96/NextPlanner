@@ -73,8 +73,8 @@ Du hast zwei gleichwertige Möglichkeiten, die Anwendung während der Entwicklun
 2. Konfiguriere optional eine Task unter **Terminal → Konfigurierte Tasks**, um `npm test` regelmäßig per Tastenkürzel (`Strg/Cmd + Shift + B`) zu starten.
 3. Aktiviere ESLint/Prettier, damit du beim Speichern Format- und Stilhinweise erhältst. Über **Einstellungen → Format on Save** kannst du automatische Formatierungen aktivieren.
 4. End-to-End-Checks mit Playwright/Axe:
-   - `npm run test:e2e` startet einen flüchtigen Test-Server und prüft Login-, Planner- und Kalender-Flows im Browser.
-   - `npm run test:a11y` führt die Axe-Analyse gegen Login, Kalender und Planner aus (schwerwiegende/„critical“-/„serious“-Fälle).
+   - `npm run test:e2e` startet einen flüchtigen Test-Server und prüft Planner- und Kalender-Flows im Browser.
+   - `npm run test:a11y` führt die Axe-Analyse gegen Kalender und Planner aus (schwerwiegende/„critical“-/„serious“-Fälle).
    - Playwright-Browser müssen ggf. mit `npx playwright install --with-deps` (oder `npm run test:setup:playwright`) installiert werden.
    - Die GitHub-Action `.github/workflows/e2e-and-a11y.yml` führt Unit-, E2E- und A11y-Checks automatisch aus.
 
@@ -97,7 +97,6 @@ Du hast zwei gleichwertige Möglichkeiten, die Anwendung während der Entwicklun
 
 - **Persistente Datenablage:** Setze `NEXTPLANNER_DATA_DIR` (oder `DATA_DIR`) auf das gemountete Volume deines Hosts. Relativ angegebene Pfade werden automatisch relativ zum Projektwurzelverzeichnis aufgelöst.
 - **Port & Umgebung:** Lasse `PORT` von der Plattform setzen und behalte `NODE_ENV=production` bei (wird automatisch erzwungen, falls die Variable fehlt). Über `LOG_LEVEL` kannst du die Protokolltiefe steuern (`error`, `warn`, `info`, `debug`).
-- **Login-Zugangsdaten:** Setze `NEXTPLANNER_LOGIN_USER` und `NEXTPLANNER_LOGIN_PASSWORD`. Für lokale Tests reicht `npm run dev:env` oder `scripts/run-dev-login.sh`, das `admin/DevPass123!` setzt. In Produktion ist ein starkes Passwort verpflichtend (siehe `scripts/run-prod-login.sh`).
 - **Beispieldaten:** `scripts/run-dev-login.sh` und `scripts/run-prod-login.sh` legen Beispiel-Pläne, Vorlagen und Snippets im Datenordner an, bevor der Server startet.
 - **Health-Checks:** Der Server stellt unter `/healthz`, `/readyz` und `/livez` standardisierte Endpunkte bereit, die JSON-Antworten für Monitoring-Integrationen zurückliefern. Fehlerhafte Stores melden detaillierte Hinweise (inkl. Backup-Datei bei Integritätsproblemen).
 - **CORS & Sicherheit:** Für Cross-Origin-Zugriffe hinterlege optionale Ursprungslisten in `ALLOWED_ORIGINS` (Komma-getrennt). API-Antworten setzen restriktive Sicherheits-Header (CSP, `X-Content-Type-Options`) und deaktivieren Browser-Caching.

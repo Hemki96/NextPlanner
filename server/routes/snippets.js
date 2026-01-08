@@ -1,13 +1,7 @@
 // Routen für Textbausteine (Snippets). Ermöglicht das Laden und Ersetzen der
-// gesamten Bibliothek, geschützt durch Authentifizierung.
+// gesamten Bibliothek.
 import { sendApiEmpty, sendApiJson } from "../http/responses.js";
 import { HttpError } from "../http/http-error.js";
-
-function requireAuth(ctx) {
-  if (!ctx.authUser) {
-    throw new HttpError(401, "Authentifizierung erforderlich.");
-  }
-}
 
 function createSnippetsRouter({ snippetService }) {
   return async function snippetsRouter(ctx) {
@@ -22,8 +16,6 @@ function createSnippetsRouter({ snippetService }) {
       sendApiEmpty(ctx.res, 204, { origin, allowedOrigins, headers: ctx.withCookies() });
       return true;
     }
-
-    requireAuth(ctx);
 
     if (method === "GET" || method === "HEAD") {
       const library = await snippetService.getLibrary();

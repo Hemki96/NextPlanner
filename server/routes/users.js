@@ -1,5 +1,4 @@
-// Benutzerverwaltung für Admins: listet vorhandene Nutzer. Schutz über die
-// Rollenprüfung, damit sensible Daten nicht an Unbefugte gelangen.
+// Benutzerverwaltung: listet vorhandene Nutzer.
 import { sendApiEmpty, sendApiJson } from "../http/responses.js";
 import { HttpError } from "../http/http-error.js";
 
@@ -15,11 +14,6 @@ function createUsersRouter({ userService }) {
     if (method === "OPTIONS") {
       sendApiEmpty(ctx.res, 204, { origin, allowedOrigins, headers: ctx.withCookies() });
       return true;
-    }
-
-    const isAdmin = ctx.authUser && ((ctx.authUser.role ?? "").toLowerCase() === "admin" || (ctx.authUser.roles ?? []).includes("admin"));
-    if (!isAdmin) {
-      throw new HttpError(403, "Nur Admins dürfen Benutzer abrufen.");
     }
 
     if (method === "GET" || method === "HEAD") {

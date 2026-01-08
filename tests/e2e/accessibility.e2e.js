@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 
-import { test, expect, login, credentials } from "./playwright-fixture.js";
+import { test, expect } from "./playwright-fixture.js";
 
 async function expectNoSeriousViolations(page, context = "Seite") {
   const results = await new AxeBuilder({ page }).analyze();
@@ -17,14 +17,10 @@ async function expectNoSeriousViolations(page, context = "Seite") {
 
 test.describe.configure({ mode: "serial" });
 
-test("meldet keine schwerwiegenden A11y-Verstöße auf Login, Kalender und Planner", async ({ page, server }) => {
+test("meldet keine schwerwiegenden A11y-Verstöße auf Kalender und Planner", async ({ page, server }) => {
   const { baseURL } = server;
 
-  await page.goto(`${baseURL}/login.html`);
-  await expectNoSeriousViolations(page, "Login");
-
-  await login(page, baseURL, credentials.admin);
-  await expect(page.getByText(/Angemeldet als/i)).toBeVisible();
+  await page.goto(`${baseURL}/index.html`);
   await expectNoSeriousViolations(page, "Kalender");
 
   await page.goto(`${baseURL}/planner.html`);

@@ -4,23 +4,10 @@ Alle Endpunkte werden über den integrierten HTTP-Server unter `http://localhost
 
 ## Gemeinsame Regeln
 
-- **Authentifizierung**: Alle API-Aufrufe (außer Health-Checks sowie `/api/auth/login` und `/api/auth/logout`) erfordern eine gültige Session. Das Login setzt ein `HttpOnly`, `Secure`, `SameSite=Lax`-Cookie (`nextplanner_session`), das bei jedem API-Call mitgesendet werden muss.
 - **Content Negotiation**: Clients senden standardmäßig `Accept: application/json`; bei Request-Bodys ist `Content-Type: application/json` Pflicht.
 - **Caching & ETag**: Ressourcen liefern starke SHA-256-ETags. Mutierende Requests (`PUT`, `DELETE`) **müssen** `If-Match` enthalten, sofern die Ressource ETags bereitstellt (Pläne, Templates, Highlight-Konfiguration). Der Client speichert den letzten ETag je Ressource.
 - **CORS**: `Access-Control-Allow-Origin` wird auf den erlaubten Ursprung gesetzt (Standard: `http://localhost:3000`).
 - **Fehlercodes**: 400 (Validierung), 404 (nicht gefunden), 409 (semantischer Konflikt), 412 (ETag-Mismatch), 422 (Schemafehler), 500 (unerwartet).
-
-## Authentifizierung
-
-### `POST /api/auth/login`
-
-Meldet einen Benutzer an. Erwartet `{ "username": "…", "password": "…" }` und setzt ein Session-Cookie (`nextplanner_session`, `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`). Der Response-Body enthält die User-Metadaten (`username`, `isAdmin`) und das Ablaufdatum der Session.
-
-- `401 Unauthorized` bei ungültigen Credentials.
-
-### `POST /api/auth/logout`
-
-Beendet die aktuelle Sitzung und löscht das Session-Cookie (`Max-Age=0`). Liefert `204 No Content`.
 
 ## `GET /api/plans`
 
@@ -125,7 +112,6 @@ Ersetzt die Team-Snippets vollständig.
 Listet alle Vorlagen.
 
 - `200 OK` mit einem Array von Template-Objekten (`id`, `type`, `title`, `notes`, `content`, `tags`, `createdAt`, `updatedAt`) und ETag pro Eintrag im Header.
-- `401`, wenn keine gültige Session vorliegt.
 
 `HEAD /api/templates` liefert dieselben Header ohne Body.
 
@@ -169,7 +155,6 @@ Gibt die Highlight-Konfiguration zurück (`intensities`, `equipment`, `updatedAt
 
 - `200 OK` mit `ETag`.
 - `304 Not Modified`, wenn `If-None-Match` das aktuelle ETag enthält.
-- `401`, wenn keine gültige Session vorliegt.
 
 `HEAD` verhält sich analog ohne Body.
 
@@ -180,15 +165,12 @@ Ersetzt die Highlight-Konfiguration.
 - Erwartet `{ intensities: string[], equipment: string[] }` (Duplikate/Leereinträge werden bereinigt).
 - Erfordert `If-Match`; bei fehlendem oder abweichendem ETag gibt es `412 Precondition Failed`.
 - `200 OK` mit bereinigter Konfiguration + `ETag`.
-- `401`, wenn keine gültige Session vorliegt.
 
 ## `GET /api/users`
 
 Listet alle Benutzerkonten.
 
-- Nur für Admins (`403`, wenn Rolle fehlt).
 - `200 OK` mit User-Array (`id`, `username`, `roles`).
-- `401`, wenn keine gültige Session vorliegt.
 
 ## `GET /api/backups`
 

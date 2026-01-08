@@ -7,12 +7,6 @@ import { etagMatches } from "../http/utils.js";
 import { PlanConflictError, PlanValidationError, buildPlanEtag } from "../services/plan-service.js";
 import { readJsonBody } from "../http/body.js";
 
-function requireAuth(ctx) {
-  if (!ctx.authUser) {
-    throw new HttpError(401, "Authentifizierung erforderlich.");
-  }
-}
-
 function localizePlanValidationMessage(message) {
   if (/content is required/i.test(message)) {
     return "content ist erforderlich";
@@ -53,8 +47,6 @@ function createPlansRouter({ planService }) {
       sendApiEmpty(ctx.res, 204, { origin, allowedOrigins, headers: ctx.withCookies() });
       return true;
     }
-
-    requireAuth(ctx);
 
     if (!hasId) {
       if (method === "GET" || method === "HEAD") {

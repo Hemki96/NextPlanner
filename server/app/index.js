@@ -1,5 +1,5 @@
-// Kernstück der HTTP-Anwendung: Hier werden eingehende Requests vorbereitet,
-// mit Session-Informationen versehen und an die Router-Pipeline weitergegeben.
+// Kernstück der HTTP-Anwendung: Hier werden eingehende Requests vorbereitet
+// und an die Router-Pipeline weitergegeben.
 // Die Kommentare erklären alle Zwischenschritte, damit auch Personen mit wenig
 // Erfahrung den Ablauf nachvollziehen können.
 import { randomUUID } from "node:crypto";
@@ -10,7 +10,6 @@ import { runtimeConfig } from "../config/runtime-config.js";
 import { HttpError } from "../http/http-error.js";
 import { handleApiError, sendEmpty } from "../http/responses.js";
 import { createRequestLogger } from "../logger.js";
-import { createHttpSessionMiddleware } from "../sessions/http-session-middleware.js";
 import { extractRequestUser } from "./auth/request-user.js";
 import { parseApiJsonBody } from "./middleware/body-parser.js";
 import { createRequestContext } from "./request-context.js";
@@ -19,42 +18,9 @@ import { createRouterPipeline } from "./router/index.js";
 const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PUBLIC_DIR = path.join(CURRENT_DIR, "..", "public");
 
-function resolveSecureCookieFlag(config, req) {
-  // Bestimmt, ob Cookies als "secure" markiert werden sollen. Wird kein
-  // expliziter Wert gesetzt, orientiert sich die Entscheidung am eingehenden
-  // Protokoll (http vs. https).
-  const flag = config.security.session.secureCookies;
-  if (flag === true) return true;
-  if (flag === false) return false;
-  const forwardedProto = (req.headers?.["x-forwarded-proto"] ?? "").toString().toLowerCase();
-  if (forwardedProto === "https") return true;
-  return Boolean(req.socket?.encrypted);
-}
-
-function attachSessionUser(ctx) {
-  // Überträgt die Informationen aus der Session in das Request-Context-Objekt,
-  // damit spätere Schritte wie Autorisierung darauf zugreifen können.
-  if (!ctx.req.session) return;
-  ctx.authUser = {
-    id: ctx.req.session.userId ?? ctx.req.session.username,
-    username: ctx.req.session.username,
-    name: ctx.req.session.username ?? ctx.req.session.userId,
-    roles: ctx.req.session.roles ?? [],
-    role: (ctx.req.session.roles ?? [])[0] ?? "user",
-    isAdmin: (ctx.req.session.roles ?? []).includes("admin") || ctx.req.session.isAdmin,
-  };
-  ctx.services.userService.remember?.(ctx.authUser);
-  if (ctx.baseLogger?.child) {
-    ctx.logger = ctx.baseLogger.child({
-      user: ctx.authUser.username ?? ctx.authUser.id,
-      roles: (ctx.authUser.roles ?? []).join(",") || undefined,
-    });
-  }
-}
-
 function attachHeaderUserFallback(ctx) {
   // Fallback für automatisierte Tests oder interne Aufrufe: Der Benutzer kann
-  // auch per Custom-Header übergeben werden, falls keine Session existiert.
+  // per Custom-Header übergeben werden.
   if (ctx.authUser) return;
   const headerUser = extractRequestUser(ctx.req);
   if (headerUser) {
@@ -74,7 +40,6 @@ function createApp({
   services,
   publicDir = DEFAULT_PUBLIC_DIR,
   routerFactory = createRouterPipeline,
-  sessionMiddlewareFactory = createHttpSessionMiddleware,
 } = {}) {
   // Übergibt Services, Config und Middleware-Fabriken. Fehlende Abhängigkeiten
   // werden bewusst früh erkannt, um Startfehler klar zu kommunizieren.
@@ -82,12 +47,6 @@ function createApp({
     throw new Error("services are required to create the application");
   }
 
-  const sessionMiddleware = sessionMiddlewareFactory({
-    sessionStore: services.sessionStore,
-    cookieName: config.security.session.cookieName,
-    resolveSecure: (req) => resolveSecureCookieFlag(config, req),
-    ttlMs: config.security.session.ttlMs,
-  });
   const routeRequest = routerFactory({ services, publicDir });
 
   async function handle(req, res) {
@@ -112,20 +71,16 @@ function createApp({
       services,
       logger: requestLogger,
       requestId,
-      sessionMiddleware,
     });
 
     try {
-      await sessionMiddleware(req, res, ctx, async () => {
-        attachSessionUser(ctx);
-        attachHeaderUserFallback(ctx);
-        await parseApiJsonBody(ctx);
-        const handled = await routeRequest(ctx);
-        if (!handled) {
-          // Erreicht, wenn kein Router den Pfad bedienen konnte.
-          throw new HttpError(404, "Endpoint nicht gefunden");
-        }
-      });
+      attachHeaderUserFallback(ctx);
+      await parseApiJsonBody(ctx);
+      const handled = await routeRequest(ctx);
+      if (!handled) {
+        // Erreicht, wenn kein Router den Pfad bedienen konnte.
+        throw new HttpError(404, "Endpoint nicht gefunden");
+      }
     } catch (error) {
       const isHttpError = error instanceof HttpError;
       if (!isHttpError) {

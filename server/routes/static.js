@@ -114,21 +114,6 @@ function createStaticRouter({ publicDir }) {
     let fileStat;
     let attemptedFallback = false;
 
-    const isLoginPage = safePath.endsWith(`${path.sep}login.html`) || safePath.endsWith("login.html");
-    const isHtmlRequest = safePath.toLowerCase().endsWith(".html");
-
-    if (isHtmlRequest && !isLoginPage && !ctx.authUser) {
-      const next = `${ctx.url.pathname ?? ""}${ctx.url.search ?? ""}`;
-      const params = new URLSearchParams({ reason: "login-required" });
-      if (next.startsWith("/")) {
-        params.set("next", next);
-      }
-      const location = `/login.html?${params.toString()}`;
-      ctx.res.writeHead(302, { Location: location, "Cache-Control": "no-store", ...STATIC_SECURITY_HEADERS });
-      ctx.res.end();
-      return true;
-    }
-
     while (true) {
       try {
         // eslint-disable-next-line no-await-in-loop

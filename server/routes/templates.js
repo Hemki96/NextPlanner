@@ -5,12 +5,6 @@ import { HttpError } from "../http/http-error.js";
 import { etagMatches } from "../http/utils.js";
 import { TemplateValidationError, buildTemplateEtag } from "../services/template-service.js";
 
-function requireAuth(ctx) {
-  if (!ctx.authUser) {
-    throw new HttpError(401, "Authentifizierung erforderlich.");
-  }
-}
-
 function createTemplatesRouter({ templateService }) {
   return async function templatesRouter(ctx) {
     if (!ctx.url.pathname.startsWith("/api/templates")) {
@@ -27,8 +21,6 @@ function createTemplatesRouter({ templateService }) {
       sendApiEmpty(ctx.res, 204, { origin, allowedOrigins, headers: ctx.withCookies() });
       return true;
     }
-
-    requireAuth(ctx);
 
     if (!hasId) {
       if (method === "GET" || method === "HEAD") {

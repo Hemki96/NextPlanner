@@ -12,7 +12,6 @@ import { JsonPlanStore } from "../../server/stores/json-plan-store.js";
 import { JsonSnippetStore } from "../../server/stores/json-snippet-store.js";
 import { JsonTemplateStore } from "../../server/stores/json-template-store.js";
 import { JsonHighlightConfigStore } from "../../server/stores/json-highlight-config-store.js";
-import { SessionStore } from "../../server/sessions/session-store.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(__dirname, "..", "..");
@@ -34,7 +33,6 @@ async function startServer() {
   const highlightConfigStore = new JsonHighlightConfigStore({
     storageFile: path.join(tempDir, "highlight.json"),
   });
-  const sessionStore = new SessionStore({ storageFile: path.join(tempDir, "sessions.json") });
 
   const server = createServer({
     config,
@@ -42,7 +40,6 @@ async function startServer() {
     snippetStore,
     templateStore,
     highlightConfigStore,
-    sessionStore,
     publicDir: path.join(repoRoot, "public"),
   });
 
@@ -62,7 +59,6 @@ async function startServer() {
       snippetStore,
       templateStore,
       highlightConfigStore,
-      sessionStore,
     },
     async stop() {
       await new Promise((resolve) => server.close(resolve));
@@ -70,13 +66,6 @@ async function startServer() {
     },
   };
 }
-
-const credentials = {
-  admin: {
-    username: "admin",
-    password: "Admin1234!",
-  },
-};
 
 const test = base.extend({
   server: async ({}, use) => {
@@ -86,12 +75,4 @@ const test = base.extend({
   },
 });
 
-async function login(page, baseURL, user = credentials.admin) {
-  await page.goto(`${baseURL}/login.html`);
-  await page.getByLabel("Benutzername").fill(user.username);
-  await page.getByLabel("Passwort").fill(user.password);
-  await page.getByRole("button", { name: "Anmelden" }).click();
-  await page.waitForURL(`${baseURL}/index.html`);
-}
-
-export { test, expect, credentials, login };
+export { test, expect };
