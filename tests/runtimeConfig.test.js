@@ -14,17 +14,25 @@ describe("runtime config validation", () => {
     assert.equal(config.security.session.ttlMs > 0, true);
     assert.equal(config.env.isDevelopment, true);
     assert.equal(config.security.defaultUsers.admin.username, "admin");
+    assert.equal(config.security.defaultUsers.admin.password, "admin");
+    assert.equal(config.security.defaultUsers.coach.username, "coach");
+    assert.equal(config.security.defaultUsers.coach.password, "coach");
+    assert.equal(config.security.defaultUsers.athlet.username, "athlet");
+    assert.equal(config.security.defaultUsers.athlet.password, "athlet");
   });
 
-  it("erzwingt sichere Passwörter in Produktion", () => {
-    assert.throws(
-      () =>
-        buildRuntimeConfig({
-          NODE_ENV: "production",
-          NEXTPLANNER_LOGIN_USER: "admin",
-        }),
-      /Missing required credentials/i,
-    );
+  it("ignoriert überschreibende Credential-Umgebungsvariablen und nutzt die statischen Konten", () => {
+    const config = buildRuntimeConfig({
+      NODE_ENV: "production",
+      NEXTPLANNER_LOGIN_USER: "root",
+      NEXTPLANNER_LOGIN_PASSWORD: "SicheresPasswort!",
+      ADMIN_USER: "something",
+      ADMIN_PASSWORD: "else",
+    });
+    assert.equal(config.security.defaultUsers.admin.username, "admin");
+    assert.equal(config.security.defaultUsers.admin.password, "admin");
+    assert.equal(config.security.defaultUsers.coach.username, "coach");
+    assert.equal(config.security.defaultUsers.athlet.username, "athlet");
   });
 
   it("aggregiert Validierungsfehler", () => {
@@ -34,15 +42,13 @@ describe("runtime config validation", () => {
           NODE_ENV: "production",
           PORT: "abc",
           SESSION_TTL_MS: "-5",
-          NEXTPLANNER_LOGIN_PASSWORD: "",
         }),
       (error) => {
         const message = error instanceof Error ? error.message : String(error);
         return (
           message.includes("Invalid runtime config") &&
           message.includes("PORT") &&
-          message.includes("SESSION_TTL_MS") &&
-          message.includes("NEXTPLANNER_LOGIN_PASSWORD")
+          message.includes("SESSION_TTL_MS")
         );
       },
     );
@@ -69,15 +75,5 @@ describe("runtime config validation", () => {
     } finally {
       mkdirMock.mock.restore();
     }
-  });
-
-  it("erlaubt eigene Zugangsdaten für den Admin", () => {
-    const config = buildRuntimeConfig({
-      NODE_ENV: "production",
-      NEXTPLANNER_LOGIN_USER: "root",
-      NEXTPLANNER_LOGIN_PASSWORD: "SicheresPasswort!",
-    });
-    assert.equal(config.security.defaultUsers.admin.username, "root");
-    assert.equal(config.security.defaultUsers.admin.password, "SicheresPasswort!");
   });
 });

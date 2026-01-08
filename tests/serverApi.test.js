@@ -40,7 +40,7 @@ describe("Plan API", () => {
   let highlightStore;
   let sessionStore;
   let authCookie;
-  const adminCredentials = { username: "test-admin", password: "Passw0rd!1", isAdmin: true };
+  const adminCredentials = { username: "admin", password: "admin", isAdmin: true };
 
   function authHeaders(headers = {}) {
     if (!authCookie) {
