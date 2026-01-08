@@ -12,10 +12,6 @@ services:
         value: production
       - key: NEXTPLANNER_DATA_DIR
         value: /data
-      - key: NEXTPLANNER_LOGIN_USER
-        value: admin
-      - key: NEXTPLANNER_LOGIN_PASSWORD
-        generateValue: true
     disk:
       name: data
       mountPath: /data

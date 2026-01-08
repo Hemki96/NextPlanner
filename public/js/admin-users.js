@@ -1,6 +1,4 @@
 import { describeApiError, get, post, put, delete as deleteRequest } from "./utils/api-client.js";
-import { fetchAuthStatus } from "./utils/auth-status.js";
-import { initAdminNavigation } from "./utils/admin-nav.js";
 
 const state = {
   users: [],
@@ -330,41 +328,16 @@ function bindEvents() {
   });
 }
 
-async function guardAccess() {
-  setStatus(dom.status, "Prüfe Anmeldung...", "info");
-  let auth;
-  try {
-    auth = await fetchAuthStatus();
-  } catch {
-    auth = { isAdmin: false, authenticated: false };
-  }
-  if (!auth.isAdmin) {
-    setStatus(
-      dom.status,
-      auth.authenticated
-        ? "Kein Zugriff: Admin-Rechte erforderlich."
-        : "Bitte zuerst anmelden. Admin-Rechte erforderlich.",
-      "error",
-    );
-    return false;
-  }
+async function init() {
+  bindEvents();
   if (dom.createSection) {
     dom.createSection.hidden = false;
   }
   if (dom.listSection) {
     dom.listSection.hidden = false;
   }
-  setStatus(dom.status, "Angemeldet als Admin.", "success");
-  return true;
-}
-
-async function init() {
-  initAdminNavigation();
-  bindEvents();
-  const hasAccess = await guardAccess();
-  if (hasAccess) {
-    await loadUsers();
-  }
+  setStatus(dom.status, "Benutzerverwaltung geladen.", "success");
+  await loadUsers();
 }
 
 init();

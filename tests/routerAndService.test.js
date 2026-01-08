@@ -9,7 +9,6 @@ import { HttpApplication } from "../server/app.js";
 import { runtimeConfig } from "../server/config/runtime-config.js";
 import { PlanService, PlanConflictError } from "../server/services/plan-service.js";
 import { JsonPlanStore } from "../server/stores/json-plan-store.js";
-import { HttpError } from "../server/http/http-error.js";
 import { UserService } from "../server/services/user-service.js";
 import { buildRouters } from "../server/routes/index.js";
 import { buildPlanEtag } from "../server/services/plan-service.js";
@@ -43,12 +42,6 @@ function buildServices(overrides = {}) {
     templateService: overrides.templateService ?? { listTemplates: async () => [] },
     snippetService: overrides.snippetService ?? { getLibrary: async () => ({ groups: [] }) },
     highlightConfigService: overrides.highlightConfigService ?? { getConfig: async () => ({ intensities: [], equipment: [] }) },
-    authService: overrides.authService ?? { login: async () => ({ id: "demo", username: "demo", roles: [] }) },
-    sessionStore: overrides.sessionStore ?? {
-      async getSession() { return null; },
-      async createSession() { return { token: "t", expiresAt: new Date().toISOString() }; },
-      async deleteSession() {},
-    },
     planStore: overrides.planStore ?? { checkHealth: async () => ({ ok: true }) },
     templateStore: overrides.templateStore ?? {},
     snippetStore: overrides.snippetStore ?? {},
@@ -90,14 +83,8 @@ function buildCtx(overrides = {}) {
 }
 
 describe("Router and service units", () => {
-  it("verweigert Plan-Requests ohne Authentifizierung im Router", async () => {
-    const ctx = buildCtx({ authUser: null });
-    await assert.rejects(() => ctx.handleWith(), HttpError);
-  });
-
   it("liefert Plan-Liste und setzt Cache-Header im Router", async () => {
     const ctx = buildCtx({
-      authUser: { id: "user-1", roles: ["user"], role: "user" },
       req: { method: "HEAD", headers: {} },
       services: buildServices({
         planService: {

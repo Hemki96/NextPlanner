@@ -1,13 +1,11 @@
-import { test, expect, login, credentials } from "./playwright-fixture.js";
+import { test, expect } from "./playwright-fixture.js";
 
 test.describe.configure({ mode: "serial" });
 
-test("loggt sich ein, speichert einen Plan und zeigt ihn im Kalender an", async ({ page, server }) => {
+test("speichert einen Plan und zeigt ihn im Kalender an", async ({ page, server }) => {
   const { baseURL } = server;
   const today = new Date();
   const isoDate = today.toISOString().slice(0, 10);
-
-  await login(page, baseURL, credentials.admin);
 
   await page.goto(`${baseURL}/planner.html?planDate=${isoDate}`);
 

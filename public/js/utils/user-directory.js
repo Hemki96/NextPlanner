@@ -47,21 +47,6 @@ async function fetchUserDirectory() {
   return null;
 }
 
-async function fetchCurrentUser() {
-  try {
-    const { data } = await apiRequest("/api/auth/me");
-    if (data) {
-      return [data];
-    }
-  } catch (error) {
-    if (error instanceof ApiError && [401, 403, 404].includes(error.status)) {
-      return null;
-    }
-    console.warn("Konnte aktuelles Benutzerprofil nicht abrufen:", error);
-  }
-  return null;
-}
-
 export async function ensureUserDirectory() {
   if (directoryPromise) {
     return directoryPromise;
@@ -74,10 +59,6 @@ export async function ensureUserDirectory() {
     if (Array.isArray(directory) && directory.length > 0) {
       rememberUsers(directory);
       return Array.from(userCache.values());
-    }
-    const currentUser = await fetchCurrentUser();
-    if (Array.isArray(currentUser) && currentUser.length > 0) {
-      rememberUsers(currentUser);
     }
     return Array.from(userCache.values());
   })();

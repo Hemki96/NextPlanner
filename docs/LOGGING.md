@@ -4,7 +4,7 @@ Diese Richtlinie definiert, wie die Anwendung konsistent, sicher und auswertbar 
 
 ## Ziele
 
-- **Nachvollziehbarkeit:** Requests, Authentifizierung und Datenänderungen müssen über eindeutige Kontextwerte (Request-ID, Nutzer, Route) korreliert werden können.
+- **Nachvollziehbarkeit:** Requests und Datenänderungen müssen über eindeutige Kontextwerte (Request-ID, Nutzer, Route) korreliert werden können.
 - **Signal statt Rauschen:** Debug-Informationen sind nur in Entwicklung aktiv, Produktions-Logs bleiben auf das Wesentliche reduziert.
 - **Sicherheit & Datenschutz:** Keine Geheimnisse, Passwörter oder personenbezogenen Freitext-Daten im Log. Fehlerhinweise dürfen den Angriffsraum nicht vergrößern.
 - **Operativ nutzbar:** Logs enthalten Dauer, Statuscodes und technische Umgebung, um Performance- und Stabilitätsprobleme schnell zu erkennen.
@@ -13,7 +13,7 @@ Diese Richtlinie definiert, wie die Anwendung konsistent, sicher und auswertbar 
 
 - `error`: Fehler, die zu einem fehlgeschlagenen Request oder Datenverlust führen. Immer loggen.
 - `warn`: Unerwartete, aber tolerierte Zustände (Fallbacks, Rate-Limits, degradierter Betrieb).
-- `info`: Geschäftsrelevante Ereignisse (Login, Logout, erfolgreiche Requests mit Status/Dauer, Start/Stopp des Servers).
+- `info`: Geschäftsrelevante Ereignisse (erfolgreiche Requests mit Status/Dauer, Start/Stopp des Servers).
 - `debug`: Detail-Informationen für lokale Entwicklung oder gezielte Fehlersuche (z. B. Payload-Hinweise ohne PII).
 - `trace`: Höchste Detailstufe für feingranulare Ablaufverfolgung (z. B. pro Middleware-Schritt oder komplexe Berechnungen). Nur temporär aktivieren, um Rauschen zu vermeiden.
 
@@ -34,13 +34,12 @@ Diese Kontexte ermöglichen Filter/Suche ohne strukturierte Log-Pipeline.
 ## Verantwortlichkeiten pro Schicht
 
 - **Transport (server/app/index.js):** erzeugt Request-ID, hängt sie als Response-Header an, baut Request-Logger mit Pfad/Methode/Remote, loggt Abschluss jedes Requests mit Status und Dauer.
-- **Authentifizierung (server/routes/auth.js):** loggt Start, Erfolg und Fehlschlag von Login-Vorgängen; nutzt Request-Logger, sodass Nutzer/Request-ID automatisch enthalten sind.
 - **Sessions (server/app/request-context.js):** aktualisiert den Logger, sobald Nutzerkontext verfügbar oder entfernt wird.
 - **Basis-Logger (server/logger.js):** sorgt für konsistente Zeitstempel, Level-Prefix und Kontext-Präfixe; unterstützt verschachtelte `child`-Logger.
 
 ## Do & Don'ts
 
-- **Do:** kurze, formatierte Nachrichten mit Platzhaltern (`logger.warn("Login fehlgeschlagen: %s", reason)`).
+- **Do:** kurze, formatierte Nachrichten mit Platzhaltern (`logger.warn("Request fehlgeschlagen: %s", reason)`).
 - **Do:** Timings loggen (z. B. `Request beendet ... nach 34ms`), um Ausreißer zu erkennen.
 - **Do:** `trace` nur selektiv einschalten (z. B. `LOG_LEVEL=trace` in einer dedizierten Test- oder Staging-Instanz), um tiefe Ablaufanalysen ohne produktive Lärmbelastung zu ermöglichen.
 - **Don't:** Passwörter, Tokens, Session-IDs oder vollständige Request-Bodies loggen.

@@ -1,5 +1,5 @@
 // Schlanke Laufzeitkonfiguration: reduziert auf die nötigsten Variablen für
-// einen einfachen Login-Flow.
+// den Betrieb des Servers.
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -8,7 +8,6 @@ import { fileURLToPath } from "node:url";
 const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(CURRENT_DIR, "..", "..");
 const DEFAULT_DATA_DIR = path.join(PROJECT_ROOT, "data");
-const SESSION_COOKIE_NAME = "nextplanner_session";
 
 class RuntimeConfigError extends Error {
   constructor(message) {
@@ -20,7 +19,6 @@ class RuntimeConfigError extends Error {
 const DEFAULT_ALLOWED_ORIGINS = Object.freeze(["http://localhost:3000"]);
 const DEFAULTS = Object.freeze({
   port: 3000,
-  sessionTtlMs: 1000 * 60 * 60 * 12,
 });
 
 function parseIntEnv(name, value, { min = null } = {}) {
@@ -35,16 +33,6 @@ function parseIntEnv(name, value, { min = null } = {}) {
     throw new Error(`Environment variable ${name} must be >= ${min}.`);
   }
   return parsed;
-}
-
-function parseBooleanEnv(value) {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "true") return true;
-  if (normalized === "false") return false;
-  return null;
 }
 
 function parseAllowedOrigins(value) {
@@ -99,12 +87,6 @@ function ensureWritableDataDir(requestedDir, fallbackDir, warnings, errors) {
   }
 }
 
-const STATIC_USERS = Object.freeze({
-  admin: { username: "admin", password: "admin", roles: ["admin"] },
-  coach: { username: "coach", password: "coach", roles: ["coach"] },
-  athlet: { username: "athlet", password: "athlet", roles: ["athlet"] },
-});
-
 function buildRuntimeConfig(env = process.env) {
   const nodeEnv = env.NODE_ENV ?? "development";
   const isProduction = nodeEnv === "production";
@@ -122,11 +104,6 @@ function buildRuntimeConfig(env = process.env) {
 
   const port = safeParse("PORT", () => parseIntEnv("PORT", env.PORT, { min: 0 })) ?? DEFAULTS.port;
   const allowedOrigins = parseAllowedOrigins(env.ALLOWED_ORIGINS);
-  const sessionTtlMs =
-    safeParse("SESSION_TTL_MS", () => parseIntEnv("SESSION_TTL_MS", env.SESSION_TTL_MS, { min: 1000 })) ??
-    DEFAULTS.sessionTtlMs;
-  const cookieSecureOverride = parseBooleanEnv(env.COOKIE_SECURE);
-  const defaults = STATIC_USERS;
   const resolvedDataDir = resolveDataDir(env.NEXTPLANNER_DATA_DIR ?? env.DATA_DIR);
   const dataDir = ensureWritableDataDir(resolvedDataDir, DEFAULT_DATA_DIR, warnings, errors);
 
@@ -146,14 +123,7 @@ function buildRuntimeConfig(env = process.env) {
       allowedOrigins,
       jsonSpacing: nodeEnv === "development" ? 2 : 0,
     },
-    security: {
-      session: {
-        ttlMs: sessionTtlMs,
-        cookieName: SESSION_COOKIE_NAME,
-        secureCookies: cookieSecureOverride ?? null,
-      },
-      defaultUsers: defaults,
-    },
+    security: {},
     paths: {
       projectRoot: PROJECT_ROOT,
       dataDir,

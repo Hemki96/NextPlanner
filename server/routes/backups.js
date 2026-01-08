@@ -1,14 +1,7 @@
 // Schnittstellen für Backups: Exportiert alle Pläne und erlaubt das Importieren
-// eines vorher erzeugten Backups. Nur authentifizierte Nutzer:innen dürfen
-// diese Funktionen nutzen.
+// eines vorher erzeugten Backups.
 import { sendApiEmpty, sendApiJson } from "../http/responses.js";
 import { HttpError } from "../http/http-error.js";
-
-function requireAuth(ctx) {
-  if (!ctx.authUser) {
-    throw new HttpError(401, "Authentifizierung erforderlich.");
-  }
-}
 
 function createBackupsRouter({ planService }) {
   return async function backupsRouter(ctx) {
@@ -23,8 +16,6 @@ function createBackupsRouter({ planService }) {
       sendApiEmpty(ctx.res, 204, { origin, allowedOrigins, headers: ctx.withCookies() });
       return true;
     }
-
-    requireAuth(ctx);
 
     if (method === "GET" || method === "HEAD") {
       const backup = await planService.exportBackup();

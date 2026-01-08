@@ -9,8 +9,6 @@ import process from "node:process";
 import { createApp, DEFAULT_PUBLIC_DIR } from "./app/index.js";
 import { runtimeConfig } from "./config/runtime-config.js";
 import { logger } from "./logger.js";
-import { SessionStore } from "./sessions/session-store.js";
-import { AuthService } from "./services/auth-service.js";
 import { HighlightConfigService } from "./services/highlight-config-service.js";
 import { PlanService } from "./services/plan-service.js";
 import { SnippetService } from "./services/snippet-service.js";
@@ -36,12 +34,6 @@ function createServices(config, options = {}) {
   const templateStore = options.templateStore ?? new JsonTemplateStore();
   const snippetStore = options.snippetStore ?? new JsonSnippetStore();
   const highlightConfigStore = options.highlightConfigStore ?? new JsonHighlightConfigStore();
-  const sessionStore =
-    options.sessionStore ??
-    new SessionStore({
-      storageFile: path.join(config.paths.dataDir, "sessions.json"),
-      defaultTtlMs: config.security.session.ttlMs,
-    });
   const userStore = options.userStore ?? new JsonUserStore();
 
   const seedUsers = [];
@@ -56,15 +48,13 @@ function createServices(config, options = {}) {
       templateService: new TemplateService({ store: templateStore }),
       snippetService: new SnippetService({ store: snippetStore }),
       highlightConfigService: new HighlightConfigService({ store: highlightConfigStore }),
-      authService: new AuthService(),
-      sessionStore,
       planStore,
       templateStore,
       snippetStore,
       highlightConfigStore,
       userService,
     },
-    stores: { planStore, templateStore, snippetStore, highlightConfigStore, sessionStore },
+    stores: { planStore, templateStore, snippetStore, highlightConfigStore },
   };
 }
 
@@ -90,7 +80,6 @@ function createServer(options = {}) {
     await stores.templateStore?.close?.();
     await stores.snippetStore?.close?.();
     await stores.highlightConfigStore?.close?.();
-    await stores.sessionStore?.close?.();
   });
 
   const gracefulSignals = options.gracefulShutdownSignals ?? ["SIGTERM", "SIGINT"];
@@ -104,7 +93,6 @@ function createServer(options = {}) {
       await stores.templateStore?.close?.();
       await stores.snippetStore?.close?.();
       await stores.highlightConfigStore?.close?.();
-      await stores.sessionStore?.close?.();
     });
   }
 
