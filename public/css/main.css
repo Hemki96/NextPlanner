@@ -196,6 +196,12 @@ body {
   display: none;
 }
 
+.section-collapsible-summary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+  border-radius: var(--radius-sm);
+}
+
 .section-collapsible-summary::after {
   content: "▾";
   transition: transform 0.2s ease;
@@ -528,6 +534,7 @@ body {
   background: rgba(255, 255, 255, 0.75);
   color: var(--text-primary);
   font: inherit;
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -557,6 +564,11 @@ body {
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
+.calendar-day.is-today.is-selected {
+  background: rgba(0, 119, 255, 0.22);
+  box-shadow: 0 0 0 2px var(--accent-strong), 0 16px 32px -18px rgba(0, 119, 255, 0.6);
+}
+
 .calendar-day.is-outside-month {
   color: rgba(11, 31, 51, 0.4);
   background: rgba(255, 255, 255, 0.4);
@@ -577,6 +589,24 @@ body {
 
 .calendar-day.has-plans .calendar-marker {
   background: var(--accent);
+}
+
+.calendar-day.has-plans::after {
+  content: attr(data-plan-count);
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  min-width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 12px -8px rgba(0, 0, 0, 0.6);
 }
 
 .plan-list {
@@ -953,12 +983,28 @@ body {
   transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease;
 }
 
+.filter-chip--clear {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+}
+
+.filter-chip--clear .filter-chip__label {
+  color: #fff;
+}
+
 .filter-chip:hover,
 .filter-chip:focus-visible {
   background: var(--accent-soft);
   box-shadow: 0 0 0 3px var(--focus-ring);
   outline: none;
   transform: translateY(-1px);
+}
+
+.filter-chip--clear:hover,
+.filter-chip--clear:focus-visible {
+  background: var(--accent-strong);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .filter-chip__label {
@@ -1824,6 +1870,12 @@ body {
   font-weight: 600;
   color: var(--text-primary);
   list-style: none;
+}
+
+.quick-help summary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+  border-radius: var(--radius-sm);
 }
 
 .quick-help summary::-webkit-details-marker {

@@ -82,7 +82,8 @@
         <div id="plan-highlight" class="plan-highlight" aria-hidden="true"></div>
         <textarea
           id="plan-input"
-          spellcheck="false">## Einschwimmen
+          spellcheck="false"
+          aria-describedby="plan-input-hint plan-quick-help">## Einschwimmen
 
 ## Hauptteil
 
@@ -172,10 +173,10 @@
           Plan speichern
         </button>
       </div>
-      <p class="hint">Nutze Überschriften (z.B. <code>## Warm-up</code>) für Blöcke. Formate wie <code>4x50m</code>, <code>w/</code> für Material, <code>@</code> für Intervalle, <code>P:</code> für Pausen sowie Rundenangaben wie <code>3 Runden:</code> werden automatisch erkannt.</p>
+      <p class="hint" id="plan-input-hint">Nutze Überschriften (z.B. <code>## Warm-up</code>) für Blöcke. Formate wie <code>4x50m</code>, <code>w/</code> für Material, <code>@</code> für Intervalle, <code>P:</code> für Pausen sowie Rundenangaben wie <code>3 Runden:</code> werden automatisch erkannt.</p>
       <details class="quick-help">
         <summary>Quick-Syntax anzeigen</summary>
-        <ul class="quick-help-list">
+        <ul class="quick-help-list" id="plan-quick-help">
           <li><strong>Wiederholungen:</strong> <code>4x50m</code> setzt Wiederholungen und Strecke.</li>
           <li><strong>Intensität:</strong> Codes wie <code>ORANGE8</code> oder <code>BLUE9</code> werden erkannt.</li>
           <li><strong>Intervalle:</strong> <code>@1:30</code> definiert das Intervall pro Wiederholung.</li>

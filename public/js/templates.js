@@ -626,6 +626,13 @@ function buildFilterChips() {
     button.innerHTML = `<span class="filter-chip__label">${chip.label}</span> ✕`;
     filterChipListElement.appendChild(button);
   });
+
+  const clearAllButton = document.createElement("button");
+  clearAllButton.type = "button";
+  clearAllButton.className = "filter-chip filter-chip--clear";
+  clearAllButton.dataset.action = "clear-all";
+  clearAllButton.innerHTML = '<span class="filter-chip__label">Alle Filter löschen</span> ✕';
+  filterChipListElement.appendChild(clearAllButton);
 }
 
 function applyFiltersFromInputs() {
@@ -995,6 +1002,14 @@ if (templateFeatureEnabled) {
       filterTimeMinInput.value = "";
     } else if (action === "maxTime" && filterTimeMaxInput) {
       filterTimeMaxInput.value = "";
+    } else if (action === "clear-all") {
+      filterTypeSelectInput && (filterTypeSelectInput.value = "all");
+      filterQueryInput && (filterQueryInput.value = "");
+      filterTagsInput && (filterTagsInput.value = "");
+      filterDistanceMinInput && (filterDistanceMinInput.value = "");
+      filterDistanceMaxInput && (filterDistanceMaxInput.value = "");
+      filterTimeMinInput && (filterTimeMinInput.value = "");
+      filterTimeMaxInput && (filterTimeMaxInput.value = "");
     }
 
     applyFiltersFromInputs();
