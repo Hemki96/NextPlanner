@@ -313,6 +313,8 @@ function renderCalendar() {
   const prevMonth = new Date(firstDay.getFullYear(), firstDay.getMonth(), 0);
   const nextMonth = new Date(firstDay.getFullYear(), firstDay.getMonth() + 1, 1);
 
+  const todayKey = dateToKey(new Date());
+
   for (let index = 0; index < totalCells; index += 1) {
     const cell = document.createElement("div");
     cell.className = "calendar-cell";
@@ -337,6 +339,7 @@ function renderCalendar() {
     const dateKey = dateToKey(cellDate);
     const planCount = plansByDate.get(dateKey)?.length ?? 0;
     const isSelected = dateKey === selectedDateKey;
+    const isToday = dateKey === todayKey;
 
     const button = document.createElement("button");
     button.type = "button";
@@ -353,6 +356,9 @@ function renderCalendar() {
       button.setAttribute("aria-pressed", "true");
     } else {
       button.setAttribute("aria-pressed", "false");
+    }
+    if (isToday) {
+      button.classList.add("is-today");
     }
     button.dataset.date = dateKey;
     button.dataset.month = String(cellDate.getMonth());

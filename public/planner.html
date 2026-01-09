@@ -94,7 +94,7 @@
         <button
           type="button"
           id="help-button"
-          class="secondary-button"
+          class="secondary-button ui-button ui-button--secondary"
           aria-haspopup="dialog"
           aria-controls="help-overlay"
         >
@@ -104,7 +104,7 @@
           <button
             type="button"
             id="plan-io-toggle"
-            class="secondary-button"
+            class="secondary-button ui-button ui-button--secondary"
             aria-expanded="false"
             aria-controls="plan-io-menu"
           >
@@ -168,11 +168,21 @@
           aria-hidden="true"
           tabindex="-1"
         />
-        <button type="button" id="save-plan-button" class="primary-button">
+        <button type="button" id="save-plan-button" class="primary-button ui-button ui-button--primary">
           Plan speichern
         </button>
       </div>
       <p class="hint">Nutze Überschriften (z.B. <code>## Warm-up</code>) für Blöcke. Formate wie <code>4x50m</code>, <code>w/</code> für Material, <code>@</code> für Intervalle, <code>P:</code> für Pausen sowie Rundenangaben wie <code>3 Runden:</code> werden automatisch erkannt.</p>
+      <details class="quick-help">
+        <summary>Quick-Syntax anzeigen</summary>
+        <ul class="quick-help-list">
+          <li><strong>Wiederholungen:</strong> <code>4x50m</code> setzt Wiederholungen und Strecke.</li>
+          <li><strong>Intensität:</strong> Codes wie <code>ORANGE8</code> oder <code>BLUE9</code> werden erkannt.</li>
+          <li><strong>Intervalle:</strong> <code>@1:30</code> definiert das Intervall pro Wiederholung.</li>
+          <li><strong>Pausen:</strong> <code>P:00:20</code> fügt eine Pause nach dem Set ein.</li>
+          <li><strong>Material:</strong> <code>w/ Pullbuoy</code> oder <code>w/ Flossen</code> ergänzen den Materialbedarf.</li>
+        </ul>
+      </details>
       <section id="validation-panel" class="validation-panel" aria-live="polite" data-feature="syntaxValidation">
         <header class="validation-header">
           <h3>Syntax-Hinweise</h3>
@@ -216,7 +226,7 @@
         <section id="trend-panel" class="trend-panel">
           <div class="trend-header">
             <h3>Trendberichte</h3>
-            <button type="button" id="trend-export" class="ghost-button is-quiet" disabled>
+            <button type="button" id="trend-export" class="ghost-button ui-button ui-button--ghost is-quiet" disabled>
               Trendbericht exportieren
             </button>
           </div>
@@ -254,21 +264,21 @@
         <p class="template-dialog-type">Typ: <strong id="capture-type-label"></strong></p>
         <label class="form-field">
           <span>Titel</span>
-          <input id="capture-title" type="text" required />
+          <input id="capture-title" class="ui-input" type="text" required />
         </label>
         <label class="form-field">
           <span>Tags (optional)</span>
-          <input id="capture-tags" type="text" placeholder="z.B. Ausdauer, Technik" />
+          <input id="capture-tags" class="ui-input" type="text" placeholder="z.B. Ausdauer, Technik" />
           <span class="field-hint">Mehrere Tags mit Komma trennen.</span>
         </label>
         <label class="form-field">
           <span>Inhalt</span>
-          <textarea id="capture-content" rows="6" required></textarea>
+          <textarea id="capture-content" class="ui-textarea" rows="6" required></textarea>
         </label>
         <p id="capture-status" class="form-status" role="status" aria-live="polite"></p>
-        <div class="form-actions">
-          <button type="button" class="ghost-button" id="capture-cancel">Abbrechen</button>
-          <button type="submit" class="primary-button">Vorlage speichern</button>
+        <div class="form-actions dialog-actions">
+          <button type="button" class="ghost-button ui-button ui-button--ghost" id="capture-cancel">Abbrechen</button>
+          <button type="submit" class="primary-button ui-button ui-button--primary">Vorlage speichern</button>
         </div>
       </form>
     </div>
@@ -283,20 +293,21 @@
         <div class="form-grid">
           <label class="form-field">
             <span>Titel</span>
-            <input id="plan-save-title" type="text" name="title" required />
+            <input id="plan-save-title" class="ui-input" type="text" name="title" required />
           </label>
           <label class="form-field">
             <span>Datum</span>
-            <input id="plan-save-date" type="date" name="date" required />
+            <input id="plan-save-date" class="ui-input" type="date" name="date" required />
           </label>
           <label class="form-field">
             <span>Uhrzeit</span>
-            <input id="plan-save-time" type="time" name="time" required />
+            <input id="plan-save-time" class="ui-input" type="time" name="time" required />
           </label>
           <label class="form-field">
             <span>Fokus</span>
             <input
               id="plan-save-focus"
+              class="ui-input"
               type="text"
               name="focus"
               required
@@ -308,15 +319,16 @@
           <span>Zusätzliche Notizen (optional)</span>
           <textarea
             id="plan-save-notes"
+            class="ui-textarea"
             name="notes"
             rows="3"
             placeholder="z.B. Verantwortliche, Besonderheiten"
           ></textarea>
         </label>
         <p id="plan-save-status" class="form-status" role="status" aria-live="polite"></p>
-        <div class="form-actions">
-          <button type="button" class="ghost-button" id="plan-save-cancel">Abbrechen</button>
-          <button type="submit" class="primary-button">Plan sichern</button>
+        <div class="form-actions dialog-actions">
+          <button type="button" class="ghost-button ui-button ui-button--ghost" id="plan-save-cancel">Abbrechen</button>
+          <button type="submit" class="primary-button ui-button ui-button--primary">Plan sichern</button>
         </div>
         <p class="form-hint">
           Starte den lokalen NextPlanner-Server (z.&nbsp;B. per <code>npm start</code>), um Pläne direkt in der JSON-Datenbank zu
@@ -349,9 +361,9 @@
           Mehrere Pläne gefunden. Wähle einen Plan zum Laden oder übernehme alle Inhalte.
         </p>
         <ul id="plan-import-list" class="plan-import-list"></ul>
-        <div class="form-actions plan-import-actions">
-          <button type="button" class="ghost-button" id="plan-import-cancel">Abbrechen</button>
-          <button type="button" class="primary-button" id="plan-import-merge">Alle übernehmen</button>
+        <div class="form-actions dialog-actions plan-import-actions">
+          <button type="button" class="ghost-button ui-button ui-button--ghost" id="plan-import-cancel">Abbrechen</button>
+          <button type="button" class="primary-button ui-button ui-button--primary" id="plan-import-merge">Alle übernehmen</button>
         </div>
       </div>
     </div>
