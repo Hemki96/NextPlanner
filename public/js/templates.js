@@ -35,6 +35,7 @@ const filterDistanceMaxInput = document.getElementById("template-filter-distance
 const filterTimeMinInput = document.getElementById("template-filter-time-min");
 const filterTimeMaxInput = document.getElementById("template-filter-time-max");
 const filterSummaryElement = document.getElementById("template-filter-summary");
+const filterChipListElement = document.getElementById("template-filter-chips");
 const exportButton = document.getElementById("export-templates");
 const importButton = document.getElementById("import-templates");
 const importInput = document.getElementById("import-templates-input");
@@ -576,6 +577,64 @@ function updateFilterSummary(filteredTemplates) {
   filterSummaryElement.textContent = `${formatTemplateCount(count)} gefunden (von ${formatTemplateCount(total)} insgesamt).`;
 }
 
+function buildFilterChips() {
+  if (!filterChipListElement) {
+    return;
+  }
+
+  filterChipListElement.innerHTML = "";
+
+  const chips = [];
+
+  if (filterState.type !== "all") {
+    chips.push({ label: `Typ: ${filterState.type}`, action: "type" });
+  }
+  if (filterState.query) {
+    chips.push({ label: `Suche: ${filterState.query}`, action: "query" });
+  }
+  filterState.tags.forEach((tag) => {
+    chips.push({ label: `Tag: ${tag}`, action: "tag", value: tag });
+  });
+  if (filterState.minDistance !== null) {
+    chips.push({ label: `Umfang ≥ ${filterState.minDistance} m`, action: "minDistance" });
+  }
+  if (filterState.maxDistance !== null) {
+    chips.push({ label: `Umfang ≤ ${filterState.maxDistance} m`, action: "maxDistance" });
+  }
+  if (filterState.minTime !== null) {
+    chips.push({ label: `Zeit ≥ ${filterState.minTime} min`, action: "minTime" });
+  }
+  if (filterState.maxTime !== null) {
+    chips.push({ label: `Zeit ≤ ${filterState.maxTime} min`, action: "maxTime" });
+  }
+
+  if (chips.length === 0) {
+    filterChipListElement.setAttribute("hidden", "true");
+    return;
+  }
+
+  filterChipListElement.removeAttribute("hidden");
+
+  chips.forEach((chip) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "filter-chip";
+    button.dataset.action = chip.action;
+    if (chip.value) {
+      button.dataset.value = chip.value;
+    }
+    button.innerHTML = `<span class="filter-chip__label">${chip.label}</span> ✕`;
+    filterChipListElement.appendChild(button);
+  });
+
+  const clearAllButton = document.createElement("button");
+  clearAllButton.type = "button";
+  clearAllButton.className = "filter-chip filter-chip--clear";
+  clearAllButton.dataset.action = "clear-all";
+  clearAllButton.innerHTML = '<span class="filter-chip__label">Alle Filter löschen</span> ✕';
+  filterChipListElement.appendChild(clearAllButton);
+}
+
 function applyFiltersFromInputs() {
   filterState.query = normalizeFilterText(filterQueryInput?.value ?? "");
   filterState.queryTokens = filterState.query ? filterState.query.split(/\s+/).filter(Boolean) : [];
@@ -628,7 +687,7 @@ function groupTemplates(source = templates) {
 function createActionButton(label, action, id) {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "ghost-button";
+  button.className = "ghost-button ui-button ui-button--ghost";
   button.textContent = label;
   button.dataset.action = action;
   if (id) {
@@ -644,6 +703,7 @@ function renderTemplates() {
 
   const filtered = getFilteredTemplates();
   updateFilterSummary(filtered);
+  buildFilterChips();
 
   listContainer.innerHTML = "";
 
@@ -913,6 +973,48 @@ if (templateFeatureEnabled) {
     }, 0);
   });
 
+  filterChipListElement?.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLButtonElement)) {
+      return;
+    }
+    const action = target.dataset.action;
+    if (!action) {
+      return;
+    }
+
+    if (action === "type" && filterTypeSelectInput) {
+      filterTypeSelectInput.value = "all";
+    } else if (action === "query" && filterQueryInput) {
+      filterQueryInput.value = "";
+    } else if (action === "tag" && filterTagsInput) {
+      const value = target.dataset.value ?? "";
+      const nextTags = normalizeTagsList(filterTagsInput.value ?? "")
+        .map((tag) => normalizeFilterText(tag))
+        .filter(Boolean)
+        .filter((tag) => tag !== value);
+      filterTagsInput.value = nextTags.join(", ");
+    } else if (action === "minDistance" && filterDistanceMinInput) {
+      filterDistanceMinInput.value = "";
+    } else if (action === "maxDistance" && filterDistanceMaxInput) {
+      filterDistanceMaxInput.value = "";
+    } else if (action === "minTime" && filterTimeMinInput) {
+      filterTimeMinInput.value = "";
+    } else if (action === "maxTime" && filterTimeMaxInput) {
+      filterTimeMaxInput.value = "";
+    } else if (action === "clear-all") {
+      filterTypeSelectInput && (filterTypeSelectInput.value = "all");
+      filterQueryInput && (filterQueryInput.value = "");
+      filterTagsInput && (filterTagsInput.value = "");
+      filterDistanceMinInput && (filterDistanceMinInput.value = "");
+      filterDistanceMaxInput && (filterDistanceMaxInput.value = "");
+      filterTimeMinInput && (filterTimeMinInput.value = "");
+      filterTimeMaxInput && (filterTimeMaxInput.value = "");
+    }
+
+    applyFiltersFromInputs();
+  });
+
   listContainer?.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLButtonElement)) {
@@ -959,6 +1061,10 @@ if (templateFeatureEnabled) {
   }
   if (filterSummaryElement) {
     filterSummaryElement.textContent = "Vorlagen sind deaktiviert.";
+  }
+  if (filterChipListElement) {
+    filterChipListElement.innerHTML = "";
+    filterChipListElement.setAttribute("hidden", "true");
   }
   if (listContainer) {
     listContainer.innerHTML = "";

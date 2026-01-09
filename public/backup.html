@@ -39,10 +39,10 @@
   </header>
 
   <main class="page-content">
-    <section class="page-card">
+    <section class="page-card ui-card">
       <header class="section-header">
         <h2>Funktionen ein- und ausblenden</h2>
-        <button type="button" class="ghost-button" id="feature-settings-reset">Alle aktivieren</button>
+        <button type="button" class="ghost-button ui-button ui-button--ghost" id="feature-settings-reset">Alle aktivieren</button>
       </header>
       <p class="form-hint">
         Lege fest, welche Bereiche der Anwendung standardmäßig sichtbar sind. Änderungen werden sofort übernommen und gelten
@@ -52,7 +52,7 @@
       <p id="feature-settings-status" class="form-status" role="status" aria-live="polite"></p>
     </section>
 
-    <section class="page-card">
+    <section class="page-card ui-card">
       <header class="section-header">
         <h2>Vollständige Datensicherung</h2>
       </header>
@@ -61,12 +61,12 @@
         wieder importiert werden und dient als vollständiger Export des Plan-Speichers.
       </p>
       <div class="form-actions">
-        <button type="button" class="primary-button" id="download-backup">Sicherung herunterladen</button>
+        <button type="button" class="primary-button ui-button ui-button--primary" id="download-backup">Sicherung herunterladen</button>
       </div>
       <p id="backup-status" class="form-status" role="status" aria-live="polite"></p>
     </section>
 
-    <section class="page-card">
+    <section class="page-card ui-card">
       <header class="section-header">
         <h2>Vollständiges Neueinspielen</h2>
       </header>
@@ -78,14 +78,14 @@
         <div class="form-grid">
           <label class="form-field">
             <span>Sicherungsdatei auswählen</span>
-            <input type="file" id="restore-file" accept="application/json" required />
+            <input type="file" class="ui-input" id="restore-file" accept="application/json" required />
             <span class="field-hint">Unterstützt werden Sicherungen im NextPlanner-Format (*.json).</span>
             <span id="restore-file-name" class="field-hint" aria-live="polite"></span>
           </label>
         </div>
         <div class="form-actions">
-          <button type="submit" class="primary-button" id="restore-submit">Daten vollständig einspielen</button>
-          <button type="button" class="ghost-button" id="restore-reset">Auswahl zurücksetzen</button>
+          <button type="submit" class="primary-button ui-button ui-button--primary" id="restore-submit">Daten vollständig einspielen</button>
+          <button type="button" class="ghost-button ui-button ui-button--ghost" id="restore-reset">Auswahl zurücksetzen</button>
         </div>
       </form>
       <p id="restore-status" class="form-status" role="status" aria-live="polite"></p>
