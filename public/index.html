@@ -35,35 +35,35 @@
     </nav>
   </header>
   <main class="calendar-layout" data-feature="calendarView" data-feature-keep-space="true">
-    <section class="page-card calendar-card">
+    <section class="page-card ui-card calendar-card">
       <header class="section-header">
         <h2 id="calendar-month-label">Kalender</h2>
         <div class="section-actions">
-          <button type="button" class="ghost-button" id="calendar-prev" aria-label="Vorheriger Monat">←</button>
-          <button type="button" class="ghost-button" id="calendar-today">Heute</button>
-          <button type="button" class="ghost-button" id="calendar-next" aria-label="Nächster Monat">→</button>
+          <button type="button" class="ghost-button ui-button ui-button--ghost" id="calendar-prev" aria-label="Vorheriger Monat">←</button>
+          <button type="button" class="ghost-button ui-button ui-button--ghost" id="calendar-today">Heute</button>
+          <button type="button" class="ghost-button ui-button ui-button--ghost" id="calendar-next" aria-label="Nächster Monat">→</button>
         </div>
       </header>
       <p class="calendar-hint">Tage mit gespeicherten Plänen sind markiert. Wähle ein Datum, um die zugehörigen Pläne anzuzeigen.</p>
       <div id="calendar-grid" class="calendar-grid" role="grid" aria-labelledby="calendar-month-label"></div>
     </section>
-    <section class="page-card calendar-card">
+    <section class="page-card ui-card calendar-card">
       <header class="section-header">
         <h2>Pläne am <span id="calendar-selected-date">–</span></h2>
       </header>
       <div id="plan-list" class="plan-list" aria-live="polite"></div>
       <div class="calendar-create">
-        <a id="calendar-create-plan" class="primary-button" href="/planner.html">Neuen Plan anlegen</a>
-        <button type="button" id="calendar-copy-last" class="ghost-button calendar-copy-last">
+        <a id="calendar-create-plan" class="primary-button ui-button ui-button--primary" href="/planner.html">Neuen Plan anlegen</a>
+        <button type="button" id="calendar-copy-last" class="ghost-button ui-button ui-button--ghost calendar-copy-last">
           Letztes Training übernehmen
         </button>
         <p id="calendar-create-hint" class="calendar-create-hint"></p>
       </div>
       <div class="calendar-week-export">
-        <button type="button" id="calendar-export-week-word" class="ghost-button">
+        <button type="button" id="calendar-export-week-word" class="ghost-button ui-button ui-button--ghost">
           Woche als Word exportieren
         </button>
-        <button type="button" id="calendar-export-week-pdf" class="ghost-button">
+        <button type="button" id="calendar-export-week-pdf" class="ghost-button ui-button ui-button--ghost">
           Woche als PDF exportieren
         </button>
         <p class="calendar-create-hint">Exportiert Montag bis Sonntag basierend auf dem ausgewählten Tag.</p>

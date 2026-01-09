@@ -35,13 +35,13 @@
     </nav>
   </header>
   <main class="page-content" data-feature="templateLibrary" data-feature-keep-space="true">
-    <section class="page-card">
+    <section class="page-card ui-card">
       <h2>Neue Vorlage anlegen</h2>
       <form id="template-form" class="template-form">
         <div class="form-grid">
           <label class="form-field">
             <span>Typ</span>
-            <select id="template-type" required>
+            <select id="template-type" class="ui-select" required>
               <option value="Set">Set</option>
               <option value="Runde">Runde</option>
               <option value="Block">Block</option>
@@ -49,16 +49,16 @@
           </label>
           <label class="form-field">
             <span>Titel</span>
-            <input id="template-title" type="text" required placeholder="z.B. Sprint-Set" />
+            <input id="template-title" class="ui-input" type="text" required placeholder="z.B. Sprint-Set" />
           </label>
         </div>
         <label class="form-field">
           <span>Kurzbeschreibung (optional)</span>
-          <input id="template-notes" type="text" placeholder="z.B. Fokus auf Maximaltempo" />
+          <input id="template-notes" class="ui-input" type="text" placeholder="z.B. Fokus auf Maximaltempo" />
         </label>
         <label class="form-field">
           <span>Tags (optional)</span>
-          <input id="template-tags" type="text" placeholder="z.B. Sprint, Technik" />
+          <input id="template-tags" class="ui-input" type="text" placeholder="z.B. Sprint, Technik" />
           <span class="field-hint">Mehrere Tags mit Komma trennen.</span>
         </label>
         <label class="form-field">
@@ -67,6 +67,7 @@
             <div id="template-highlight" class="plan-highlight" aria-hidden="true"></div>
             <textarea
               id="template-content"
+              class="ui-textarea"
               rows="6"
               required
               spellcheck="false"
@@ -87,21 +88,21 @@
           <ul class="validation-list" data-validation-list></ul>
         </section>
         <div class="form-actions">
-          <button type="submit" class="primary-button" id="template-submit">Vorlage speichern</button>
-          <button type="button" class="ghost-button" id="template-cancel" hidden>Abbrechen</button>
+          <button type="submit" class="primary-button ui-button ui-button--primary" id="template-submit">Vorlage speichern</button>
+          <button type="button" class="ghost-button ui-button ui-button--ghost" id="template-cancel" hidden>Abbrechen</button>
         </div>
       </form>
       <p class="form-hint">Gespeicherte Vorlagen lassen sich später direkt kopieren oder bearbeiten.</p>
       <p id="template-status" class="form-status" role="status" aria-live="polite"></p>
     </section>
 
-    <section class="page-card">
+    <section class="page-card ui-card">
       <header class="section-header">
         <h2>Gespeicherte Vorlagen</h2>
         <div class="section-actions">
           <input type="file" id="import-templates-input" accept="application/json" hidden />
-          <button type="button" class="ghost-button" id="import-templates">Vorlagen importieren</button>
-          <button type="button" class="ghost-button" id="export-templates">Vorlagen exportieren</button>
+          <button type="button" class="ghost-button ui-button ui-button--ghost" id="import-templates">Vorlagen importieren</button>
+          <button type="button" class="ghost-button ui-button ui-button--ghost" id="export-templates">Vorlagen exportieren</button>
         </div>
       </header>
       <form id="template-filter-form" class="template-filter" autocomplete="off">
@@ -110,6 +111,7 @@
             <span>Suchbegriff</span>
             <input
               id="template-filter-query"
+              class="ui-input"
               type="search"
               placeholder="Titel, Notizen oder Inhalt durchsuchen"
               spellcheck="false"
@@ -117,7 +119,7 @@
           </label>
           <label class="form-field">
             <span>Typ</span>
-            <select id="template-filter-type">
+            <select id="template-filter-type" class="ui-select">
               <option value="Set">Sets</option>
               <option value="Runde">Runden</option>
               <option value="Block">Blöcke</option>
@@ -126,31 +128,32 @@
           </label>
           <label class="form-field">
             <span>Tags</span>
-            <input id="template-filter-tags" type="text" placeholder="z.B. Sprint, Technik" />
+            <input id="template-filter-tags" class="ui-input" type="text" placeholder="z.B. Sprint, Technik" />
             <span class="field-hint">Mehrere Tags mit Komma trennen.</span>
           </label>
         </div>
         <div class="template-filter-range-grid">
           <label class="form-field">
             <span>Mind. Umfang (m)</span>
-            <input id="template-filter-distance-min" type="number" min="0" step="50" placeholder="z.B. 800" />
+            <input id="template-filter-distance-min" class="ui-input" type="number" min="0" step="50" placeholder="z.B. 800" />
           </label>
           <label class="form-field">
             <span>Max. Umfang (m)</span>
-            <input id="template-filter-distance-max" type="number" min="0" step="50" placeholder="z.B. 2000" />
+            <input id="template-filter-distance-max" class="ui-input" type="number" min="0" step="50" placeholder="z.B. 2000" />
           </label>
           <label class="form-field">
             <span>Mind. Zeit (min)</span>
-            <input id="template-filter-time-min" type="number" min="0" step="0.5" placeholder="z.B. 20" />
+            <input id="template-filter-time-min" class="ui-input" type="number" min="0" step="0.5" placeholder="z.B. 20" />
           </label>
           <label class="form-field">
             <span>Max. Zeit (min)</span>
-            <input id="template-filter-time-max" type="number" min="0" step="0.5" placeholder="z.B. 45" />
+            <input id="template-filter-time-max" class="ui-input" type="number" min="0" step="0.5" placeholder="z.B. 45" />
           </label>
         </div>
+        <div id="template-filter-chips" class="filter-chip-list" aria-live="polite"></div>
         <div class="template-filter-actions">
           <p id="template-filter-summary" class="template-filter-summary" aria-live="polite"></p>
-          <button type="reset" class="ghost-button">Filter zurücksetzen</button>
+          <button type="reset" class="ghost-button ui-button ui-button--ghost">Filter zurücksetzen</button>
         </div>
       </form>
       <div id="template-list" class="template-list" aria-live="polite"></div>
