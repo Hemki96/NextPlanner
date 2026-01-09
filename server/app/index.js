@@ -21,6 +21,7 @@ const DEFAULT_PUBLIC_DIR = path.join(CURRENT_DIR, "..", "public");
 function attachHeaderUserFallback(ctx) {
   // Fallback für automatisierte Tests oder interne Aufrufe: Der Benutzer kann
   // per Custom-Header übergeben werden.
+  if (!ctx.config.env.isDevelopment) return;
   if (ctx.authUser) return;
   const headerUser = extractRequestUser(ctx.req);
   if (headerUser) {

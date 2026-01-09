@@ -16,6 +16,14 @@ function createUsersRouter({ userService }) {
       return true;
     }
 
+    if (!ctx.authUser) {
+      throw new HttpError(401, "Nicht authentifiziert");
+    }
+
+    if (!ctx.authUser.roles?.includes("admin")) {
+      throw new HttpError(403, "Nicht autorisiert");
+    }
+
     if (method === "GET" || method === "HEAD") {
       const users = await userService.listUsers();
       sendApiJson(ctx.res, 200, users, { origin, allowedOrigins, headers: ctx.withCookies(), method });
