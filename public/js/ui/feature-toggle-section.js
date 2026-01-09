@@ -7,7 +7,7 @@ import {
   subscribeToFeatureSettings,
 } from "../utils/feature-settings.js";
 
-function createFeatureToggleElement(feature, enabled) {
+function createFeatureToggleElement(feature, enabled, statusId) {
   const item = document.createElement("li");
   item.className = "feature-toggle";
   item.dataset.featureKey = feature.key;
@@ -41,7 +41,8 @@ function createFeatureToggleElement(feature, enabled) {
   checkbox.checked = enabled;
   checkbox.dataset.featureKey = feature.key;
   checkbox.setAttribute("aria-labelledby", headingId);
-  checkbox.setAttribute("aria-describedby", descriptionId);
+  const describedBy = [descriptionId, statusId].filter(Boolean).join(" ");
+  checkbox.setAttribute("aria-describedby", describedBy);
 
   const slider = document.createElement("span");
   slider.className = "feature-toggle-slider";
@@ -116,7 +117,7 @@ export function initFeatureToggleSection({
     listElement.innerHTML = "";
     FEATURE_DEFINITIONS.forEach((feature) => {
       const enabled = settings[feature.key] !== false;
-      listElement.appendChild(createFeatureToggleElement(feature, enabled));
+      listElement.appendChild(createFeatureToggleElement(feature, enabled, statusElement?.id));
     });
     if (typeof onSettingsChange === "function") {
       onSettingsChange({ ...settings });

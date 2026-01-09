@@ -1,4 +1,5 @@
 import { describeApiError, get, post, put, delete as deleteRequest } from "./utils/api-client.js";
+import { initSectionCollapsibles } from "./ui/section-collapsible.js";
 
 const state = {
   users: [],
@@ -13,6 +14,8 @@ const dom = {
   createStatus: document.getElementById("create-user-status"),
   refreshButton: document.getElementById("refresh-users"),
 };
+
+initSectionCollapsibles();
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -92,6 +95,8 @@ function renderUserList(users) {
   }
 
   users.forEach((user) => {
+    const statusId = `admin-user-${user.id}-status`;
+    const passwordHintId = `admin-user-${user.id}-password-hint`;
     const card = document.createElement("article");
     card.className = "admin-user-card";
     card.dataset.userId = String(user.id);
@@ -115,7 +120,7 @@ function renderUserList(users) {
       <form class="admin-user-form" data-action="roles">
         <label class="form-field">
           <span>Rollen (Komma-getrennt)</span>
-          <input type="text" name="roles" value="${escapeHtml(roleLabel)}" />
+          <input type="text" name="roles" value="${escapeHtml(roleLabel)}" aria-describedby="${statusId}" />
         </label>
         <div class="form-actions">
           <button type="submit" class="secondary-button">Rollen speichern</button>
@@ -124,14 +129,14 @@ function renderUserList(users) {
       <form class="admin-user-form" data-action="password">
         <label class="form-field">
           <span>Passwort zurücksetzen</span>
-          <input type="password" name="password" autocomplete="new-password" placeholder="Neues Passwort" />
-          <span class="field-hint">Mindestens 10 Zeichen inkl. Groß-/Kleinbuchstaben, Zahl, Sonderzeichen.</span>
+          <input type="password" name="password" autocomplete="new-password" placeholder="Neues Passwort" aria-describedby="${passwordHintId} ${statusId}" />
+          <span id="${passwordHintId}" class="field-hint">Mindestens 10 Zeichen inkl. Groß-/Kleinbuchstaben, Zahl, Sonderzeichen.</span>
         </label>
         <div class="form-actions">
           <button type="submit" class="secondary-button">Passwort setzen</button>
         </div>
       </form>
-      <p class="form-status" data-status role="status" aria-live="polite"></p>
+      <p id="${statusId}" class="form-status" data-status role="status" aria-live="polite"></p>
     `;
     dom.userList.appendChild(card);
   });

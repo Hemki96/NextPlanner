@@ -32,6 +32,7 @@ import {
   fetchHighlightVocabularyConfig,
   persistHighlightVocabularyConfig,
 } from "./utils/highlight-config-client.js";
+import { initSectionCollapsibles } from "./ui/section-collapsible.js";
 
 const groupContainer = document.getElementById("snippet-groups");
 const addGroupButton = document.getElementById("add-group");
@@ -65,6 +66,10 @@ let highlightConfigRequest = null;
 let highlightConfigDirty = false;
 
 let teamLibraryEnabled = getFeatureSettings().teamLibrary !== false;
+const snippetStatusId = statusElement?.id;
+const highlightStatusId = highlightStatusElement?.id;
+
+initSectionCollapsibles();
 
 function setThemeStatusMessage(message) {
   if (!themeStatusElement) {
@@ -579,7 +584,8 @@ function createHighlightOption(option, enabled) {
   input.checked = enabled;
   input.dataset.highlightKey = option.key;
   input.setAttribute("aria-labelledby", titleId);
-  input.setAttribute("aria-describedby", descriptionId);
+  const describedBy = [descriptionId, highlightStatusId].filter(Boolean).join(" ");
+  input.setAttribute("aria-describedby", describedBy);
 
   const slider = document.createElement("span");
   slider.className = "feature-toggle-slider";
@@ -758,6 +764,13 @@ function handleHighlightInputChange(event) {
   }
 }
 
+function applySnippetStatusDescription(element) {
+  if (!snippetStatusId || !element) {
+    return;
+  }
+  element.setAttribute("aria-describedby", snippetStatusId);
+}
+
 function renderGroups() {
   if (!groupContainer) {
     return;
@@ -826,6 +839,7 @@ function renderGroups() {
     titleField.dataset.groupIndex = String(groupIndex);
     titleField.dataset.field = "title";
     titleField.className = "snippet-settings-title";
+    applySnippetStatusDescription(titleField);
     titleRow.appendChild(titleField);
 
     const countBadge = document.createElement("span");
@@ -901,6 +915,7 @@ function renderGroups() {
     descriptionField.dataset.field = "description";
     descriptionField.className = "snippet-settings-description";
     autoResizeTextArea(descriptionField);
+    applySnippetStatusDescription(descriptionField);
     body.appendChild(descriptionField);
 
     const list = document.createElement("div");
@@ -921,6 +936,7 @@ function renderGroups() {
       labelField.dataset.itemIndex = String(itemIndex);
       labelField.dataset.field = "label";
       labelField.className = "snippet-settings-input";
+      applySnippetStatusDescription(labelField);
 
       const snippetField = document.createElement("textarea");
       snippetField.rows = 3;
@@ -932,6 +948,7 @@ function renderGroups() {
       snippetField.dataset.field = "snippet";
       snippetField.className = "snippet-settings-text";
       autoResizeTextArea(snippetField);
+      applySnippetStatusDescription(snippetField);
 
       const checkboxRow = document.createElement("div");
       checkboxRow.className = "snippet-settings-checkboxes";
@@ -945,6 +962,7 @@ function renderGroups() {
         input.dataset.groupIndex = String(groupIndex);
         input.dataset.itemIndex = String(itemIndex);
         input.dataset.field = field;
+        applySnippetStatusDescription(input);
         const span = document.createElement("span");
         span.textContent = label;
         if (description) {
@@ -988,6 +1006,7 @@ function renderGroups() {
       cursorField.dataset.itemIndex = String(itemIndex);
       cursorField.dataset.field = "cursorOffset";
       cursorField.className = "snippet-settings-number";
+      applySnippetStatusDescription(cursorField);
 
       const cursorLabel = document.createElement("label");
       cursorLabel.className = "number-field";

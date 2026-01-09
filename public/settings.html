@@ -35,29 +35,33 @@
     </nav>
   </header>
   <main class="page-content">
-    <section class="page-card">
-      <header class="section-header">
-        <h2>Darstellung</h2>
-      </header>
-      <div class="theme-settings">
-        <div class="toggle-control">
-          <label class="switch" for="theme-toggle">
-            <input
-              type="checkbox"
-              id="theme-toggle"
-              aria-describedby="theme-toggle-description"
-              aria-labelledby="theme-toggle-heading"
-            />
-            <span class="switch-slider" aria-hidden="true"></span>
-          </label>
-          <div>
-            <h3 id="theme-toggle-heading">Dunkler Modus</h3>
-            <p id="theme-toggle-description">Nutze dunkle Oberflächenfarben, um deine Augen bei wenig Licht zu entlasten.</p>
+    <details class="page-card section-collapsible" open>
+      <summary class="section-collapsible-summary" aria-controls="theme-settings-panel">
+        <header class="section-header">
+          <h2>Darstellung</h2>
+        </header>
+      </summary>
+      <div class="section-collapsible-body" id="theme-settings-panel">
+        <div class="theme-settings">
+          <div class="toggle-control">
+            <label class="switch" for="theme-toggle">
+              <input
+                type="checkbox"
+                id="theme-toggle"
+                aria-describedby="theme-toggle-description theme-settings-status"
+                aria-labelledby="theme-toggle-heading"
+              />
+              <span class="switch-slider" aria-hidden="true"></span>
+            </label>
+            <div>
+              <h3 id="theme-toggle-heading">Dunkler Modus</h3>
+              <p id="theme-toggle-description">Nutze dunkle Oberflächenfarben, um deine Augen bei wenig Licht zu entlasten.</p>
+            </div>
           </div>
         </div>
+        <p id="theme-settings-status" class="form-status" role="status" aria-live="polite"></p>
       </div>
-      <p id="theme-settings-status" class="form-status" role="status" aria-live="polite"></p>
-    </section>
+    </details>
     <section class="page-card">
       <header class="section-header">
         <h2>Funktionen ein- und ausblenden</h2>
@@ -88,8 +92,9 @@
             id="highlight-intensity-input"
             rows="6"
             placeholder="CLEAR&#10;PINK4&#10;EN1"
+            aria-describedby="highlight-intensity-hint highlight-settings-status"
           ></textarea>
-          <span class="field-hint">Neue Codes werden automatisch in Markierungen und Auswertungen berücksichtigt.</span>
+          <span id="highlight-intensity-hint" class="field-hint">Neue Codes werden automatisch in Markierungen und Auswertungen berücksichtigt.</span>
         </label>
         <label class="form-field" for="highlight-equipment-input">
           <span>Material (je Zeile ein Eintrag)</span>
@@ -97,12 +102,13 @@
             id="highlight-equipment-input"
             rows="6"
             placeholder="Pullbuoy&#10;Paddles&#10;Flossen"
+            aria-describedby="highlight-equipment-hint highlight-settings-status"
           ></textarea>
-          <span class="field-hint">Hinterlegte Bezeichnungen erscheinen im Materialüberblick der Auswertung.</span>
+          <span id="highlight-equipment-hint" class="field-hint">Hinterlegte Bezeichnungen erscheinen im Materialüberblick der Auswertung.</span>
         </label>
       </div>
       <div class="form-actions highlight-config-actions">
-        <button type="button" class="primary-button" id="highlight-config-save">Markierungen speichern</button>
+        <button type="button" class="primary-button" id="highlight-config-save" aria-describedby="highlight-settings-status">Markierungen speichern</button>
       </div>
       <p id="highlight-settings-status" class="form-status" role="status" aria-live="polite"></p>
     </section>
@@ -136,8 +142,8 @@
       <header class="section-header">
         <h2>Team-Bibliothek</h2>
         <div class="section-actions">
-          <button type="button" class="ghost-button" id="team-library-refresh">Team-Bibliothek laden</button>
-          <button type="button" class="ghost-button" id="team-library-push">Eigene Bausteine freigeben</button>
+          <button type="button" class="ghost-button" id="team-library-refresh" aria-describedby="team-library-status">Team-Bibliothek laden</button>
+          <button type="button" class="ghost-button" id="team-library-push" aria-describedby="team-library-status">Eigene Bausteine freigeben</button>
         </div>
       </header>
       <p class="form-hint">

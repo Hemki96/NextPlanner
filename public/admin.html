@@ -36,15 +36,19 @@
   </header>
 
   <main class="page-content">
-    <section class="page-card">
-      <header class="section-header">
-        <h2>Admin-Bereich</h2>
-      </header>
-      <p class="form-hint">
-        Änderungen an Benutzerkonten wirken sich sofort aus.
-      </p>
-      <p id="admin-status" class="form-status" role="status" aria-live="polite"></p>
-    </section>
+    <details class="page-card section-collapsible" open>
+      <summary class="section-collapsible-summary" aria-controls="admin-status-panel">
+        <header class="section-header">
+          <h2>Admin-Bereich</h2>
+        </header>
+      </summary>
+      <div class="section-collapsible-body" id="admin-status-panel">
+        <p class="form-hint">
+          Änderungen an Benutzerkonten wirken sich sofort aus.
+        </p>
+        <p id="admin-status" class="form-status" role="status" aria-live="polite"></p>
+      </div>
+    </details>
 
     <section class="page-card" id="user-create-section" hidden>
       <header class="section-header">
@@ -53,23 +57,23 @@
       <form id="create-user-form" class="form-grid">
         <label class="form-field" for="create-username">
           <span>Benutzername</span>
-          <input id="create-username" name="username" type="text" autocomplete="username" required />
-          <span class="field-hint">Keine Leerzeichen, mindestens 3 Zeichen.</span>
+          <input id="create-username" name="username" type="text" autocomplete="username" required aria-describedby="create-username-hint create-user-status" />
+          <span id="create-username-hint" class="field-hint">Keine Leerzeichen, mindestens 3 Zeichen.</span>
         </label>
         <label class="form-field" for="create-password">
           <span>Initiales Passwort</span>
-          <input id="create-password" name="password" type="password" autocomplete="new-password" required />
-          <span class="field-hint">Mindestens 10 Zeichen inkl. Groß-/Kleinbuchstaben, Zahl, Sonderzeichen.</span>
+          <input id="create-password" name="password" type="password" autocomplete="new-password" required aria-describedby="create-password-hint create-user-status" />
+          <span id="create-password-hint" class="field-hint">Mindestens 10 Zeichen inkl. Groß-/Kleinbuchstaben, Zahl, Sonderzeichen.</span>
         </label>
         <label class="form-field" for="create-roles">
           <span>Rollen</span>
-          <input id="create-roles" name="roles" type="text" placeholder="z.B. admin, trainer" />
-          <span class="field-hint">Kommagetrennte Liste. Standard: user.</span>
+          <input id="create-roles" name="roles" type="text" placeholder="z.B. admin, trainer" aria-describedby="create-roles-hint create-user-status" />
+          <span id="create-roles-hint" class="field-hint">Kommagetrennte Liste. Standard: user.</span>
         </label>
         <label class="form-field" for="create-active">
           <span>Aktiv</span>
-          <input id="create-active" name="active" type="checkbox" checked />
-          <span class="field-hint">Kann später erneut deaktiviert werden (mit doppelter Bestätigung).</span>
+          <input id="create-active" name="active" type="checkbox" checked aria-describedby="create-active-hint create-user-status" />
+          <span id="create-active-hint" class="field-hint">Kann später erneut deaktiviert werden (mit doppelter Bestätigung).</span>
         </label>
         <div class="form-actions">
           <button type="submit" class="primary-button">Benutzer erstellen</button>
@@ -82,7 +86,7 @@
       <header class="section-header">
         <h2>Benutzerverwaltung</h2>
         <div class="section-actions">
-          <button type="button" class="ghost-button" id="refresh-users">Aktualisieren</button>
+          <button type="button" class="ghost-button" id="refresh-users" aria-describedby="admin-status">Aktualisieren</button>
         </div>
       </header>
       <div id="admin-user-list" class="admin-user-list" aria-live="polite"></div>
