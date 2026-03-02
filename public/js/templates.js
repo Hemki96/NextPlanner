@@ -623,7 +623,10 @@ function buildFilterChips() {
     if (chip.value) {
       button.dataset.value = chip.value;
     }
-    button.innerHTML = `<span class="filter-chip__label">${chip.label}</span> ✕`;
+    const label = document.createElement("span");
+    label.className = "filter-chip__label";
+    label.textContent = chip.label;
+    button.append(label, document.createTextNode(" ✕"));
     filterChipListElement.appendChild(button);
   });
 
@@ -631,7 +634,10 @@ function buildFilterChips() {
   clearAllButton.type = "button";
   clearAllButton.className = "filter-chip filter-chip--clear";
   clearAllButton.dataset.action = "clear-all";
-  clearAllButton.innerHTML = '<span class="filter-chip__label">Alle Filter löschen</span> ✕';
+  const clearLabel = document.createElement("span");
+  clearLabel.className = "filter-chip__label";
+  clearLabel.textContent = "Alle Filter löschen";
+  clearAllButton.append(clearLabel, document.createTextNode(" ✕"));
   filterChipListElement.appendChild(clearAllButton);
 }
 

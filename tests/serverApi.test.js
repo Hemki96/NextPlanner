@@ -56,7 +56,7 @@ describe("Plan API", () => {
       highlightConfigStore: highlightStore,
       publicDir: path.join(repoRoot, "public"),
     });
-    server.listen(0);
+    server.listen(0, "127.0.0.1");
     await once(server, "listening");
     const address = server.address();
     const port = typeof address === "object" && address ? address.port : 0;
@@ -177,6 +177,63 @@ describe("Plan API", () => {
     assert.ok(userIds.includes("coach-1"));
     assert.ok(userIds.includes("coach-2"));
     assert.ok(userIds.includes("admin-1"));
+  });
+
+  it("verwaltet Benutzerkonten über die API", async () => {
+    const createResponse = await fetch(`${baseUrl}/api/users`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: "trainer.max",
+        password: "Str0ng!Pass",
+        roles: ["editor"],
+        active: true,
+      }),
+    });
+    assert.equal(createResponse.status, 201);
+    const created = await createResponse.json();
+    assert.equal(created.username, "trainer.max");
+    assert.ok(Number.isInteger(created.id));
+
+    const updateResponse = await fetch(`${baseUrl}/api/users/${created.id}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        roles: ["admin", "editor"],
+        active: false,
+      }),
+    });
+    assert.equal(updateResponse.status, 200);
+    const updated = await updateResponse.json();
+    assert.equal(updated.active, false);
+    assert.deepEqual(updated.roles, ["admin", "editor"]);
+
+    const missingConfirmDelete = await fetch(`${baseUrl}/api/users/${created.id}`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({}),
+    });
+    assert.equal(missingConfirmDelete.status, 400);
+
+    const deleteResponse = await fetch(`${baseUrl}/api/users/${created.id}`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ confirm: true }),
+    });
+    assert.equal(deleteResponse.status, 204);
+
+    const listResponse = await fetch(`${baseUrl}/api/users`);
+    assert.equal(listResponse.status, 200);
+    const users = await listResponse.json();
+    assert.ok(!users.some((user) => user.id === created.id));
   });
 
   it("aktualisiert und löscht Pläne", async () => {

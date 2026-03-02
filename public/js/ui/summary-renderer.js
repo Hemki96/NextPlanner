@@ -107,7 +107,9 @@ export function renderSummary(plan, dom) {
   } else {
     for (const item of equipmentEntries) {
       const li = document.createElement("li");
-      li.innerHTML = `<em>${item.label}</em> (${item.count}×)`;
+      const label = document.createElement("em");
+      label.textContent = item.label;
+      li.append(label, document.createTextNode(` (${item.count}×)`));
       equipmentListEl.appendChild(li);
     }
   }
@@ -147,7 +149,10 @@ export function renderSummary(plan, dom) {
     meta.className = "block-meta";
 
     const dist = document.createElement("span");
-    dist.innerHTML = `Distanz: <strong>${formatDistance(block.distance)}</strong>`;
+    dist.textContent = "Distanz: ";
+    const distValue = document.createElement("strong");
+    distValue.textContent = formatDistance(block.distance);
+    dist.appendChild(distValue);
     meta.appendChild(dist);
 
     const time = document.createElement("span");
@@ -181,7 +186,10 @@ export function renderSummary(plan, dom) {
         const suffix = detail.sets === 1 ? "Set" : "Sets";
         return `${detail.rounds}× (${detail.sets} ${suffix})`;
       });
-      roundsInfo.innerHTML = `Runden: <strong>${parts.join(", ")}</strong>`;
+      roundsInfo.textContent = "Runden: ";
+      const roundsValue = document.createElement("strong");
+      roundsValue.textContent = parts.join(", ");
+      roundsInfo.appendChild(roundsValue);
       meta.appendChild(roundsInfo);
     }
 
@@ -217,7 +225,10 @@ export function renderSummary(plan, dom) {
         if (set.distance > 0) {
           const totalDistance = document.createElement("span");
           totalDistance.className = "set-total-distance";
-          totalDistance.innerHTML = `= <strong>${formatDistance(set.distance)}</strong>`;
+          totalDistance.textContent = "= ";
+          const totalDistanceValue = document.createElement("strong");
+          totalDistanceValue.textContent = formatDistance(set.distance);
+          totalDistance.appendChild(totalDistanceValue);
           setLine.appendChild(totalDistance);
         }
 
@@ -237,14 +248,20 @@ export function renderSummary(plan, dom) {
         if (set.interval > 0) {
           const interval = document.createElement("span");
           interval.className = "set-detail set-interval";
-          interval.innerHTML = `Abgang: <em>${formatDuration(set.interval)}</em>`;
+          interval.textContent = "Abgang: ";
+          const intervalValue = document.createElement("em");
+          intervalValue.textContent = formatDuration(set.interval);
+          interval.appendChild(intervalValue);
           details.appendChild(interval);
         }
 
         if (set.paceSecondsPer100) {
           const pace = document.createElement("span");
           pace.className = "set-detail set-pace";
-          pace.innerHTML = `Ø Pace: <em>${formatPace(set.paceSecondsPer100)}</em>`;
+          pace.textContent = "Ø Pace: ";
+          const paceValue = document.createElement("em");
+          paceValue.textContent = formatPace(set.paceSecondsPer100);
+          pace.appendChild(paceValue);
           details.appendChild(pace);
         }
 
@@ -264,7 +281,10 @@ export function renderSummary(plan, dom) {
         if (set.equipment.length > 0) {
           const equipment = document.createElement("span");
           equipment.className = "set-detail set-equipment";
-          equipment.innerHTML = `Material: <em>${set.equipment.join(", ")}</em>`;
+          equipment.textContent = "Material: ";
+          const equipmentValue = document.createElement("em");
+          equipmentValue.textContent = set.equipment.join(", ");
+          equipment.appendChild(equipmentValue);
           details.appendChild(equipment);
         }
 

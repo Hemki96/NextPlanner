@@ -120,6 +120,43 @@ class UserService {
     return Array.from(merged.values());
   }
 
+  async createUser(payload) {
+    if (!this.store || typeof this.store.createUser !== "function") {
+      throw new Error("User store does not support createUser");
+    }
+    const user = await this.store.createUser(payload ?? {});
+    this.remember({
+      id: user.id,
+      name: user.username,
+      role: Array.isArray(user.roles) && user.roles.includes("admin") ? "admin" : "user",
+      roles: user.roles ?? [],
+    });
+    return user;
+  }
+
+  async updateUser(id, changes) {
+    if (!this.store || typeof this.store.updateUser !== "function") {
+      throw new Error("User store does not support updateUser");
+    }
+    const updated = await this.store.updateUser(id, changes ?? {});
+    if (updated) {
+      this.remember({
+        id: updated.id,
+        name: updated.username,
+        role: Array.isArray(updated.roles) && updated.roles.includes("admin") ? "admin" : "user",
+        roles: updated.roles ?? [],
+      });
+    }
+    return updated;
+  }
+
+  async deleteUser(id) {
+    if (!this.store || typeof this.store.deleteUser !== "function") {
+      throw new Error("User store does not support deleteUser");
+    }
+    return this.store.deleteUser(id);
+  }
+
   async verifyCredentials(username, password) {
     const trimmedUsername = typeof username === "string" ? username.trim() : "";
     if (!trimmedUsername || typeof password !== "string") {

@@ -4,20 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Swim Planner – Einstellungen</title>
-  <script>
-    (function () {
-      try {
-        var storedTheme = localStorage.getItem("nextplanner-theme");
-        if (storedTheme === "dark") {
-          document.documentElement.dataset.theme = "dark";
-        } else if (storedTheme === "light") {
-          delete document.documentElement.dataset.theme;
-        }
-      } catch (error) {
-        /* ignore errors */
-      }
-    })();
-  </script>
+  <script src="/js/theme-init.js"></script>
   <link rel="stylesheet" href="/css/main.css" />
   <script type="module" src="/js/theme.js"></script>
 </head>

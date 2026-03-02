@@ -172,6 +172,32 @@ Listet alle Benutzerkonten.
 
 - `200 OK` mit User-Array (`id`, `username`, `roles`).
 
+## `POST /api/users`
+
+Legt ein neues Benutzerkonto an.
+
+- Erwartet `username`, `password` und optional `roles`, `active`.
+- `201 Created` mit angelegtem Benutzerobjekt.
+- `400`, wenn Benutzername/Passwort/Rollen ungültig sind.
+
+## `PUT /api/users/{id}`
+
+Aktualisiert ein bestehendes Benutzerkonto.
+
+- Erwartet ein partielles Update (`username`, `password`, `roles`, `active`).
+- `200 OK` mit aktualisiertem Benutzerobjekt.
+- `400`, wenn Eingaben ungültig sind.
+- `404`, wenn die ID unbekannt ist.
+
+## `DELETE /api/users/{id}`
+
+Löscht ein Benutzerkonto.
+
+- Erwartet JSON-Body `{ "confirm": true }`.
+- `204 No Content` bei Erfolg.
+- `400`, wenn die Bestätigung fehlt.
+- `404`, wenn die ID unbekannt ist.
+
 ## `GET /api/backups`
 
 Exportiert den vollständigen Plan-Speicher. Enthält Format-ID, Versionsnummer und alle Pläne.

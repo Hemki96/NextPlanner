@@ -82,7 +82,7 @@ function normalizeMetadata(metadata) {
   if (metadata === undefined || metadata === null) {
     return {};
   }
-  if (typeof metadata !== "object") {
+  if (typeof metadata !== "object" || Array.isArray(metadata)) {
     throw new PlanValidationError("metadata must be an object");
   }
   return { ...metadata };
