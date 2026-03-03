@@ -164,6 +164,37 @@ Concurrency protection uses HTTP ETags:
 
 Realtime events are available via Socket.IO path `/v1/realtime/socket`.
 
+## Observability
+
+- Structured request/error logs via `pino`
+- Prometheus metrics at `GET /metrics`
+- Health checks at `GET /healthz` and `GET /readyz`
+
+## API integration tests
+
+Run:
+
+```bash
+npm run test:api
+```
+
+Tests cover auth/session lifecycle, RBAC enforcement, ETag conflict handling, and JSON import behavior.
+The suite requires a reachable PostgreSQL instance via `DATABASE_URL`.
+
+For local execution with DB preflight checks (and optional docker startup):
+
+```bash
+npm run test:api:local
+npm run test:api:local -- --with-docker
+```
+
+## Ops runbooks
+
+- `docs/ops/environments.md`
+- `docs/ops/monitoring-and-alerting.md`
+- `docs/ops/backup-restore-runbook.md`
+- Managed cloud blueprint: `infra/render/render.yaml`
+
 ## iPad support
 
 The `apps/web` client is responsive and includes a PWA manifest + service worker registration.

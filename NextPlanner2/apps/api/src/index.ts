@@ -21,6 +21,12 @@ import {
 import { z } from "zod";
 import { config } from "./config.js";
 import { errorHandler, fail, traceIdMiddleware, asyncRoute } from "./http.js";
+import {
+  appLogger,
+  getMetricsText,
+  metricsContentType,
+  requestLoggingMiddleware
+} from "./observability.js";
 import { prisma } from "./prisma.js";
 import {
   accessTokenExpiresInSeconds,
@@ -45,6 +51,7 @@ app.use(
 );
 app.use(express.json({ limit: "3mb" }));
 app.use(traceIdMiddleware);
+app.use(requestLoggingMiddleware);
 app.use((_req, res, next) => {
   setCommonHeaders(res);
   next();
@@ -63,6 +70,15 @@ app.get(
   asyncRoute(async (_req, res) => {
     await prisma.$queryRaw`SELECT 1`;
     res.json({ status: "ready" });
+  })
+);
+
+app.get(
+  "/metrics",
+  asyncRoute(async (_req, res) => {
+    const metrics = await getMetricsText();
+    res.setHeader("content-type", metricsContentType());
+    res.send(metrics);
   })
 );
 
@@ -993,9 +1009,22 @@ app.use(errorHandler);
 const server = createServer(app);
 initRealtime(server);
 
-server.listen(config.port, () => {
-  console.log(`[nextplanner2-api] listening on http://localhost:${config.port}`);
-});
+export function startServer() {
+  server.listen(config.port, () => {
+    appLogger.info(
+      {
+        port: config.port
+      },
+      "server.started"
+    );
+  });
+}
+
+if (process.env.NODE_ENV !== "test") {
+  startServer();
+}
+
+export { app, server };
 
 function parseBody<TSchema extends z.ZodTypeAny>(schema: TSchema, body: unknown): z.infer<TSchema> {
   const parsed = schema.safeParse(body);

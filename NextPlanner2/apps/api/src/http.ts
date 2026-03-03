@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import type { ApiErrorCode } from "@nextplanner2/shared";
+import { appLogger } from "./observability.js";
 
 export class AppError extends Error {
   status: number;
@@ -49,7 +50,13 @@ export function errorHandler(
     return;
   }
 
-  console.error(error);
+  appLogger.error(
+    {
+      traceId,
+      error
+    },
+    "request.failed"
+  );
   res.status(500).json({
     code: "INTERNAL_SERVER_ERROR",
     message: "Unexpected server error.",

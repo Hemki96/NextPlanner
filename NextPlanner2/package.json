@@ -14,7 +14,9 @@
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "db:migrate": "npm run prisma:migrate -w apps/api",
-    "db:generate": "npm run prisma:generate -w apps/api"
+    "db:generate": "npm run prisma:generate -w apps/api",
+    "test:api": "npm run test -w apps/api",
+    "test:api:local": "bash ./scripts/test-api.sh"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
