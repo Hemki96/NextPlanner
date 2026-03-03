@@ -1,0 +1,9 @@
+node_modules
+npm-debug.log*
+.DS_Store
+.env
+**/.env
+**/dist
+**/.turbo
+**/*.tsbuildinfo
+apps/api/generated

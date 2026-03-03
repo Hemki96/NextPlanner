@@ -1,0 +1,183 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TeamRole {
+  ADMIN
+  COACH
+  ASSISTANT
+}
+
+enum ImportJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ImportRowStatus {
+  OK
+  ERROR
+}
+
+model User {
+  id            String           @id @default(cuid())
+  email         String           @unique
+  passwordHash  String
+  name          String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  memberships   TeamMembership[]
+  createdPlans  Plan[]           @relation("PlanCreatedBy")
+  updatedPlans  Plan[]           @relation("PlanUpdatedBy")
+  revisions     PlanRevision[]
+  refreshTokens RefreshToken[]
+  imports       ImportJob[]
+  organizations Organization[]   @relation("OrganizationCreatedBy")
+  auditEvents   AuditEvent[]
+}
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  createdById String
+  createdBy   User     @relation("OrganizationCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  teams       Team[]
+
+  @@index([createdById])
+}
+
+model Team {
+  id             String           @id @default(cuid())
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  memberships    TeamMembership[]
+  plans          Plan[]
+  imports        ImportJob[]
+  auditEvents    AuditEvent[]
+
+  @@index([organizationId])
+}
+
+model TeamMembership {
+  id        String   @id @default(cuid())
+  teamId     String
+  userId     String
+  role       TeamRole
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  team       Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([userId])
+}
+
+model Plan {
+  id          String         @id @default(cuid())
+  teamId       String
+  title       String
+  scheduledAt DateTime
+  focus       String?
+  content     String
+  notes       String?
+  version     Int            @default(1)
+  createdById String
+  updatedById String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  team        Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdBy   User           @relation("PlanCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy   User           @relation("PlanUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  revisions   PlanRevision[]
+
+  @@index([teamId, scheduledAt])
+  @@index([teamId, updatedAt])
+  @@index([teamId, title])
+}
+
+model PlanRevision {
+  id          String   @id @default(cuid())
+  planId       String
+  planVersion Int
+  snapshot    Json
+  changedById String
+  changedAt   DateTime @default(now())
+  plan        Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  changedBy   User     @relation(fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@index([planId, changedAt])
+}
+
+model AuditEvent {
+  id          String   @id @default(cuid())
+  actorUserId String
+  teamId       String
+  action      String
+  entityType  String
+  entityId    String
+  beforeHash  String?
+  afterHash   String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  actor       User     @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId, createdAt])
+  @@index([entityType, entityId])
+}
+
+model RefreshToken {
+  id          String   @id @default(cuid())
+  userId      String
+  tokenHash   String   @unique
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  replacedById String?
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model ImportJob {
+  id          String          @id @default(cuid())
+  teamId       String
+  createdById String
+  status      ImportJobStatus @default(PENDING)
+  sourceType  String
+  dryRun      Boolean         @default(false)
+  summary     Json?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  team        Team            @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdBy   User            @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  rows        ImportRow[]
+
+  @@index([teamId, createdAt])
+}
+
+model ImportRow {
+  id           String          @id @default(cuid())
+  importJobId String
+  rowNumber    Int
+  status       ImportRowStatus
+  error        String?
+  raw          Json?
+  createdPlanId String?
+  createdAt    DateTime        @default(now())
+  importJob    ImportJob       @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+
+  @@index([importJobId, rowNumber])
+  @@index([importJobId, status])
+}
