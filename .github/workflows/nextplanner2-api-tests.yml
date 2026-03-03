@@ -1,0 +1,72 @@
+name: NextPlanner2 API Tests
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'NextPlanner2/**'
+      - '.github/workflows/nextplanner2-api-tests.yml'
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'NextPlanner2/**'
+      - '.github/workflows/nextplanner2-api-tests.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nextplanner2-api-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: nextplanner
+          POSTGRES_PASSWORD: nextplanner
+          POSTGRES_DB: nextplanner2
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nextplanner -d nextplanner2"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        shell: bash
+        working-directory: NextPlanner2
+    env:
+      DATABASE_URL: postgresql://nextplanner:nextplanner@localhost:5432/nextplanner2?schema=public
+      JWT_ACCESS_SECRET: ci-access-secret
+      JWT_REFRESH_SECRET: ci-refresh-secret
+      CORS_ORIGINS: http://localhost:5173
+      ACCESS_TOKEN_TTL_SECONDS: 900
+      REFRESH_TOKEN_TTL_SECONDS: 2592000
+      POLL_INTERVAL_MS: 30000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: NextPlanner2/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Run API integration tests
+        run: |
+          set -o pipefail
+          npm run test:api:ci | tee api-test-output.log
+      - name: Upload API test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nextplanner2-api-test-output
+          path: NextPlanner2/api-test-output.log

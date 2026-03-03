@@ -188,12 +188,22 @@ npm run test:api:local
 npm run test:api:local -- --with-docker
 ```
 
+For CI execution (expects `DATABASE_URL` from pipeline environment):
+
+```bash
+npm run test:api:ci
+```
+
 ## Ops runbooks
 
 - `docs/ops/environments.md`
 - `docs/ops/monitoring-and-alerting.md`
 - `docs/ops/backup-restore-runbook.md`
+- `docs/ops/go-live-checklist.md`
+- `docs/ops/ci-api-tests.md`
+- `docs/ops/ci-api-test-evidence.md`
 - Managed cloud blueprint: `infra/render/render.yaml`
+- CI workflow (parent repo): `../.github/workflows/nextplanner2-api-tests.yml`
 
 ## iPad support
 

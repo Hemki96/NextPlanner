@@ -22,9 +22,11 @@
 
 1. Merge to `main`.
 2. Deploy automatically to `staging`.
-3. Run API tests (`npm run test:api`) and smoke checks (`/healthz`, `/readyz`, `/metrics`).
+3. Run API tests (`npm run test:api:ci`) and smoke checks (`/healthz`, `/readyz`, `/metrics`).
 4. Manual approval.
 5. Deploy to `prod`.
+
+CI reference: `../.github/workflows/nextplanner2-api-tests.yml`
 
 ## Rollback
 

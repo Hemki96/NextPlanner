@@ -30,20 +30,15 @@ if [[ "${AUTO_DB_UP}" == "1" ]]; then
     echo "Starting local PostgreSQL via docker compose..."
     npm run db:up >/dev/null
   else
-    echo "docker not found; skipping automatic db startup." >&2
+    echo "--with-docker was requested but docker is not installed." >&2
+    exit 1
   fi
 fi
 
 echo "Running DB preflight checks..."
-TMP_SQL="$(mktemp)"
-trap 'rm -f "${TMP_SQL}"' EXIT
-printf "SELECT 1;\n" > "${TMP_SQL}"
+bash "${REPO_ROOT}/scripts/wait-for-db.sh" "${SCHEMA_PATH}" 45 2
 
-if ! npx prisma db execute --schema "${SCHEMA_PATH}" --file "${TMP_SQL}" >/dev/null; then
-  echo "Database connectivity check failed. Verify PostgreSQL is running and DATABASE_URL is correct." >&2
-  exit 1
-fi
-
+npm run db:generate >/dev/null
 npx prisma db push --schema "${SCHEMA_PATH}" --skip-generate >/dev/null
 
 echo "Running API integration tests..."
