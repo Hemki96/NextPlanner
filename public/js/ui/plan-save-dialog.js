@@ -1,4 +1,5 @@
 import { ApiError, apiRequest, canUseApi, describeApiError } from "../utils/api-client.js";
+import { createFocusTrap } from "./focus-trap.js";
 
 const PREFS_STORAGE_KEY = "nextplanner.plan.save.dialog";
 
@@ -155,8 +156,11 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
     };
   }
 
+  const focusTrap = createFocusTrap(overlay);
   let currentPlan = null;
   let isOpen = false;
+  let isSubmitting = false;
+  const submitButton = form.querySelector('[type="submit"]');
   const preferences = readPreferences();
   let queryDefaults = readQueryDefaults();
   let queryDefaultsConsumed = false;
@@ -219,6 +223,7 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
     overlay.setAttribute("aria-hidden", "true");
     overlay.setAttribute("hidden", "");
     document.body.classList.remove("no-scroll");
+    focusTrap.deactivate();
     clearStatus(statusElement);
     form.reset();
   }
@@ -257,6 +262,7 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
     overlay.setAttribute("aria-hidden", "false");
     overlay.classList.add("is-visible");
     document.body.classList.add("no-scroll");
+    focusTrap.activate();
     isOpen = true;
 
     window.setTimeout(() => {
@@ -290,6 +296,9 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
 
   async function handleSubmit(event) {
     event.preventDefault();
+    if (isSubmitting) {
+      return;
+    }
 
     const planText = (planInput.value ?? "").trim();
     if (!planText) {
@@ -361,32 +370,43 @@ export function initPlanSaveDialog({ planInput, saveButton }) {
       metadata,
     };
 
+    isSubmitting = true;
+    if (submitButton) {
+      submitButton.disabled = true;
+    }
     setStatus(statusElement, "Plan wird gespeichert …", "info");
-    const result = await persistPlanViaApi(planRecord);
+    try {
+      const result = await persistPlanViaApi(planRecord);
 
-    if (!result.ok) {
-      const reason = result.reason ? ` ${result.reason}` : "";
-      setStatus(
-        statusElement,
-        `Plan konnte nicht gespeichert werden.${reason || " Bitte stelle sicher, dass der lokale Server läuft."}`,
-        "error",
-      );
-      return;
-    }
+      if (!result.ok) {
+        const reason = result.reason ? ` ${result.reason}` : "";
+        setStatus(
+          statusElement,
+          `Plan konnte nicht gespeichert werden.${reason || " Bitte stelle sicher, dass der lokale Server läuft."}`,
+          "error",
+        );
+        return;
+      }
 
-    persistPreferences({ focus, date: isoDate, time: rawTime });
-    setStatus(statusElement, "Plan erfolgreich in der lokalen Datenbank gespeichert.", "success");
-    if (typeof document !== "undefined") {
-      const savedPlan = result.plan ?? null;
-      document.dispatchEvent(
-        new CustomEvent("nextplanner:plan-saved", {
-          detail: savedPlan ? { plan: savedPlan } : {},
-        }),
-      );
+      persistPreferences({ focus, date: isoDate, time: rawTime });
+      setStatus(statusElement, "Plan erfolgreich in der lokalen Datenbank gespeichert.", "success");
+      if (typeof document !== "undefined") {
+        const savedPlan = result.plan ?? null;
+        document.dispatchEvent(
+          new CustomEvent("nextplanner:plan-saved", {
+            detail: savedPlan ? { plan: savedPlan } : {},
+          }),
+        );
+      }
+      window.setTimeout(() => {
+        closeOverlay();
+      }, 500);
+    } finally {
+      isSubmitting = false;
+      if (submitButton) {
+        submitButton.disabled = false;
+      }
     }
-    window.setTimeout(() => {
-      closeOverlay();
-    }, 500);
   }
 
   saveButton.addEventListener("click", () => {

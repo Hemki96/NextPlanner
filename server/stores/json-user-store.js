@@ -1,21 +1,17 @@
 // Speichert Benutzer in einer JSON-Datei und validiert Passwörter und Rollen.
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { promises as fs } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 import { DATA_DIR } from "../config.js";
 import { logger } from "../logger.js";
+import { isolateCorruptFile, writeJsonFileAtomically } from "./atomic-json-file.js";
 
 const DEFAULT_FILE_NAME = "users.json";
 const ALLOWED_ROLES = new Set(["admin", "editor", "user", "viewer"]);
 
 function resolveDefaultFile() {
   return join(DATA_DIR, DEFAULT_FILE_NAME);
-}
-
-async function ensureDirectory(filePath) {
-  const directory = dirname(filePath);
-  await fs.mkdir(directory, { recursive: true });
 }
 
 export class UserValidationError extends Error {
@@ -101,6 +97,7 @@ export class JsonUserStore {
   #data = { nextId: 1, users: [] };
   #writeQueue = Promise.resolve();
   #closed = false;
+  #corruptIssue = null;
 
   constructor(options = {}) {
     const { storageFile = resolveDefaultFile() } = options;
@@ -134,11 +131,17 @@ export class JsonUserStore {
       };
       await this.#persist();
     } catch (error) {
-      if (error?.code !== "ENOENT") {
-        logger.warn("Konnte User-Datei nicht lesen: %s", error instanceof Error ? error.message : error);
+      if (error?.code === "ENOENT") {
+        this.#data = { nextId: 1, users: [] };
+        await this.#persist();
+        return;
       }
+      logger.warn("Konnte User-Datei nicht lesen: %s", error instanceof Error ? error.message : error);
+      const backupName = await isolateCorruptFile(this.#file);
       this.#data = { nextId: 1, users: [] };
-      await this.#persist();
+      this.#corruptIssue = new Error(
+        `User-Datei war beschädigt und wurde als '${backupName ?? "Sicherung"}' isoliert.`,
+      );
     }
   }
 
@@ -188,15 +191,26 @@ export class JsonUserStore {
   }
 
   async #persist(data = this.#data) {
-    await ensureDirectory(this.#file);
-    await fs.writeFile(this.#file, JSON.stringify(data), "utf8");
+    await writeJsonFileAtomically(this.#file, data);
   }
 
-  async #enqueueWrite(data) {
-    const payload = data ?? this.#data;
-    const writeTask = this.#writeQueue.then(() => this.#persist(payload));
-    this.#writeQueue = writeTask.catch(() => {});
-    return writeTask;
+  // Führt eine Mutation inklusive des Schreibvorgangs serialisiert aus. Nur
+  // nach erfolgreichem Write wird der neue Zustand übernommen; bei einem Fehler
+  // bleibt der alte Zustand im Speicher erhalten.
+  #mutate(mutation) {
+    const task = this.#writeQueue.then(async () => {
+      const previous = this.#data;
+      try {
+        const result = await mutation();
+        await this.#persist();
+        return result;
+      } catch (error) {
+        this.#data = previous;
+        throw error;
+      }
+    });
+    this.#writeQueue = task.then(() => {}, () => {});
+    return task;
   }
 
   async listUsers() {
@@ -234,27 +248,29 @@ export class JsonUserStore {
   async createUser(input) {
     await this.#assertOpen();
     await this.#ready;
-    const username = normalizeUsername(input?.username);
-    const password = validatePasswordPolicy(input?.password ?? "");
-    const roles = sanitizeRoles(input?.roles);
-    const active = input?.active === false ? false : true;
-    this.#ensureUniqueUsername(username);
-    const salt = randomBytes(16).toString("hex");
-    const now = new Date().toISOString();
-    const user = {
-      id: this.#data.nextId++,
-      username,
-      roles,
-      active,
-      passwordHash: hashPassword(password, salt),
-      passwordSalt: salt,
-      passwordChangedAt: now,
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.#data.users.push(user);
-    await this.#enqueueWrite();
-    return cloneUser(user);
+    return this.#mutate(() => {
+      const username = normalizeUsername(input?.username);
+      const password = validatePasswordPolicy(input?.password ?? "");
+      const roles = sanitizeRoles(input?.roles);
+      const active = input?.active === false ? false : true;
+      this.#ensureUniqueUsername(username);
+      const salt = randomBytes(16).toString("hex");
+      const now = new Date().toISOString();
+      this.#data.nextId += 1;
+      const user = {
+        id: this.#data.nextId,
+        username,
+        roles,
+        active,
+        passwordHash: hashPassword(password, salt),
+        passwordSalt: salt,
+        passwordChangedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.#data.users.push(user);
+      return cloneUser(user);
+    });
   }
 
   async #findStoredUserByUsername(username) {
@@ -272,49 +288,50 @@ export class JsonUserStore {
   async updateUser(id, changes) {
     await this.#assertOpen();
     await this.#ready;
-    const user = this.#data.users.find((entry) => entry.id === id);
-    if (!user) {
-      return null;
-    }
-    let changed = false;
-    if (Object.hasOwn(changes, "username")) {
-      const username = normalizeUsername(changes.username);
-      this.#ensureUniqueUsername(username, id);
-      if (username !== user.username) {
-        user.username = username;
+    return this.#mutate(() => {
+      const user = this.#data.users.find((entry) => entry.id === id);
+      if (!user) {
+        return null;
+      }
+      let changed = false;
+      if (Object.hasOwn(changes, "username")) {
+        const username = normalizeUsername(changes.username);
+        this.#ensureUniqueUsername(username, id);
+        if (username !== user.username) {
+          user.username = username;
+          changed = true;
+        }
+      }
+      if (Object.hasOwn(changes, "roles")) {
+        const roles = sanitizeRoles(changes.roles);
+        const hasDifference =
+          roles.length !== user.roles.length || roles.some((role, index) => role !== user.roles[index]);
+        if (hasDifference) {
+          user.roles = roles;
+          changed = true;
+        }
+      }
+      if (Object.hasOwn(changes, "active")) {
+        const active = changes.active !== false;
+        if (active !== user.active) {
+          user.active = active;
+          changed = true;
+        }
+      }
+      if (Object.hasOwn(changes, "password")) {
+        const password = validatePasswordPolicy(changes.password);
+        const salt = randomBytes(16).toString("hex");
+        user.passwordSalt = salt;
+        user.passwordHash = hashPassword(password, salt);
+        user.passwordChangedAt = new Date().toISOString();
         changed = true;
       }
-    }
-    if (Object.hasOwn(changes, "roles")) {
-      const roles = sanitizeRoles(changes.roles);
-      const hasDifference =
-        roles.length !== user.roles.length || roles.some((role, index) => role !== user.roles[index]);
-      if (hasDifference) {
-        user.roles = roles;
-        changed = true;
+      if (!changed) {
+        return cloneUser(user);
       }
-    }
-    if (Object.hasOwn(changes, "active")) {
-      const active = changes.active !== false;
-      if (active !== user.active) {
-        user.active = active;
-        changed = true;
-      }
-    }
-    if (Object.hasOwn(changes, "password")) {
-      const password = validatePasswordPolicy(changes.password);
-      const salt = randomBytes(16).toString("hex");
-      user.passwordSalt = salt;
-      user.passwordHash = hashPassword(password, salt);
-      user.passwordChangedAt = new Date().toISOString();
-      changed = true;
-    }
-    if (!changed) {
+      user.updatedAt = new Date().toISOString();
       return cloneUser(user);
-    }
-    user.updatedAt = new Date().toISOString();
-    await this.#enqueueWrite();
-    return cloneUser(user);
+    });
   }
 
   async verifyCredentials(username, password) {
@@ -337,13 +354,14 @@ export class JsonUserStore {
   async deleteUser(id) {
     await this.#assertOpen();
     await this.#ready;
-    const index = this.#data.users.findIndex((entry) => entry.id === id);
-    if (index === -1) {
-      return false;
-    }
-    this.#data.users.splice(index, 1);
-    await this.#enqueueWrite();
-    return true;
+    return this.#mutate(() => {
+      const index = this.#data.users.findIndex((entry) => entry.id === id);
+      if (index === -1) {
+        return false;
+      }
+      this.#data.users.splice(index, 1);
+      return true;
+    });
   }
 
   async checkHealth() {
@@ -351,11 +369,10 @@ export class JsonUserStore {
       throw new Error("User store is closed");
     }
     await this.#ready;
-    return {
-      storageFile: this.#file,
-      userCount: this.#data.users.length,
-      nextId: this.#data.nextId,
-    };
+    if (this.#corruptIssue) {
+      throw this.#corruptIssue;
+    }
+    return { status: "ready" };
   }
 
   async close() {

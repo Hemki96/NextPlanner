@@ -84,6 +84,7 @@ export function initFeatureToggleSection({
   }
 
   let statusTimeout = null;
+  let focusKeyAfterRender = null;
   const rootNode = root ?? document;
 
   function setStatus(type, message) {
@@ -132,6 +133,7 @@ export function initFeatureToggleSection({
     if (!featureKey) {
       return;
     }
+    focusKeyAfterRender = featureKey;
     const updatedSettings = setFeatureEnabled(featureKey, target.checked);
     applyFeatureVisibility(rootNode, updatedSettings);
     updateToggleStateLabel(target);
@@ -154,6 +156,13 @@ export function initFeatureToggleSection({
   const unsubscribe = subscribeToFeatureSettings((settings) => {
     render(settings);
     applyFeatureVisibility(rootNode, settings);
+    if (focusKeyAfterRender) {
+      const nextCheckbox = listElement.querySelector(
+        `input[data-feature-key="${focusKeyAfterRender}"]`,
+      );
+      nextCheckbox?.focus();
+      focusKeyAfterRender = null;
+    }
   });
 
   listElement.addEventListener("change", handleFeatureChange);

@@ -53,7 +53,6 @@ class UserService {
   constructor({ store, defaults = [] } = {}) {
     this.store = store;
     this.registry = buildUserRegistry(defaults);
-    this.knownUsers = new Map();
     this.seedInitialized = false;
     this.seedPromise = Promise.resolve();
   }
@@ -91,33 +90,11 @@ class UserService {
     return this.seedPromise ?? Promise.resolve();
   }
 
-  remember(user) {
-    if (!user?.id) return;
-    const id = String(user.id);
-    if (!id) return;
-    this.knownUsers.set(id, {
-      id,
-      name: user.name ?? user.username ?? id,
-      role: user.role ?? (Array.isArray(user.roles) && user.roles.includes("admin") ? "admin" : "user"),
-    });
-  }
-
   async listUsers() {
-    const stored = this.store && typeof this.store.listUsers === "function"
-      ? await this.store.listUsers()
-      : [];
-    const merged = new Map();
-    for (const user of stored) {
-      const id = user.id ?? user.username;
-      if (!id) continue;
-      merged.set(String(id), user);
+    if (!this.store || typeof this.store.listUsers !== "function") {
+      return [];
     }
-    for (const [id, known] of this.knownUsers.entries()) {
-      if (!merged.has(id)) {
-        merged.set(id, known);
-      }
-    }
-    return Array.from(merged.values());
+    return this.store.listUsers();
   }
 
   async verifyCredentials(username, password) {

@@ -5,6 +5,7 @@ import {
   describeJsonImportError,
   parsePlanImportJson,
 } from "../utils/plan-serialization.js";
+import { createFocusTrap } from "./focus-trap.js";
 
 /**
  * Stellt Import- und Export-Funktionen für den Trainingsplan bereit, damit
@@ -38,7 +39,7 @@ export function initIOControls({
   let menuOpen = false;
   let selectionOverlayOpen = false;
   let selectionPlans = [];
-  let selectionReturnFocus = null;
+  const selectionFocusTrap = importSelectionOverlay ? createFocusTrap(importSelectionOverlay) : null;
 
   const dateFormatter = typeof Intl !== "undefined"
     ? new Intl.DateTimeFormat("de-DE", { dateStyle: "medium" })
@@ -165,11 +166,7 @@ export function initIOControls({
         "Mehrere Pläne gefunden. Wähle einen Plan zum Laden oder übernehme alle Inhalte.";
     }
     document.body?.classList?.remove("no-scroll");
-    const focusTarget = selectionReturnFocus;
-    selectionReturnFocus = null;
-    if (restoreFocus && focusTarget instanceof HTMLElement) {
-      focusTarget.focus();
-    }
+    selectionFocusTrap?.deactivate({ restoreFocus });
   };
 
   const openSelectionOverlay = (plans) => {
@@ -183,8 +180,6 @@ export function initIOControls({
       content: normalizeLineEndings(plan.content ?? ""),
     }));
     selectionOverlayOpen = true;
-    selectionReturnFocus =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
     importSelectionList.innerHTML = "";
     selectionPlans.forEach((plan, index) => {
@@ -233,6 +228,7 @@ export function initIOControls({
     importSelectionOverlay.setAttribute("aria-hidden", "false");
     importSelectionOverlay.classList.add("is-visible");
     document.body?.classList?.add("no-scroll");
+    selectionFocusTrap?.activate();
 
     window.setTimeout(() => {
       const firstButton = importSelectionList.querySelector("button");

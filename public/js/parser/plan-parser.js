@@ -54,7 +54,9 @@ function isSetHintLine(line) {
  * Versucht, eine Zeile als Trainings-Set zu interpretieren und die wichtigsten Attribute auszulesen.
  */
 function parseSetLine(line) {
-  const distanceMatch = line.match(/(?:(\d+)\s*(?:x|×)\s*)?(\d+)\s*(m|meter|meters|mtr|yd|yards?)/i);
+  // Die Einheit muss am Wortende stehen, sonst wird aus "4x50min" fälschlich
+  // eine Distanz von 200 m. (?![a-z]) verhindert das (case-insensitive).
+  const distanceMatch = line.match(/(?:(\d+)\s*(?:x|×)\s*)?(\d+)\s*(m|meter|meters|mtr|yd|yards?)(?![a-z])/i);
   if (!distanceMatch) {
     return null;
   }
@@ -95,7 +97,11 @@ function parseSetLine(line) {
     equipmentMap.set(key, trimmed);
   };
   for (const match of line.matchAll(/w\/([^\n]+)/gi)) {
-    const sanitizedSegment = match[1].replace(/(@|P\s*:).*/i, "").trim();
+    // Alles nach Intervall, Pause oder einem weiteren Set gehört nicht mehr
+    // zum Material (z. B. "w/ Flossen locker 4x50m @1:20").
+    const sanitizedSegment = match[1]
+      .replace(/(?:@|P\s*:|\b\d+\s*[x×]\s*\d+).*/i, "")
+      .trim();
     const items = sanitizedSegment
       .split(/[,+]/)
       .map((item) => item.trim())

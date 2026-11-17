@@ -2,7 +2,7 @@
 // Client-Seite und stellt sicher, dass nur valide Strukturen gespeichert
 // werden.
 import { promises as fs } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
 import {
@@ -11,16 +11,12 @@ import {
 } from "../../public/js/utils/snippet-storage.js";
 import { DATA_DIR } from "../config.js";
 import { logger } from "../logger.js";
+import { isolateCorruptFile, writeJsonFileAtomically } from "./atomic-json-file.js";
 
 const DEFAULT_FILE_NAME = "team-snippets.json";
 
 function resolveDefaultFile() {
   return join(DATA_DIR, DEFAULT_FILE_NAME);
-}
-
-async function ensureDirectory(filePath) {
-  const directory = dirname(filePath);
-  await fs.mkdir(directory, { recursive: true });
 }
 
 const cloneValue =
@@ -55,6 +51,7 @@ export class JsonSnippetStore {
   #writeQueue = Promise.resolve();
   #ready;
   #closed = false;
+  #corruptIssue = null;
 
   constructor(options = {}) {
     const { storageFile = resolveDefaultFile() } = options;
@@ -91,28 +88,44 @@ export class JsonSnippetStore {
         await this.#persist();
       }
     } catch (error) {
-      if (error?.code !== "ENOENT") {
-        logger.warn("Konnte Team-Snippet-Datei nicht lesen: %s", error);
+      if (error?.code === "ENOENT") {
+        this.#data = {
+          updatedAt: new Date().toISOString(),
+          groups: buildDefaultGroups(),
+        };
+        await this.#persist();
+        return;
       }
+      logger.warn("Konnte Team-Snippet-Datei nicht lesen: %s", error);
+      const backupName = await isolateCorruptFile(this.#file);
       this.#data = {
         updatedAt: new Date().toISOString(),
         groups: buildDefaultGroups(),
       };
-      await this.#persist();
+      this.#corruptIssue = new Error(
+        `Team-Snippet-Datei war beschädigt und wurde als '${backupName ?? "Sicherung"}' isoliert.`,
+      );
     }
   }
 
   async #persist(data = this.#data) {
-    await ensureDirectory(this.#file);
-    const payload = JSON.stringify(data);
-    await fs.writeFile(this.#file, payload, "utf8");
+    await writeJsonFileAtomically(this.#file, data);
   }
 
-  async #enqueueWrite(data) {
-    const payload = data ?? snapshot(this.#data);
-    const writeTask = this.#writeQueue.then(() => this.#persist(payload));
-    this.#writeQueue = writeTask.catch(() => {});
-    return writeTask;
+  #mutate(mutation) {
+    const task = this.#writeQueue.then(async () => {
+      const previous = this.#data;
+      try {
+        const result = await mutation();
+        await this.#persist();
+        return result;
+      } catch (error) {
+        this.#data = previous;
+        throw error;
+      }
+    });
+    this.#writeQueue = task.then(() => {}, () => {});
+    return task;
   }
 
   async getLibrary() {
@@ -125,13 +138,14 @@ export class JsonSnippetStore {
       throw new Error("Snippet store is closed");
     }
     await this.#ready;
-    const sanitized = sanitizeQuickSnippetGroups(groups, { allowEmpty: true });
-    if (isDeepStrictEqual(sanitized, this.#data.groups)) {
+    return this.#mutate(() => {
+      const sanitized = sanitizeQuickSnippetGroups(groups, { allowEmpty: true });
+      if (isDeepStrictEqual(sanitized, this.#data.groups)) {
+        return snapshot(this.#data);
+      }
+      this.#data = { groups: sanitized, updatedAt: new Date().toISOString() };
       return snapshot(this.#data);
-    }
-    this.#data = { groups: sanitized, updatedAt: new Date().toISOString() };
-    await this.#enqueueWrite(snapshot(this.#data));
-    return snapshot(this.#data);
+    });
   }
 
   async checkHealth() {
@@ -139,11 +153,10 @@ export class JsonSnippetStore {
       throw new Error("Snippet store is closed");
     }
     await this.#ready;
-    return {
-      storageFile: this.#file,
-      groupCount: Array.isArray(this.#data?.groups) ? this.#data.groups.length : 0,
-      updatedAt: this.#data?.updatedAt ?? null,
-    };
+    if (this.#corruptIssue) {
+      throw this.#corruptIssue;
+    }
+    return { status: "ready" };
   }
 
   async close() {

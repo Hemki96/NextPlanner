@@ -40,6 +40,7 @@ function createTemplateButton(label, type, extraClass = "") {
  */
 export function renderSummary(plan, dom) {
   const {
+    summaryStatusEl,
     totalTimeEl,
     totalDistanceEl,
     averagePaceEl,
@@ -50,6 +51,10 @@ export function renderSummary(plan, dom) {
 
   totalTimeEl.textContent = formatDuration(plan.totalTime);
   totalDistanceEl.textContent = formatDistance(plan.totalDistance);
+  if (summaryStatusEl) {
+    // Nur eine kurze Statusmeldung als Live-Region, nicht der ganze Block.
+    summaryStatusEl.textContent = `Auswertung: ${formatDistance(plan.totalDistance)}, ${formatDuration(plan.totalTime)}.`;
+  }
   if (averagePaceEl) {
     averagePaceEl.textContent = plan.averagePaceSeconds
       ? formatPace(plan.averagePaceSeconds)
@@ -107,7 +112,10 @@ export function renderSummary(plan, dom) {
   } else {
     for (const item of equipmentEntries) {
       const li = document.createElement("li");
-      li.innerHTML = `<em>${item.label}</em> (${item.count}×)`;
+      const label = document.createElement("em");
+      // Material stammt aus dem Freitext: niemals als HTML interpretieren.
+      label.textContent = item.label;
+      li.append(label, ` (${item.count}×)`);
       equipmentListEl.appendChild(li);
     }
   }
@@ -264,7 +272,9 @@ export function renderSummary(plan, dom) {
         if (set.equipment.length > 0) {
           const equipment = document.createElement("span");
           equipment.className = "set-detail set-equipment";
-          equipment.innerHTML = `Material: <em>${set.equipment.join(", ")}</em>`;
+          const equipmentLabel = document.createElement("em");
+          equipmentLabel.textContent = set.equipment.join(", ");
+          equipment.append("Material: ", equipmentLabel);
           details.appendChild(equipment);
         }
 

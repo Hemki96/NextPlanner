@@ -118,7 +118,7 @@ describe("Plan API", () => {
     assert.equal(stored.metadata.coach, "Kim");
   });
 
-  it("setzt Audit-Felder bei Requests und liefert Benutzerinfos", async () => {
+  it("ignoriert Identitäts-Header vollständig", async () => {
     const payload = {
       title: "Audit-Plan",
       content: "Aufwärmen",
@@ -132,37 +132,15 @@ describe("Plan API", () => {
         "Content-Type": "application/json",
         "X-User-Id": "coach-1",
         "X-User-Name": "Coach Kim",
+        "X-User-Role": "admin",
       },
       body: JSON.stringify(payload),
     });
 
     assert.equal(createResponse.status, 201);
     const created = await createResponse.json();
-    assert.equal(created.createdByUserId, "coach-1");
-    assert.equal(created.updatedByUserId, "coach-1");
-
-    const updatePayload = {
-      ...created,
-      focus: "TE",
-      metadata: created.metadata ?? {},
-    };
-
-    const updateResponse = await fetch(`${baseUrl}/api/plans/${created.id}`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        "If-Match": createResponse.headers.get("etag"),
-        "X-User-Id": "coach-2",
-        "X-User-Name": "Coach Sam",
-      },
-      body: JSON.stringify(updatePayload),
-    });
-
-    assert.equal(updateResponse.status, 200);
-    const updated = await updateResponse.json();
-    assert.equal(updated.createdByUserId, "coach-1");
-    assert.equal(updated.updatedByUserId, "coach-2");
-    assert.notEqual(updated.updatedAt, created.updatedAt);
+    assert.ok(!created.createdByUserId, "kein User-Kontext aus Headern");
+    assert.ok(!created.updatedByUserId, "kein User-Kontext aus Headern");
 
     const usersResponse = await fetch(`${baseUrl}/api/users`, {
       headers: {
@@ -174,9 +152,8 @@ describe("Plan API", () => {
     assert.equal(usersResponse.status, 200);
     const users = await usersResponse.json();
     const userIds = users.map((user) => user.id);
-    assert.ok(userIds.includes("coach-1"));
-    assert.ok(userIds.includes("coach-2"));
-    assert.ok(userIds.includes("admin-1"));
+    assert.ok(!userIds.includes("coach-1"));
+    assert.ok(!userIds.includes("admin-1"));
   });
 
   it("aktualisiert und löscht Pläne", async () => {
@@ -498,6 +475,67 @@ describe("Plan API", () => {
     assert.equal(cleanup.status, 204);
   });
 
+  it("verwendet für If-Match überall starke ETags und 428 bei fehlender Vorbedingung", async () => {
+    const templatePayload = {
+      type: "Set",
+      title: "ETag-Vorlage",
+      content: "4x50m",
+      tags: [],
+    };
+    const createdResponse = await authFetch(`${baseUrl}/api/templates`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(templatePayload),
+    });
+    assert.equal(createdResponse.status, 201);
+    const templateEtag = createdResponse.headers.get("etag");
+    const template = await createdResponse.json();
+
+    const missing = await authFetch(`${baseUrl}/api/templates/${template.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(templatePayload),
+    });
+    assert.equal(missing.status, 428);
+
+    const weak = await authFetch(`${baseUrl}/api/templates/${template.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "If-Match": `W/${templateEtag}` },
+      body: JSON.stringify(templatePayload),
+    });
+    assert.equal(weak.status, 412);
+
+    const highlight = await authFetch(`${baseUrl}/api/highlight-config`);
+    const highlightEtag = highlight.headers.get("etag");
+    const missingHighlight = await authFetch(`${baseUrl}/api/highlight-config`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ intensities: ["EN1"] }),
+    });
+    assert.equal(missingHighlight.status, 428);
+    const weakHighlight = await authFetch(`${baseUrl}/api/highlight-config`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "If-Match": `W/${highlightEtag}` },
+      body: JSON.stringify({ intensities: ["EN1"] }),
+    });
+    assert.equal(weakHighlight.status, 412);
+  });
+
+  it("liefert bei If-None-Match '*' keine 304 für existierende Pläne", async () => {
+    const plan = await store.createPlan({
+      title: "Star-Cache",
+      content: "Plan",
+      planDate: "2024-06-07",
+      focus: "AR",
+    });
+    const response = await authFetch(`${baseUrl}/api/plans/${plan.id}`, {
+      headers: { "If-None-Match": "*" },
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.id, plan.id);
+  });
+
   it("verwaltet die Highlight-Konfiguration über die API", async () => {
     const initialResponse = await authFetch(`${baseUrl}/api/highlight-config`);
     assert.equal(initialResponse.status, 200);
@@ -651,6 +689,10 @@ describe("Plan API", () => {
     assert.equal(payload.status, "ok");
     assert.ok(payload.checks.planStore);
     assert.equal(payload.checks.planStore.status, "ok");
+    const healthText = JSON.stringify(payload);
+    assert.ok(!healthText.includes(tempDir), "Health-Antwort enthält keinen absoluten Pfad");
+    assert.ok(!healthText.includes("userCount"), "Health-Antwort enthält keine Kontenanzahl");
+    assert.ok(!healthText.includes("storageFile"), "Health-Antwort enthält keine Dateipfade");
 
     const headResponse = await fetch(`${baseUrl}/readyz`, { method: "HEAD" });
     assert.equal(headResponse.status, 200);

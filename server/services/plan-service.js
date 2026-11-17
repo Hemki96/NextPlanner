@@ -1,45 +1,7 @@
-// Service-spezifische Hilfen für Pläne, inklusive ETag-Berechnung und Export
-// von Fehlerklassen aus dem Plan-Store.
-import { createHash } from "node:crypto";
-
+// Service für Pläne inklusive Export der Fehlerklassen aus dem Plan-Store.
+// ETag-Berechnung und -Vergleich kommen aus dem gemeinsamen HTTP-Helfer.
+import { buildPlanEtag, etagMatches } from "../http/etag.js";
 import { PlanConflictError, PlanValidationError } from "../stores/json-plan-store.js";
-
-function sortCanonical(value) {
-  if (Array.isArray(value)) {
-    return value.map((item) => sortCanonical(item));
-  }
-  if (value && typeof value === "object") {
-    return Object.keys(value)
-      .sort()
-      .reduce((acc, key) => {
-        acc[key] = sortCanonical(value[key]);
-        return acc;
-      }, {});
-  }
-  return value;
-}
-
-function canonicalizePlan(plan) {
-  const canonicalPlan = {
-    id: plan.id,
-    title: plan.title,
-    content: plan.content,
-    planDate: plan.planDate,
-    focus: plan.focus,
-    metadata: plan.metadata ?? {},
-    createdAt: plan.createdAt,
-    updatedAt: plan.updatedAt,
-    createdByUserId: plan.createdByUserId ?? null,
-    updatedByUserId: plan.updatedByUserId ?? null,
-  };
-  return JSON.stringify(sortCanonical(canonicalPlan));
-}
-
-function buildPlanEtag(plan) {
-  const canonical = canonicalizePlan(plan);
-  const hash = createHash("sha256").update(canonical).digest("hex");
-  return `"${hash}"`;
-}
 
 class PlanService {
   constructor({ store }) {
@@ -71,7 +33,7 @@ class PlanService {
     if (!current) {
       return { plan: null, etag: null };
     }
-    if (expectedEtag && expectedEtag !== buildPlanEtag(current)) {
+    if (expectedEtag && !etagMatches(expectedEtag, buildPlanEtag(current), { strong: true })) {
       throw new PlanConflictError("Plan wurde bereits geändert.", {
         currentPlan: current,
         expectedUpdatedAt: current.updatedAt,
@@ -89,7 +51,7 @@ class PlanService {
     if (!current) {
       return { deleted: false, etag: null };
     }
-    if (expectedEtag && expectedEtag !== buildPlanEtag(current)) {
+    if (expectedEtag && !etagMatches(expectedEtag, buildPlanEtag(current), { strong: true })) {
       throw new PlanConflictError("Plan wurde bereits geändert.", {
         currentPlan: current,
         expectedUpdatedAt: current.updatedAt,

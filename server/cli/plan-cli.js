@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // Kommandozeilenwerkzeug, um Pläne zu importieren, exportieren oder zu prüfen,
 // ohne den Webserver zu benutzen. Hilfreich für Backups und Skripting.
-import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+
+import { writeJsonFileAtomically } from "../stores/atomic-json-file.js";
 
 import {
   JsonPlanStore,
@@ -192,7 +194,6 @@ async function handleValidate(store, { options, positionals }, jsonOutput) {
   if (!plan) {
     throw new PlanValidationError(`Plan mit ID ${id} wurde nicht gefunden.`);
   }
-  await store.replacePlan(id, plan, { expectedUpdatedAt: plan.updatedAt });
   if (jsonOutput) {
     console.log(JSON.stringify({ id: plan.id, valid: true }, null, 2));
   } else {
@@ -215,7 +216,7 @@ async function pruneBackups(directory, keep) {
   }
   const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
   const files = entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .filter((entry) => entry.isFile() && entry.name.startsWith("plans-") && entry.name.endsWith(".json"))
     .map((entry) => entry.name)
     .sort()
     .reverse();
@@ -237,7 +238,7 @@ async function handleBackup(store, { options }, jsonOutput) {
   await mkdir(backupDir, { recursive: true });
   const fileName = `plans-${formatBackupTimestamp()}.json`;
   const filePath = path.join(backupDir, fileName);
-  await writeFile(filePath, JSON.stringify(backup, null, 2), "utf8");
+  await writeJsonFileAtomically(filePath, backup);
   const removed = await pruneBackups(backupDir, prune);
   if (jsonOutput) {
     console.log(

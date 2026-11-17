@@ -4,7 +4,7 @@ Dieses Dokument fasst zusammen, wie der Zugriff auf die Anwendung geregelt ist.
 
 ## Status
 
-NextPlanner erfordert keinen Login mehr. Alle statischen Seiten und API-Endpunkte sind ohne vorherige Anmeldung erreichbar.
+NextPlanner erfordert keinen Login. Alle statischen Seiten und API-Endpunkte sind ohne vorherige Anmeldung erreichbar. Der vorgesehene Betrieb ist lokal und Single-User; siehe [ADR-0001](adr/0001-lokaler-single-user-betrieb.md).
 
 ## Rollen
 

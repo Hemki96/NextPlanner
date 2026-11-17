@@ -3,6 +3,7 @@ import {
   getTemplateTypeLabel,
   parseTagsInput,
 } from "../utils/template-storage.js";
+import { createFocusTrap } from "./focus-trap.js";
 
 function deriveSetLabel(set) {
   if (!set) {
@@ -165,6 +166,7 @@ export function initTemplateCapture({ blockList }) {
     };
   }
 
+  const focusTrap = createFocusTrap(overlay);
   let currentPlan = null;
   let selection = null;
 
@@ -173,6 +175,7 @@ export function initTemplateCapture({ blockList }) {
     overlay.setAttribute("aria-hidden", "true");
     overlay.setAttribute("hidden", "");
     document.body.classList.remove("no-scroll");
+    focusTrap.deactivate();
     clearStatus(statusElement);
     form.reset();
     selection = null;
@@ -193,6 +196,7 @@ export function initTemplateCapture({ blockList }) {
     overlay.setAttribute("aria-hidden", "false");
     overlay.classList.add("is-visible");
     document.body.classList.add("no-scroll");
+    focusTrap.activate();
 
     window.setTimeout(() => {
       titleInput.focus();
@@ -286,7 +290,10 @@ export function initTemplateCapture({ blockList }) {
   });
 
   form.addEventListener("submit", (event) => {
-    void handleSubmit(event);
+    handleSubmit(event).catch((error) => {
+      console.error("Vorlage konnte nicht erstellt werden.", error);
+      setStatus(statusElement, "Vorlage konnte nicht erstellt werden.", "error");
+    });
   });
 
   return {

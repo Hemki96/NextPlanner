@@ -10,30 +10,12 @@ import { runtimeConfig } from "../config/runtime-config.js";
 import { HttpError } from "../http/http-error.js";
 import { handleApiError, sendEmpty } from "../http/responses.js";
 import { createRequestLogger } from "../logger.js";
-import { extractRequestUser } from "./auth/request-user.js";
 import { parseApiJsonBody } from "./middleware/body-parser.js";
 import { createRequestContext } from "./request-context.js";
 import { createRouterPipeline } from "./router/index.js";
 
 const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PUBLIC_DIR = path.join(CURRENT_DIR, "..", "public");
-
-function attachHeaderUserFallback(ctx) {
-  // Fallback für automatisierte Tests oder interne Aufrufe: Der Benutzer kann
-  // per Custom-Header übergeben werden.
-  if (ctx.authUser) return;
-  const headerUser = extractRequestUser(ctx.req);
-  if (headerUser) {
-    ctx.authUser = headerUser;
-    ctx.services.userService.remember?.(headerUser);
-    if (ctx.baseLogger?.child) {
-      ctx.logger = ctx.baseLogger.child({
-        user: ctx.authUser.username ?? ctx.authUser.id,
-        roles: (ctx.authUser.roles ?? []).join(",") || undefined,
-      });
-    }
-  }
-}
 
 function createApp({
   config = runtimeConfig,
@@ -74,7 +56,6 @@ function createApp({
     });
 
     try {
-      attachHeaderUserFallback(ctx);
       await parseApiJsonBody(ctx);
       const handled = await routeRequest(ctx);
       if (!handled) {

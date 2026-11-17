@@ -1,6 +1,5 @@
-// Hilfsfunktionen zur ETag-Berechnung. Indem Plan- und Template-Daten in eine
-// kanonische Form gebracht werden, erzeugen wir stabile Hashes, die sich nur
-// ändern, wenn sich relevante Inhalte ändern.
+// Zentrale ETag-Strategie: eine kanonische Repräsentation pro Ressource, ein
+// SHA-256-Hash daraus und ein einheitlicher Vergleich für HTTP-Präconditions.
 import { createHash } from "node:crypto";
 
 function sortCanonical(value) {
@@ -19,8 +18,6 @@ function sortCanonical(value) {
 }
 
 function canonicalizePlan(plan) {
-  // Reduziert einen Plan auf die Felder, die für den ETag relevant sind, und
-  // sortiert sie, damit die Reihenfolge der Eigenschaften keine Rolle spielt.
   const canonicalPlan = {
     id: plan.id,
     title: plan.title,
@@ -37,8 +34,6 @@ function canonicalizePlan(plan) {
 }
 
 function canonicalizeTemplate(template) {
-  // Entsprechende Normalisierung für Templates. Arrays werden kopiert, damit
-  // versehentliche Mutationen nicht zurückwirken.
   const canonicalTemplate = {
     id: template.id,
     type: template.type,
@@ -52,9 +47,17 @@ function canonicalizeTemplate(template) {
   return JSON.stringify(sortCanonical(canonicalTemplate));
 }
 
+function canonicalizeHighlightConfig(config) {
+  return JSON.stringify(
+    sortCanonical({
+      intensities: config.intensities,
+      equipment: config.equipment,
+      updatedAt: config.updatedAt,
+    }),
+  );
+}
+
 function buildEtagFromCanonical(canonicalValue) {
-  // Bildet aus dem kanonischen JSON einen SHA-256-Hash und verpackt ihn als
-  // gültigen ETag-String.
   const hash = createHash("sha256").update(canonicalValue).digest("hex");
   return `"${hash}"`;
 }
@@ -67,4 +70,49 @@ function buildTemplateEtag(template) {
   return buildEtagFromCanonical(canonicalizeTemplate(template));
 }
 
-export { buildPlanEtag, buildTemplateEtag, canonicalizePlan, canonicalizeTemplate };
+function buildHighlightConfigEtag(config) {
+  return buildEtagFromCanonical(canonicalizeHighlightConfig(config));
+}
+
+// Zerlegt eine ETag-Liste. ETags dürfen Kommata enthalten, deshalb wird nicht
+// einfach bei "," gesplittet.
+function parseEtagList(header) {
+  if (typeof header !== "string" || !header.trim()) {
+    return [];
+  }
+  return header.match(/"(?:[^"\\]|\\.)*"|[^\s,]+/g)?.map((tag) => tag.trim()) ?? [];
+}
+
+// Vergleich für If-Match (strong = true) und If-None-Match (strong = false).
+// If-Match akzeptiert "*", If-None-Match nicht: bei existierender Ressource
+// ist die Bedingung dort false (RFC 9110).
+function etagMatches(header, currentEtag, { strong = false } = {}) {
+  if (typeof header !== "string" || !header.trim() || !currentEtag) {
+    return false;
+  }
+  const trimmed = header.trim();
+  if (trimmed === "*") {
+    return strong;
+  }
+  const current = strong ? currentEtag : currentEtag.replace(/^W\//, "");
+  return parseEtagList(trimmed).some((candidate) => {
+    if (strong && candidate.startsWith("W/")) {
+      return false;
+    }
+    const value = candidate.replace(/^W\//, "");
+    return value === current || value === current.replace(/^W\//, "");
+  });
+}
+
+export {
+  sortCanonical,
+  canonicalizePlan,
+  canonicalizeTemplate,
+  canonicalizeHighlightConfig,
+  buildEtagFromCanonical,
+  buildPlanEtag,
+  buildTemplateEtag,
+  buildHighlightConfigEtag,
+  parseEtagList,
+  etagMatches,
+};

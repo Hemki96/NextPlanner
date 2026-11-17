@@ -24,7 +24,7 @@ Diese Liste spiegelt den Umsetzungsstand der Spezifikation wider. Für jede Vorg
 ## 5. Frontend-JavaScript (ESM)
 - [x] Sämtliche Browser-Module importieren mit Dateiendung (`public/js/app.js`).
 - [x] Kein `var`, strikte Gleichheit, frühe Returns; DOM-Zugriffe über modulare Initialisierer (`public/js/ui/*`).
-- [x] API-Client behandelt Timeouts, Offline-Fälle und differenziert HTTP-Fehler (`public/js/utils/api-client.js`).
+- [x] API-Client behandelt Timeouts (auch beim Body-Lesen), Offline-Fälle, differenzierte HTTP-Fehler und wiederholt transient fehlgeschlagene, idempotente Anfragen einmal (`public/js/utils/api-client.js`).
 
 ## 6. Parser (`public/js/parser/plan-parser.js`)
 - [x] Reines Parsen/Validieren von Texteingaben, keine DOM-Abhängigkeiten.
@@ -43,12 +43,12 @@ Diese Liste spiegelt den Umsetzungsstand der Spezifikation wider. Für jede Vorg
 ## 9. API-Client (`public/js/utils/api-client.js`)
 - [x] Stellt `get/post/put/delete/head/patch`-Funktionen bereit.
 - [x] Setzt automatisch `Accept: application/json` und `Content-Type` für JSON-Bodys.
-- [x] Verwaltet ETags: cached pro Ressource, sendet `If-Match` bei Mutationen, reagiert auf `412/409`.
+- [x] Verwaltet ETags: cached pro Ressource, sendet `If-Match` bei Mutationen, reagiert auf `412/428/409` und wiederholt transiente Idempotente-Anfragen einmal.
 
 ## 10. REST-API-Konventionen
-- [x] Endpunkte: `/api/plans`, `/api/plans/:id`, `/api/snippets`, `/api/backups`, `/api/storage/(backup|restore)`.
+- [x] Endpunkte: `/api/plans`, `/api/plans/:id`, `/api/templates`, `/api/snippets`, `/api/highlight-config`, `/api/users`, `/api/backups`.
 - [x] CORS + Sicherheitsheader (`Content-Security-Policy`, `X-Content-Type-Options`, `Cache-Control: no-store`, `Vary: Origin`).
-- [x] Statuscodes wie spezifiziert (200/201/204/304, 400/404/409/412/422/500) + strukturierte Fehler.
+- [x] Statuscodes wie spezifiziert (200/201/204/304, 400/404/409/412/422/428/500) + strukturierte Fehler.
 
 ## 11. Datenmodelle & Validierung
 - [x] Plan-Schema: Pflichtfelder + Metadaten geprüft im `JsonPlanStore`.
@@ -56,13 +56,13 @@ Diese Liste spiegelt den Umsetzungsstand der Spezifikation wider. Für jede Vorg
 - [x] Geteilte Regeln (Parser & Stores) nutzen gemeinsame Hilfsfunktionen (`public/js/utils/snippet-storage.js`).
 
 ## 12. Persistenz (JsonPlanStore & JsonSnippetStore)
-- [x] Atomare Writes über temporäre Dateien, `fsync` und Rename (`JsonPlanStore.#writeFileAtomically`).
-- [x] Write-Queue verhindert parallele Schreibzugriffe (`#writeQueue`), Snippet-Store schreibt Snapshots deterministisch.
-- [x] Backups/Korruptionsschutz: defekte Dateien werden isoliert, `data/backups/` existiert inkl. `.gitkeep`; Snippet-Dateien werden bei Fehlern neu aufgebaut.
+- [x] Atomare Writes über temporäre Dateien, `fsync` und Rename (gemeinsamer Helfer `server/stores/atomic-json-file.js`).
+- [x] Schreib-Queues serialisieren Mutationen pro Prozess; eine Dateisperre koordiniert CLI und Server über Prozessgrenzen hinweg.
+- [x] Backups/Korruptionsschutz: defekte Dateien werden isoliert statt überschrieben, `data/backups/` existiert inkl. `.gitkeep`; der Zustand wird erst nach erfolgreichem Write übernommen.
 
 ## 13. ETag/If-Match
 - [x] Starke ETags (SHA-256 über kanonische JSON-Repräsentation).
-- [x] Server erzwingt `If-Match` bei `PUT`/`DELETE` (Antwort 412 inkl. aktuellem Plan).
+- [x] Server erzwingt `If-Match` bei `PUT`/`DELETE` (428 bei fehlendem Header, 412 bei Konflikt inkl. aktuellem Plan).
 - [x] Client cached ETags und sendet sie bei Mutationen (`public/js/utils/api-client.js`).
 
 ## 14. Fehler- & Shutdown-Management

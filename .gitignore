@@ -1,0 +1,15 @@
+# Betriebssystem-Artefakte
+.DS_Store
+Thumbs.db
+
+# Lokale, maschinenabhängige Konfiguration
+*.local.json
+
+# Installierte Abhängigkeiten und Testergebnisse
+node_modules/
+test-results/
+playwright-report/
+
+# Lokal installierte Agent-Skills (Tool-Artefakte)
+.agents/
+skills-lock.json

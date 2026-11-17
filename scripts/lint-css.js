@@ -36,7 +36,13 @@ async function lint() {
 
   for (const file of files) {
     const content = await readFile(file, "utf8");
-    if (/!important/.test(content)) {
+    // Das Zurücksetzen aller Animationen für prefers-reduced-motion benötigt
+    // bewusst !important, damit es gegen spezifischere Regeln gewinnt.
+    const contentWithoutReducedMotion = content.replace(
+      /@media\s*\(prefers-reduced-motion[^)]*\)[\s\S]*?\n}/g,
+      "",
+    );
+    if (/!important/.test(contentWithoutReducedMotion)) {
       warnings.push(`${file}: vermeide '!important', nutze stattdessen spezifischere Klassen.`);
     }
     const idSelectorPattern = /#([A-Za-z][\w-]*)/g;

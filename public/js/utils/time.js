@@ -27,9 +27,12 @@ export function parseDuration(token) {
  */
 export function formatDuration(seconds) {
   if (!seconds) return "0:00";
-  const hrs = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  const secs = Math.round(seconds % 60);
+  // Erst auf ganze Sekunden runden, dann zerlegen. Sonst kann seconds % 60
+  // durch das Runden 60 ergeben (z. B. 59,6 s -> "0:60").
+  const total = Math.round(seconds);
+  const hrs = Math.floor(total / 3600);
+  const mins = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
   const pad = (n) => String(n).padStart(2, "0");
   if (hrs > 0) {
     return `${hrs}:${pad(mins)}:${pad(secs)}`;

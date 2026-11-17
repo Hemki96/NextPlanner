@@ -1,11 +1,14 @@
 const DEFAULT_TIMEOUT = 8000;
+const DEFAULT_RETRIES = 1;
+const RETRY_BASE_DELAY_MS = 150;
 const MUTATING_ETAG_METHODS = new Set(["PUT", "PATCH", "DELETE"]);
+const IDEMPOTENT_METHODS = new Set(["GET", "HEAD"]);
 const API_PREFIX = "/api/";
 
 const resourceEtags = new Map();
 
 export class ApiError extends Error {
-  constructor(message, { status = 0, body, cause, timeout = false, offline = false } = {}) {
+  constructor(message, { status = 0, body, cause, timeout = false, offline = false, transient = false } = {}) {
     super(message);
     this.name = "ApiError";
     this.status = status;
@@ -13,6 +16,7 @@ export class ApiError extends Error {
     this.cause = cause;
     this.timeout = timeout;
     this.offline = offline;
+    this.transient = transient;
   }
 }
 
@@ -99,9 +103,73 @@ export function getCachedEtag(path) {
   return resourceEtags.get(cacheKey) ?? null;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function isTransientStatus(status) {
+  return status >= 500 || status === 408 || status === 429;
+}
+
+function normalizeError(error) {
+  if (error instanceof ApiError) {
+    return error;
+  }
+  if (error?.name === "AbortError") {
+    return new ApiError("Zeitüberschreitung beim Zugriff auf den lokalen Server.", {
+      timeout: true,
+      transient: true,
+      cause: error,
+    });
+  }
+  return new ApiError("Netzwerkfehler beim Zugriff auf den lokalen Server.", {
+    transient: true,
+    cause: error,
+  });
+}
+
+async function readResponseBody(response, isHeadRequest) {
+  if (isHeadRequest || response.status === 204 || response.status === 304) {
+    return null;
+  }
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    try {
+      return await response.json();
+    } catch (error) {
+      throw new ApiError("Server lieferte keine gültige JSON-Antwort.", {
+        status: response.status,
+        cause: error,
+      });
+    }
+  }
+  const text = await response.text();
+  return text || null;
+}
+
+function errorFromResponse(response, data) {
+  let message = `Serverfehler (${response.status})`;
+  if (data && typeof data === "object" && data.error) {
+    if (typeof data.error === "string") {
+      message = data.error;
+    } else if (typeof data.error.message === "string") {
+      message = data.error.message;
+    } else if (typeof data.error.code === "string") {
+      message = data.error.code;
+    }
+  }
+  return new ApiError(message, {
+    status: response.status,
+    body: data,
+    transient: isTransientStatus(response.status),
+  });
+}
+
 export async function apiRequest(
   path,
-  { method = "GET", json, headers = {}, timeout = DEFAULT_TIMEOUT } = {},
+  { method = "GET", json, headers = {}, timeout = DEFAULT_TIMEOUT, retries = DEFAULT_RETRIES } = {},
 ) {
   if (!canUseApi() || typeof fetch !== "function") {
     throw new ApiError(
@@ -112,8 +180,7 @@ export async function apiRequest(
 
   const normalizedMethod = String(method ?? "GET").toUpperCase();
   const cacheKey = resolveCacheKey(path);
-  const controller = typeof AbortController === "function" ? new AbortController() : null;
-  const timer = controller ? setTimeout(() => controller.abort(), timeout) : null;
+  const attemptLimit = IDEMPOTENT_METHODS.has(normalizedMethod) ? Math.max(0, retries) + 1 : 1;
 
   const finalHeaders = { ...headers };
   if (!hasHeader(finalHeaders, "accept")) {
@@ -129,79 +196,61 @@ export async function apiRequest(
   }
 
   applyIfMatchHeader(normalizedMethod, cacheKey, finalHeaders);
-
-  let response;
-  try {
-    response = await fetch(resolveBaseUrl(path), {
-      method: normalizedMethod,
-      headers: finalHeaders,
-      body,
-      signal: controller?.signal,
-      credentials: "include",
-    });
-  } catch (error) {
-    if (controller && error?.name === "AbortError") {
-      throw new ApiError("Zeitüberschreitung beim Zugriff auf den lokalen Server.", {
-        timeout: true,
-        cause: error,
-      });
-    }
-    throw new ApiError("Netzwerkfehler beim Zugriff auf den lokalen Server.", { cause: error });
-  } finally {
-    if (timer) {
-      clearTimeout(timer);
-    }
-  }
-
-  const contentType = response.headers.get("content-type") ?? "";
-  let data = null;
   const isHeadRequest = normalizedMethod === "HEAD";
-  if (!isHeadRequest && response.status !== 204 && response.status !== 304) {
-    if (contentType.includes("application/json")) {
-      try {
-        data = await response.json();
-      } catch (error) {
-        throw new ApiError("Server lieferte keine gültige JSON-Antwort.", {
-          status: response.status,
-          cause: error,
-        });
+  let lastError;
+
+  for (let attempt = 0; attempt < attemptLimit; attempt += 1) {
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    // Der Timer bleibt bis zum Ende des Body-Readings aktiv, nicht nur bis
+    // zum Headers der Antwort.
+    const timer = controller ? setTimeout(() => controller.abort(), timeout) : null;
+
+    try {
+      const response = await fetch(resolveBaseUrl(path), {
+        method: normalizedMethod,
+        headers: finalHeaders,
+        body,
+        signal: controller?.signal,
+        credentials: "include",
+      });
+      const data = await readResponseBody(response, isHeadRequest);
+
+      if (!response.ok) {
+        if ((response.status === 412 || response.status === 428 || response.status === 409) && cacheKey) {
+          removeCachedEtag(cacheKey);
+        }
+        throw errorFromResponse(response, data);
       }
-    } else {
-      const text = await response.text();
-      data = text || null;
-    }
-  }
 
-  if (!response.ok) {
-    let message = `Serverfehler (${response.status})`;
-    if (data && typeof data === "object" && data.error) {
-      if (typeof data.error === "string") {
-        message = data.error;
-      } else if (typeof data.error.message === "string") {
-        message = data.error.message;
-      } else if (typeof data.error.code === "string") {
-        message = data.error.code;
+      if (normalizedMethod === "DELETE") {
+        removeCachedEtag(cacheKey);
+      } else {
+        const preferredKey =
+          normalizedMethod === "POST"
+            ? resolveCacheKey(response.headers.get("location") ?? path)
+            : cacheKey;
+        if (preferredKey) {
+          rememberEtag(preferredKey, response.headers);
+        }
+      }
+
+      return { data, status: response.status, headers: response.headers };
+    } catch (error) {
+      lastError = normalizeError(error);
+      if (lastError.transient && attempt < attemptLimit - 1) {
+        await sleep(RETRY_BASE_DELAY_MS * (attempt + 1));
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      throw lastError;
+    } finally {
+      if (timer) {
+        clearTimeout(timer);
       }
     }
-    if ((response.status === 412 || response.status === 409) && cacheKey) {
-      removeCachedEtag(cacheKey);
-    }
-    throw new ApiError(message, { status: response.status, body: data });
   }
 
-  if (normalizedMethod === "DELETE") {
-    removeCachedEtag(cacheKey);
-  } else {
-    const preferredKey =
-      normalizedMethod === "POST"
-        ? resolveCacheKey(response.headers.get("location") ?? path)
-        : cacheKey;
-    if (preferredKey) {
-      rememberEtag(preferredKey, response.headers);
-    }
-  }
-
-  return { data, status: response.status, headers: response.headers };
+  throw lastError ?? new ApiError("Unbekannter API-Fehler.");
 }
 
 export function describeApiError(error) {

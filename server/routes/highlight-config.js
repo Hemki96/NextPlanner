@@ -3,7 +3,7 @@
 // werden.
 import { sendApiEmpty, sendApiJson } from "../http/responses.js";
 import { HttpError } from "../http/http-error.js";
-import { etagMatches } from "../http/utils.js";
+import { etagMatches as matchesEtag } from "../http/etag.js";
 import { buildHighlightConfigEtag } from "../services/highlight-config-service.js";
 
 function requireJson(ctx) {
@@ -31,7 +31,7 @@ function createHighlightConfigRouter({ highlightConfigService }) {
 
     if (method === "GET" || method === "HEAD") {
       const { config, etag } = await highlightConfigService.getConfigWithEtag();
-      if (etagMatches(ctx.req.headers["if-none-match"], etag)) {
+      if (matchesEtag(ctx.req.headers["if-none-match"], etag)) {
         sendApiEmpty(ctx.res, 304, { origin, allowedOrigins, headers: ctx.withCookies({ ETag: etag }) });
         return true;
       }
@@ -49,9 +49,9 @@ function createHighlightConfigRouter({ highlightConfigService }) {
       const { config: current, etag: currentEtag } = await highlightConfigService.getConfigWithEtag();
       const ifMatch = ctx.req.headers["if-match"];
       if (!ifMatch) {
-        throw new HttpError(412, "If-Match-Header wird benötigt.");
+        throw new HttpError(428, "If-Match-Header wird benötigt.", { code: "missing-precondition" });
       }
-      if (!etagMatches(ifMatch, currentEtag)) {
+      if (!matchesEtag(ifMatch, currentEtag, { strong: true })) {
         throw new HttpError(412, "If-Match stimmt nicht mit aktueller Version überein.");
       }
       const { config: updated, etag } = await highlightConfigService.updateConfig(ctx.body ?? {});

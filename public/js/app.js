@@ -27,6 +27,7 @@ const dom = {
   planEditor: document.querySelector(".plan-editor"),
   planInput: document.getElementById("plan-input"),
   planHighlight: document.getElementById("plan-highlight"),
+  summaryStatusEl: document.getElementById("summary-status"),
   totalTimeEl: document.getElementById("total-time"),
   totalDistanceEl: document.getElementById("total-distance"),
   averagePaceEl: document.getElementById("average-pace"),

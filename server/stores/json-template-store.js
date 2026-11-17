@@ -2,9 +2,10 @@
 // die Daten als Datei im Datenverzeichnis.
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 import { DATA_DIR } from "../config.js";
+import { isolateCorruptFile, writeJsonFileAtomically } from "./atomic-json-file.js";
 
 const DEFAULT_FILE_NAME = "templates.json";
 
@@ -17,11 +18,6 @@ export class TemplateValidationError extends Error {
 
 function resolveDefaultFile() {
   return join(DATA_DIR, DEFAULT_FILE_NAME);
-}
-
-async function ensureDirectory(filePath) {
-  const directory = dirname(filePath);
-  await fs.mkdir(directory, { recursive: true });
 }
 
 function normalizeString(value, { fallback = "", allowEmpty = false, label }) {
@@ -130,6 +126,7 @@ export class JsonTemplateStore {
   #data = null;
   #loadPromise = null;
   #writePromise = Promise.resolve();
+  #corruptIssue = null;
 
   constructor({ storageFile } = {}) {
     this.#storageFile = storageFile ?? resolveDefaultFile();
@@ -163,8 +160,13 @@ export class JsonTemplateStore {
       } catch (error) {
         if (error && error.code === "ENOENT") {
           this.#data = { templates: [] };
-        } else if (error instanceof SyntaxError) {
-          throw new TemplateValidationError("Templates-Datei enthält ungültiges JSON.");
+        } else if (error instanceof SyntaxError || error instanceof TemplateValidationError) {
+          const backupName = await isolateCorruptFile(this.#storageFile);
+          this.#data = { templates: [] };
+          this.#corruptIssue = new TemplateValidationError(
+            `Templates-Datei war beschädigt und wurde als '${backupName ?? "Sicherung"}' isoliert.`,
+          );
+          throw this.#corruptIssue;
         } else {
           throw error;
         }
@@ -174,20 +176,30 @@ export class JsonTemplateStore {
     return this.#loadPromise;
   }
 
-  async #save() {
-    const data = await this.#load();
-    const write = async () => {
-      await ensureDirectory(this.#storageFile);
-      const payload = JSON.stringify({
-        templates: data.templates.map((template) => ({
-          ...template,
-          tags: Array.isArray(template.tags) ? template.tags : [],
-        })),
-      });
-      await fs.writeFile(this.#storageFile, `${payload}\n`, "utf8");
-    };
-    this.#writePromise = this.#writePromise.then(write, write);
-    await this.#writePromise;
+  async #persist(data) {
+    await writeJsonFileAtomically(this.#storageFile, {
+      templates: data.templates.map((template) => ({
+        ...template,
+        tags: Array.isArray(template.tags) ? template.tags : [],
+      })),
+    });
+  }
+
+  #mutate(mutation) {
+    const task = this.#writePromise.then(async () => {
+      const data = await this.#load();
+      const previous = structuredClone(data);
+      try {
+        const result = mutation(data);
+        await this.#persist(data);
+        return result;
+      } catch (error) {
+        data.templates = previous.templates;
+        throw error;
+      }
+    });
+    this.#writePromise = task.then(() => {}, () => {});
+    return task;
   }
 
   async listTemplates() {
@@ -202,51 +214,51 @@ export class JsonTemplateStore {
   }
 
   async createTemplate(payload) {
-    const data = await this.#load();
-    const normalized = sanitizeTemplatePayload(payload);
-    const now = new Date().toISOString();
-    const record = {
-      id: randomUUID(),
-      ...normalized,
-      createdAt: now,
-      updatedAt: now,
-    };
-    data.templates.push(record);
-    await this.#save();
-    return cloneTemplate(record);
+    return this.#mutate((data) => {
+      const normalized = sanitizeTemplatePayload(payload);
+      const now = new Date().toISOString();
+      const record = {
+        id: randomUUID(),
+        ...normalized,
+        createdAt: now,
+        updatedAt: now,
+      };
+      data.templates.push(record);
+      return cloneTemplate(record);
+    });
   }
 
   async updateTemplate(id, payload) {
-    const data = await this.#load();
-    const index = data.templates.findIndex((template) => template.id === id);
-    if (index === -1) {
-      return null;
-    }
-    const normalized = sanitizeTemplatePayload(payload, { partial: true });
-    const record = data.templates[index];
-    Object.assign(record, normalized);
-    record.updatedAt = new Date().toISOString();
-    await this.#save();
-    return cloneTemplate(record);
+    return this.#mutate((data) => {
+      const index = data.templates.findIndex((template) => template.id === id);
+      if (index === -1) {
+        return null;
+      }
+      const normalized = sanitizeTemplatePayload(payload, { partial: true });
+      const record = data.templates[index];
+      Object.assign(record, normalized);
+      record.updatedAt = new Date().toISOString();
+      return cloneTemplate(record);
+    });
   }
 
   async deleteTemplate(id) {
-    const data = await this.#load();
-    const index = data.templates.findIndex((template) => template.id === id);
-    if (index === -1) {
-      return false;
-    }
-    data.templates.splice(index, 1);
-    await this.#save();
-    return true;
+    return this.#mutate((data) => {
+      const index = data.templates.findIndex((template) => template.id === id);
+      if (index === -1) {
+        return false;
+      }
+      data.templates.splice(index, 1);
+      return true;
+    });
   }
 
   async checkHealth() {
-    const data = await this.#load();
-    return {
-      storageFile: this.#storageFile,
-      templateCount: Array.isArray(data?.templates) ? data.templates.length : 0,
-    };
+    await this.#load();
+    if (this.#corruptIssue) {
+      throw this.#corruptIssue;
+    }
+    return { status: "ready" };
   }
 
   async close() {

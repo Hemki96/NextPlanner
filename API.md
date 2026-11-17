@@ -7,7 +7,7 @@ Alle Endpunkte werden über den integrierten HTTP-Server unter `http://localhost
 - **Content Negotiation**: Clients senden standardmäßig `Accept: application/json`; bei Request-Bodys ist `Content-Type: application/json` Pflicht.
 - **Caching & ETag**: Ressourcen liefern starke SHA-256-ETags. Mutierende Requests (`PUT`, `DELETE`) **müssen** `If-Match` enthalten, sofern die Ressource ETags bereitstellt (Pläne, Templates, Highlight-Konfiguration). Der Client speichert den letzten ETag je Ressource.
 - **CORS**: `Access-Control-Allow-Origin` wird auf den erlaubten Ursprung gesetzt (Standard: `http://localhost:3000`).
-- **Fehlercodes**: 400 (Validierung), 404 (nicht gefunden), 409 (semantischer Konflikt), 412 (ETag-Mismatch), 422 (Schemafehler), 500 (unerwartet).
+- **Fehlercodes**: 400 (Validierung), 404 (nicht gefunden), 409 (semantischer Konflikt), 412 (ETag-Mismatch), 422 (Schemafehler), 428 (fehlende Vorbedingung), 500 (unerwartet).
 
 ## `GET /api/plans`
 
@@ -82,7 +82,8 @@ Ersetzt einen Plan vollständig. Erfordert `If-Match` des zuletzt bekannten ETag
 
 - `200 OK` mit aktualisiertem Plan + `ETag`.
 - `404`, wenn die ID nicht existiert.
-- `412`, wenn `If-Match` fehlt oder nicht zum aktuellen ETag passt (Antwort enthält den aktuellen Plan im Fehler-Detail).
+- `428`, wenn `If-Match` fehlt.
+- `412`, wenn `If-Match` nicht zum aktuellen ETag passt (Antwort enthält den aktuellen Plan im Fehler-Detail).
 
 ## `DELETE /api/plans/{id}`
 
@@ -137,7 +138,7 @@ Liefert eine konkrete Vorlage.
 
 Aktualisiert eine Vorlage vollständig.
 
-- Erfordert `If-Match`; bei fehlendem oder abweichendem ETag gibt es `412 Precondition Failed`.
+- Erfordert `If-Match`; fehlt der Header, gibt es `428 Precondition Required`, bei abweichendem ETag `412 Precondition Failed`.
 - `200 OK` mit aktualisierter Vorlage + `ETag`.
 - `404`, wenn die ID unbekannt ist.
 
@@ -145,7 +146,7 @@ Aktualisiert eine Vorlage vollständig.
 
 Löscht eine Vorlage.
 
-- Erfordert `If-Match`; bei fehlendem oder abweichendem ETag gibt es `412 Precondition Failed`.
+- Erfordert `If-Match`; fehlt der Header, gibt es `428 Precondition Required`, bei abweichendem ETag `412 Precondition Failed`.
 - `204 No Content` bei Erfolg.
 - `404`, wenn die ID unbekannt ist.
 
@@ -163,7 +164,7 @@ Gibt die Highlight-Konfiguration zurück (`intensities`, `equipment`, `updatedAt
 Ersetzt die Highlight-Konfiguration.
 
 - Erwartet `{ intensities: string[], equipment: string[] }` (Duplikate/Leereinträge werden bereinigt).
-- Erfordert `If-Match`; bei fehlendem oder abweichendem ETag gibt es `412 Precondition Failed`.
+- Erfordert `If-Match`; fehlt der Header, gibt es `428 Precondition Required`, bei abweichendem ETag `412 Precondition Failed`.
 - `200 OK` mit bereinigter Konfiguration + `ETag`.
 
 ## `GET /api/users`
@@ -185,7 +186,7 @@ Importiert eine zuvor exportierte Sicherung (`data` + `nextId`).
 - `200 OK` mit `{ success: true, planCount, restoredAt }`.
 - `400`/`422` bei Validierungsfehlern.
 
-Die alternativen Pfade `/api/storage/backup` (GET) und `/api/storage/restore` (POST) verhalten sich identisch.
+Backups sind ausschließlich über `/api/backups` erreichbar; der komplette Import ersetzt alle Pläne und sollte nur lokal verwendet werden.
 
 ## Sicherheit & Header
 

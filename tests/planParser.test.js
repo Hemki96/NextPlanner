@@ -242,3 +242,20 @@ test('parsePlan berücksichtigt konfigurierbares Material', (t) => {
   assert.ok(parachuteStats, 'Fallschirm sollte erkannt werden');
   assert.equal(parachuteStats.label, 'Fallschirm');
 });
+
+test('parsePlan erkennt Minutenangaben nicht als Meter und begrenzt Materialangaben', () => {
+  const minutes = parsePlan('4x50min');
+  assert.equal(minutes.totalDistance, 0);
+
+  const material = parsePlan(stripCarriageReturn('w/ Flossen locker 4x50m @1:20'));
+  const [set] = material.blocks[0].sets;
+  assert.deepEqual(set.equipment, ['Flossen']);
+  assert.equal(set.distance, 200);
+  assert.equal(set.interval, 80);
+});
+
+test('parsePlan übernimmt Material-Labels unverändert als Text', () => {
+  const result = parsePlan('8x100m w/<img src=x onerror=alert(1)>');
+  const labels = [...result.equipment.values()].map((entry) => entry.label);
+  assert.deepEqual(labels, ['<img src=x onerror=alert(1)>']);
+});

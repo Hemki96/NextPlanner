@@ -5,6 +5,9 @@ Die Oberfläche besteht aus einem freien Texteingabefeld für komplette Workouts
 Live-Auswertung, die Umfang, Zeitbedarf, Intensitäten, Fokusbereiche und benötigtes Material
 direkt beim Tippen berechnet.
 
+Der Betrieb ist bewusst als lokaler Single-User-Betrieb ohne Login vorgesehen; die Entscheidung
+ist in [ADR-0001](docs/adr/0001-lokaler-single-user-betrieb.md) festgehalten.
+
 ## Features
 
 - **Freitext-Parser** – erkennt strukturierte Informationen aus Zeilen wie
@@ -95,13 +98,15 @@ Du hast zwei gleichwertige Möglichkeiten, die Anwendung während der Entwicklun
 
 ### 9. Produktiver Betrieb & Hosting (z. B. Render)
 
+> **Hinweis:** Vorgesehen ist der lokale Single-User-Betrieb ([ADR-0001](docs/adr/0001-lokaler-single-user-betrieb.md)). Der Server lauscht nur auf `127.0.0.1`, und die mitgelieferte Render-Konfiguration deployt nicht automatisch. Ein öffentlicher Betrieb setzt zuvor ein echtes Zugriffsmodell voraus.
+
 - **Persistente Datenablage:** Setze `NEXTPLANNER_DATA_DIR` (oder `DATA_DIR`) auf das gemountete Volume deines Hosts. Relativ angegebene Pfade werden automatisch relativ zum Projektwurzelverzeichnis aufgelöst.
-- **Port & Umgebung:** Lasse `PORT` von der Plattform setzen und behalte `NODE_ENV=production` bei (wird automatisch erzwungen, falls die Variable fehlt). Über `LOG_LEVEL` kannst du die Protokolltiefe steuern (`error`, `warn`, `info`, `debug`).
-- **Beispieldaten:** `scripts/run-dev-login.sh` und `scripts/run-prod-login.sh` legen Beispiel-Pläne, Vorlagen und Snippets im Datenordner an, bevor der Server startet.
+- **Port & Umgebung:** Lasse `PORT` von der Plattform setzen und setze `NODE_ENV=production` explizit (ohne Variable defaults der Server auf `development`). Über `LOG_LEVEL` kannst du die Protokolltiefe steuern (`error`, `warn`, `info`, `debug`, `trace`).
+- **Beispieldaten:** `scripts/run-dev-login.sh` und `scripts/run-prod-login.sh` legen Beispiel-Pläne, Vorlagen und Snippets im Datenordner an und starten anschließend den Server. Die Namen sind historisch; ein Login ist nicht mehr Teil der Anwendung.
 - **Health-Checks:** Der Server stellt unter `/healthz`, `/readyz` und `/livez` standardisierte Endpunkte bereit, die JSON-Antworten für Monitoring-Integrationen zurückliefern. Fehlerhafte Stores melden detaillierte Hinweise (inkl. Backup-Datei bei Integritätsproblemen).
 - **CORS & Sicherheit:** Für Cross-Origin-Zugriffe hinterlege optionale Ursprungslisten in `ALLOWED_ORIGINS` (Komma-getrennt). API-Antworten setzen restriktive Sicherheits-Header (CSP, `X-Content-Type-Options`) und deaktivieren Browser-Caching.
 - **Logging & Metriken:** Jeder Request wird mit Dauer und Status in strukturierter Form geloggt (`[INFO] req=5 GET /api/plans -> 200 (1.3 ms)`). Die Logs helfen beim Analysieren von Kaltstarts (Render Free Tier) und unterstützen externe Log-Aggregatoren.
-- **Deployment auf Render:** Wähle beim Anlegen einen *Web Service*, definiere das Startkommando `npm start` und füge eine Persistent Disk (≥1 GB) hinzu, die auf `/data` gemountet wird. Hinterlege `NEXTPLANNER_DATA_DIR=/data` in den Environment-Variablen, damit die JSON-Stores direkt auf das Volume schreiben können. Alternativ kannst du das mitgelieferte Blueprint [`render.yaml`](render.yaml) verwenden; es setzt `NODE_ENV=production`, mountet `/data` und generiert starke Passwörter für die Standardnutzer.
+- **Deployment auf Render:** Wähle beim Anlegen einen *Web Service*, definiere das Startkommando `npm start` und füge eine Persistent Disk (≥1 GB) hinzu, die auf `/data` gemountet wird. Hinterlege `NEXTPLANNER_DATA_DIR=/data` in den Environment-Variablen, damit die JSON-Stores direkt auf das Volume schreiben können. Alternativ kannst du das mitgelieferte Blueprint [`render.yaml`](render.yaml) als Vorlage verwenden; es setzt `NODE_ENV=production`, mountet `/data` und deaktiviert das automatische Deployment. Ein öffentlicher Betrieb wird nicht empfohlen (siehe ADR-0001).
 - **Checkliste:** Eine ausführliche Produktions-Checkliste findest du in [`docs/PRODUCTION.md`](docs/PRODUCTION.md).
 
 ### Variante A – Integrierter NextPlanner-Server (empfohlen)
@@ -147,22 +152,26 @@ Bibliothek erzeugt zusätzlich eine `data/team-snippets.json`, sobald sie mit ei
 ### Plan-CLI verwenden
 
 1. Stelle sicher, dass Node.js installiert ist (weitere Abhängigkeiten sind nicht erforderlich).
-2. Speichere einen Plan mit Metadaten:
-
-   ```bash
-   npm run plan:cli -- add --title="Sprint Session" --date="2024-05-10" \\
-     --focus="Sprint" --content="4x50m Sprint" --metadata='{"coach":"Alex"}'
-   ```
-
-   Der Befehl legt einen Eintrag mit Datum, Fokus und beliebig vielen Metadaten an.
-
-3. Liste gespeicherte Pläne gefiltert nach Fokus oder Zeitraum auf:
+2. Liste gespeicherte Pläne gefiltert nach Fokus oder Zeitraum auf:
 
    ```bash
    npm run plan:cli -- list --focus="Sprint" --from="2024-05-01" --to="2024-05-31"
    ```
 
-4. Weitere Befehle stehen über `npm run plan:cli -- --help` zur Verfügung (u. a. `show`, `update`, `delete`).
+3. Zeige einen einzelnen Plan oder exportiere ihn als JSON:
+
+   ```bash
+   npm run plan:cli -- show 1 --json
+   npm run plan:cli -- export 1 --format=json
+   ```
+
+4. Erstelle eine Sicherung aller Pläne:
+
+   ```bash
+   npm run plan:cli -- backup --prune=20
+   ```
+
+5. Weitere Befehle stehen über `npm run plan:cli -- --help` zur Verfügung (`list`, `show`, `export`, `validate`, `backup`). Pläne werden in der Weboberfläche angelegt; die CLI dient dem Lesen, Prüfen und Sichern.
 
 Die CLI und der integrierte Server greifen auf dieselbe JSON-Datei zu wie die Weboberfläche. So kannst du Pläne samt Fokus und Metadaten konsistent erfassen, versionieren und später wiederverwenden. Für Automatisierungen oder Versionskontrolle eignet sich die CLI, während der Speicher-Button schnelle lokale Backups ermöglicht.
 
@@ -213,20 +222,20 @@ Persistenz getrennt getestet werden können:
 server/
   app/                   # Composition Root und Request-Pipeline
     index.js             # createApp: verdrahtet Middleware, Router, Fehlerbehandlung
-    request-context.js   # Context-Objekt (Cookies, Session-Helper, Logger)
+    request-context.js   # Context-Objekt (URL, Logger, Cookies, Services)
     middleware/          # z. B. JSON-Body-Parser
     router/              # Router-Pipeline (baut auf server/routes/* auf)
-    auth/                # Header-basierte User-Extraktion
     stores/json-store.js # generischer JSON-Store mit atomischen Writes
-  sessions/session-store.js # nutzt json-store für persistente Sessions
   routes/                # Feature-Routen (API + statische Assets)
-  services/              # Business-Logik (Plans, Templates, Snippets, Users, Auth)
+  services/              # Business-Logik (Pläne, Vorlagen, Snippets, Benutzer)
   stores/                # JSON-basierte Datenspeicher pro Feature
+                          # atomic-json-file.js: gemeinsamer atomarer Schreibweg
 ```
 
 `server/app.js` instanziiert Stores und Services, erzeugt mit `createApp` die
-Request-Pipeline und startet den HTTP-Server. Das Session-Handling nutzt nun atomische
-Dateischreibvorgänge, um Race-Conditions und teilweise persistierte Cookies zu vermeiden.
+Request-Pipeline und startet den HTTP-Server. Alle Stores schreiben über einen gemeinsamen
+atomaren Pfad (temporäre Datei, `fsync`, Rename) und isolieren beschädigte Dateien, statt
+sie stillschweigend zu überschreiben. Es gibt keine Anmeldung und keine Sessions (ADR-0001).
 
 ## Tests
 

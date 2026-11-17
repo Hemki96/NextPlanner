@@ -1,11 +1,11 @@
 // JSON-Store für Pläne. Validiert Eingaben, legt Backups an und schützt vor
 // konkurrierenden Änderungen über ETags.
 import { constants, promises as fs } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
 import { DATA_DIR } from "../config.js";
-import { logger } from "../logger.js";
+import { isolateCorruptFile, writeJsonFileAtomically } from "./atomic-json-file.js";
 
 const DEFAULT_FILE_NAME = "plans.json";
 const BACKUP_FORMAT_ID = "nextplanner/plan-backup";
@@ -267,8 +267,6 @@ export class JsonPlanStore {
   #closing = false;
   #integrityIssue = null;
   #integrityReported = false;
-  #dirFsyncSupported = true;
-  #dirFsyncWarned = false;
   #plansById = new Map();
   #sortedPlans = null;
 
@@ -308,7 +306,7 @@ export class JsonPlanStore {
     } catch (error) {
       if (error && error.code === "ENOENT") {
         const seed = { nextId: 1, plans: [] };
-        await this.#writeFileAtomically(seed);
+        await writeJsonFileAtomically(this.#file, seed);
         return seed;
       }
       throw error;
@@ -322,14 +320,14 @@ export class JsonPlanStore {
       }
       const normalized = this.#normalizeLoadedData(parsed);
       if (normalized.migrated) {
-        await this.#writeFileAtomically(normalized.data);
+        await writeJsonFileAtomically(this.#file, normalized.data);
       }
       return normalized.data;
     } catch (error) {
       if (error instanceof SyntaxError || error.message.includes("Invalid storage structure")) {
-        const backupFile = await this.#isolateCorruptFile();
+        const backupFile = await isolateCorruptFile(this.#file);
         const seed = { nextId: 1, plans: [] };
-        await this.#writeFileAtomically(seed);
+        await writeJsonFileAtomically(this.#file, seed);
         this.#integrityIssue = new StorageIntegrityError(
           "Corrupted storage detected. Existing data was moved to a backup file.",
           { backupFile }
@@ -339,117 +337,6 @@ export class JsonPlanStore {
       }
       throw error;
     }
-  }
-
-  async #isolateCorruptFile() {
-    const dir = dirname(this.#file);
-    const base = basename(this.#file);
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const backupFile = join(dir, `${base}.corrupt-${timestamp}`);
-    try {
-      await fs.rename(this.#file, backupFile);
-      return backupFile;
-    } catch {
-      return null;
-    }
-  }
-
-  async #writeFileAtomically(data) {
-    const dir = dirname(this.#file);
-    const base = basename(this.#file);
-    const tempFile = join(dir, `.${base}.${process.pid}.${Date.now()}.tmp`);
-    const payload = JSON.stringify(data);
-
-    let handle;
-    try {
-      handle = await fs.open(
-        tempFile,
-        constants.O_CREAT | constants.O_TRUNC | constants.O_WRONLY,
-        0o600
-      );
-      await handle.writeFile(payload, "utf8");
-      await handle.sync();
-    } catch (error) {
-      await handle?.close().catch(() => {});
-      await fs.rm(tempFile, { force: true }).catch(() => {});
-      throw error;
-    }
-
-    try {
-      await handle.close();
-    } catch (error) {
-      await fs.rm(tempFile, { force: true }).catch(() => {});
-      throw error;
-    }
-
-    try {
-      await fs.rename(tempFile, this.#file);
-    } catch (error) {
-      if (error?.code === "EEXIST") {
-        await fs.rm(this.#file, { force: true });
-        await fs.rename(tempFile, this.#file);
-      } else {
-        await fs.rm(tempFile, { force: true }).catch(() => {});
-        throw error;
-      }
-    }
-
-    await this.#fsyncDirectory(dir);
-  }
-
-  #isDirFsyncUnsupported(error) {
-    if (!error || typeof error !== "object") {
-      return false;
-    }
-    return ["EINVAL", "ENOTSUP", "EISDIR", "EPERM", "EBADF"].includes(error.code);
-  }
-
-  async #fsyncDirectory(dir) {
-    if (!this.#dirFsyncSupported) {
-      return;
-    }
-
-    const flags = (constants.O_DIRECTORY ?? 0) | constants.O_RDONLY;
-    let handle;
-    try {
-      handle = await fs.open(dir, flags);
-    } catch (error) {
-      if (this.#isDirFsyncUnsupported(error)) {
-        this.#dirFsyncSupported = false;
-        this.#logDirFsyncWarning(dir);
-        return;
-      }
-      throw error;
-    }
-
-    try {
-      if (typeof handle.sync === "function") {
-        await handle.sync();
-      } else {
-        this.#dirFsyncSupported = false;
-        this.#logDirFsyncWarning(dir);
-      }
-    } catch (error) {
-      if (this.#isDirFsyncUnsupported(error)) {
-        this.#dirFsyncSupported = false;
-        this.#logDirFsyncWarning(dir);
-      } else {
-        throw error;
-      }
-    } finally {
-      await handle?.close().catch(() => {});
-    }
-  }
-
-  #logDirFsyncWarning(dir) {
-    if (this.#dirFsyncWarned) {
-      return;
-    }
-    this.#dirFsyncWarned = true;
-    logger.warn(
-      "Directory fsync is not supported on this platform. Continuing without fsync for '%s'.",
-      dir
-    );
   }
 
   #enqueueWrite(operation) {
@@ -527,9 +414,21 @@ export class JsonPlanStore {
     return this.#sortedPlans;
   }
 
-  async #writeToDisk() {
+  #snapshot() {
+    return { nextId: this.#data.nextId, plans: this.#data.plans.map(clonePlan) };
+  }
+
+  async #writeToDisk(previous = null) {
     await this.#enqueueWrite(async () => {
-      await this.#writeFileAtomically(this.#data);
+      try {
+        await writeJsonFileAtomically(this.#file, this.#data);
+      } catch (error) {
+        // Nur nach erfolgreichem Write gilt der neue Zustand als übernommen.
+        if (previous) {
+          this.#setData(previous);
+        }
+        throw error;
+      }
     });
   }
 
@@ -547,6 +446,7 @@ export class JsonPlanStore {
 
   async createPlan({ title, content, planDate, focus, metadata }, options = {}) {
     await this.#ensureReady();
+    const previous = this.#snapshot();
     const normalized = normalizePlanInput(
       { title, content, planDate, focus, metadata },
       { requireAll: true }
@@ -565,12 +465,13 @@ export class JsonPlanStore {
     this.#data.plans.push(plan);
     this.#plansById.set(plan.id, plan);
     this.#invalidatePlanOrder();
-    await this.#writeToDisk();
+    await this.#writeToDisk(previous);
     return clonePlan(plan);
   }
 
   async updatePlan(id, updates = {}, options = {}) {
     await this.#ensureReady();
+    const previous = this.#snapshot();
     const planId = Number(id);
     const plan = this.#plansById.get(planId);
     if (!plan) {
@@ -595,13 +496,14 @@ export class JsonPlanStore {
       if (plan.planDate !== previousDate) {
         this.#invalidatePlanOrder();
       }
-      await this.#writeToDisk();
+      await this.#writeToDisk(previous);
     }
     return clonePlan(plan);
   }
 
   async replacePlan(id, replacement, options = {}) {
     await this.#ensureReady();
+    const previous = this.#snapshot();
     const planId = Number(id);
     const plan = this.#plansById.get(planId);
     if (!plan) {
@@ -629,13 +531,14 @@ export class JsonPlanStore {
       if (plan.planDate !== previousDate) {
         this.#invalidatePlanOrder();
       }
-      await this.#writeToDisk();
+      await this.#writeToDisk(previous);
     }
     return clonePlan(plan);
   }
 
   async deletePlan(id, options = {}) {
     await this.#ensureReady();
+    const previous = this.#snapshot();
     const planId = Number(id);
     const plan = this.#plansById.get(planId);
     if (!plan) {
@@ -654,7 +557,7 @@ export class JsonPlanStore {
     }
     this.#plansById.delete(planId);
     this.#invalidatePlanOrder();
-    await this.#writeToDisk();
+    await this.#writeToDisk(previous);
     return true;
   }
 
@@ -702,12 +605,13 @@ export class JsonPlanStore {
 
   async importBackup(payload) {
     await this.#ensureReady();
+    const previous = this.#snapshot();
     const normalized = normalizeBackupPayload(payload);
     this.#setData({
       nextId: normalized.nextId,
       plans: normalized.plans,
     });
-    await this.#writeToDisk();
+    await this.#writeToDisk(previous);
     return { planCount: this.#data.plans.length };
   }
 
@@ -719,11 +623,7 @@ export class JsonPlanStore {
     if (this.#integrityIssue) {
       throw this.#integrityIssue;
     }
-    return {
-      storageFile: this.#file,
-      planCount: Array.isArray(this.#data?.plans) ? this.#data.plans.length : 0,
-      nextId: this.#data?.nextId ?? null,
-    };
+    return { status: "ready" };
   }
 
   async close() {

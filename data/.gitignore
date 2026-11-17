@@ -10,3 +10,11 @@ backups/
 # Automatisch generierte Konfigurationen
 highlight-config.json
 quick-snippets.json
+
+# Sitzungsdateien (historisch) und Dateisperren
+sessions.json
+*.lock
+
+# Isolierte, beschädigte Datendateien enthalten echte Nutzerdaten
+plans.json.corrupt-*
+*.corrupt-*

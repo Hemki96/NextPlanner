@@ -302,7 +302,6 @@ function renderCalendar() {
     const headerCell = document.createElement("div");
     headerCell.className = "calendar-weekday";
     headerCell.textContent = dayName;
-    headerCell.setAttribute("role", "columnheader");
     calendarGrid.append(headerCell);
   }
 

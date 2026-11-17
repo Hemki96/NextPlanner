@@ -1,43 +1,7 @@
-// ETag-Berechnung und Hilfsfunktionen für Template-Objekte. Exportiert auch
-// Validierungsfehler für Wiederverwendung in Routern.
-import { createHash } from "node:crypto";
-
+// Hilfsfunktionen für Template-Objekte. Exportiert auch Validierungsfehler
+// für Wiederverwendung in Routern. Die ETag-Berechnung ist zentralisiert.
+import { buildTemplateEtag } from "../http/etag.js";
 import { TemplateValidationError } from "../stores/json-template-store.js";
-
-function sortCanonical(value) {
-  if (Array.isArray(value)) {
-    return value.map((item) => sortCanonical(item));
-  }
-  if (value && typeof value === "object") {
-    return Object.keys(value)
-      .sort()
-      .reduce((acc, key) => {
-        acc[key] = sortCanonical(value[key]);
-        return acc;
-      }, {});
-  }
-  return value;
-}
-
-function canonicalizeTemplate(template) {
-  const canonicalTemplate = {
-    id: template.id,
-    type: template.type,
-    title: template.title,
-    notes: template.notes,
-    content: template.content,
-    tags: Array.isArray(template.tags) ? [...template.tags] : [],
-    createdAt: template.createdAt,
-    updatedAt: template.updatedAt,
-  };
-  return JSON.stringify(sortCanonical(canonicalTemplate));
-}
-
-function buildTemplateEtag(template) {
-  const canonical = canonicalizeTemplate(template);
-  const hash = createHash("sha256").update(canonical).digest("hex");
-  return `"${hash}"`;
-}
 
 class TemplateService {
   constructor({ store }) {

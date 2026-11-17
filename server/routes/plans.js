@@ -3,7 +3,7 @@
 // sauber abzuwickeln.
 import { sendApiEmpty, sendApiJson } from "../http/responses.js";
 import { HttpError } from "../http/http-error.js";
-import { etagMatches } from "../http/utils.js";
+import { etagMatches as matchesEtag } from "../http/etag.js";
 import { PlanConflictError, PlanValidationError, buildPlanEtag } from "../services/plan-service.js";
 import { readJsonBody } from "../http/body.js";
 
@@ -100,7 +100,7 @@ function createPlansRouter({ planService }) {
       if (!result) {
         throw new HttpError(404, "Plan nicht gefunden");
       }
-      if (etagMatches(ctx.req.headers["if-none-match"], result.etag)) {
+      if (matchesEtag(ctx.req.headers["if-none-match"], result.etag)) {
         sendApiEmpty(ctx.res, 304, { origin, allowedOrigins, headers: ctx.withCookies({ ETag: result.etag }) });
         return true;
       }

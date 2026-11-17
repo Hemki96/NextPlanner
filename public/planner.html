@@ -30,7 +30,7 @@
       <a href="/index.html" class="nav-link" data-feature="calendarView">Plan-Kalender</a>
       <a href="/planner.html" class="nav-link is-active" aria-current="page">Planner</a>
       <a href="/templates.html" class="nav-link" data-feature="templateLibrary">Vorlagen</a>
-      <a href="/settings.html" class="nav-link" data-feature="quickSnippets">Einstellungen</a>
+      <a href="/settings.html" class="nav-link">Einstellungen</a>
       <a href="/backup.html" class="nav-link">Backups</a>
       <a href="/admin.html" class="nav-link">Admin</a>
     </nav>
@@ -90,7 +90,7 @@
 
 </textarea>
       </div>
-      <div class="input-actions" data-feature="plannerTools">
+      <div class="input-actions">
         <button
           type="button"
           id="help-button"
@@ -183,8 +183,9 @@
     </section>
     <section class="insights-panel">
       <!-- Rechte Spalte fasst die Kennzahlen und Blockdetails live zusammen -->
-      <aside class="summary-panel" aria-live="polite" data-feature="insightsPanel">
+      <aside class="summary-panel" data-feature="insightsPanel">
         <h2>Zusammenfassung</h2>
+        <p id="summary-status" class="sr-only" role="status" aria-live="polite"></p>
         <!-- Kennzahlen-Raster für Zeit, Distanz, Intensitäten und Equipment -->
         <div class="summary-grid">
           <div>
@@ -357,7 +358,7 @@
     </div>
   </div>
   <!-- Overlay mit einer ausführlichen Dokumentation der Schlüsselbegriffe und Kürzel -->
-  <div class="help-overlay" id="help-overlay" aria-hidden="true">
+  <div class="help-overlay" id="help-overlay" aria-hidden="true" hidden>
     <div class="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title">
       <header class="help-header">
         <h2 id="help-title">Syntax-Hinweise</h2>

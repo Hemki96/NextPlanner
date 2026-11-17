@@ -1,7 +1,7 @@
 // Persistenter Store für Hervorhebungs-Konfigurationen. Nutzt Defaultwerte aus
 // dem Client und prüft auf inhaltliche Änderungen, bevor geschrieben wird.
 import { promises as fs } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
 import {
@@ -10,16 +10,12 @@ import {
 } from "../../public/js/config/constants.js";
 import { DATA_DIR } from "../config.js";
 import { logger } from "../logger.js";
+import { isolateCorruptFile, writeJsonFileAtomically } from "./atomic-json-file.js";
 
 const DEFAULT_FILE_NAME = "highlight-config.json";
 
 function resolveDefaultFile() {
   return join(DATA_DIR, DEFAULT_FILE_NAME);
-}
-
-async function ensureDirectory(filePath) {
-  const directory = dirname(filePath);
-  await fs.mkdir(directory, { recursive: true });
 }
 
 const cloneValue =
@@ -104,6 +100,7 @@ export class JsonHighlightConfigStore {
   #ready;
   #writeQueue = Promise.resolve();
   #closed = false;
+  #corruptIssue = null;
 
   constructor(options = {}) {
     const { storageFile = resolveDefaultFile() } = options;
@@ -152,31 +149,47 @@ export class JsonHighlightConfigStore {
         await this.#persist();
       }
     } catch (error) {
-      if (error?.code !== "ENOENT") {
-        logger.warn("Konnte Highlight-Konfiguration nicht lesen: %s", error);
+      if (error?.code === "ENOENT") {
+        this.#data = {
+          ...sanitizeConfig(DEFAULT_CONFIG),
+          updatedAt: new Date().toISOString(),
+        };
+        await this.#persist();
+        return;
       }
+      logger.warn("Konnte Highlight-Konfiguration nicht lesen: %s", error);
+      const backupName = await isolateCorruptFile(this.#file);
       this.#data = {
         ...sanitizeConfig(DEFAULT_CONFIG),
         updatedAt: new Date().toISOString(),
       };
-      await this.#persist();
+      this.#corruptIssue = new Error(
+        `Highlight-Konfiguration war beschädigt und wurde als '${backupName ?? "Sicherung"}' isoliert.`,
+      );
     }
   }
 
   async #persist(data = this.#data) {
-    await ensureDirectory(this.#file);
-    const payload = JSON.stringify({
+    await writeJsonFileAtomically(this.#file, {
       intensities: data.intensities,
       equipment: data.equipment,
       updatedAt: data.updatedAt,
     });
-    await fs.writeFile(this.#file, payload, "utf8");
   }
 
-  async #enqueueWrite(data) {
-    const payload = snapshot(data ?? this.#data);
-    const task = this.#writeQueue.then(() => this.#persist(payload));
-    this.#writeQueue = task.catch(() => {});
+  #mutate(mutation) {
+    const task = this.#writeQueue.then(async () => {
+      const previous = this.#data;
+      try {
+        const result = await mutation();
+        await this.#persist();
+        return result;
+      } catch (error) {
+        this.#data = previous;
+        throw error;
+      }
+    });
+    this.#writeQueue = task.then(() => {}, () => {});
     return task;
   }
 
@@ -190,27 +203,28 @@ export class JsonHighlightConfigStore {
       throw new Error("Highlight config store is closed");
     }
     await this.#ready;
-    const next = {
-      intensities: Array.isArray(update?.intensities)
-        ? sanitizeList(update.intensities, this.#data.intensities, { allowEmpty: true })
-        : [...this.#data.intensities],
-      equipment: Array.isArray(update?.equipment)
-        ? sanitizeList(update.equipment, this.#data.equipment, { allowEmpty: true })
-        : [...this.#data.equipment],
-    };
-    if (
-      isDeepStrictEqual(next.intensities, this.#data.intensities) &&
-      isDeepStrictEqual(next.equipment, this.#data.equipment)
-    ) {
+    return this.#mutate(() => {
+      const next = {
+        intensities: Array.isArray(update?.intensities)
+          ? sanitizeList(update.intensities, this.#data.intensities, { allowEmpty: true })
+          : [...this.#data.intensities],
+        equipment: Array.isArray(update?.equipment)
+          ? sanitizeList(update.equipment, this.#data.equipment, { allowEmpty: true })
+          : [...this.#data.equipment],
+      };
+      if (
+        isDeepStrictEqual(next.intensities, this.#data.intensities) &&
+        isDeepStrictEqual(next.equipment, this.#data.equipment)
+      ) {
+        return snapshot(this.#data);
+      }
+      this.#data = {
+        intensities: next.intensities,
+        equipment: next.equipment,
+        updatedAt: new Date().toISOString(),
+      };
       return snapshot(this.#data);
-    }
-    this.#data = {
-      intensities: next.intensities,
-      equipment: next.equipment,
-      updatedAt: new Date().toISOString(),
-    };
-    await this.#enqueueWrite(this.#data);
-    return snapshot(this.#data);
+    });
   }
 
   async checkHealth() {
@@ -218,16 +232,10 @@ export class JsonHighlightConfigStore {
       throw new Error("Highlight config store is closed");
     }
     await this.#ready;
-    return {
-      storageFile: this.#file,
-      intensityCount: Array.isArray(this.#data?.intensities)
-        ? this.#data.intensities.length
-        : 0,
-      equipmentCount: Array.isArray(this.#data?.equipment)
-        ? this.#data.equipment.length
-        : 0,
-      updatedAt: this.#data?.updatedAt ?? null,
-    };
+    if (this.#corruptIssue) {
+      throw this.#corruptIssue;
+    }
+    return { status: "ready" };
   }
 
   async close() {

@@ -19,4 +19,6 @@ test('formatDuration renders compact output', () => {
   assert.equal(formatDuration(0), '0:00');
   assert.equal(formatDuration(59), '0:59');
   assert.equal(formatDuration(3723), '1:02:03');
+  assert.equal(formatDuration(59.6), '1:00');
+  assert.equal(formatDuration(3599.6), '1:00:00');
 });

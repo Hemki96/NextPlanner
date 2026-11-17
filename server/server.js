@@ -8,6 +8,10 @@ import { runtimeConfig } from "./config/runtime-config.js";
 import { logger } from "./logger.js";
 import { RuntimeConfigError, buildRuntimeConfig } from "./config/runtime-config.js";
 
+// NextPlanner ist ausschließlich für den lokalen Single-User-Betrieb gedacht
+// (ADR-0001). Der Server lauscht deshalb nur auf Loopback und ist nicht aus
+// einem anderen Netz erreichbar.
+const LOOPBACK_HOST = "127.0.0.1";
 const port = runtimeConfig.server.port ?? 3000;
 const server = createServer({ config: runtimeConfig });
 
@@ -25,10 +29,10 @@ let currentPort = port;
 function startServer(portToUse) {
   // Startet den HTTP-Server und merkt sich den tatsächlich genutzten Port
   // (wichtig, wenn 0 für einen zufälligen Port übergeben wurde).
-  server.listen(portToUse, () => {
+  server.listen(portToUse, LOOPBACK_HOST, () => {
     const address = server.address();
     currentPort = typeof address === "object" && address ? address.port : portToUse;
-    logger.info("NextPlanner Server läuft auf %s", `http://localhost:${currentPort}`);
+    logger.info("NextPlanner Server läuft auf %s", `http://${LOOPBACK_HOST}:${currentPort}`);
   });
 }
 

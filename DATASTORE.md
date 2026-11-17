@@ -34,7 +34,7 @@ Implementiert in `server/stores/json-snippet-store.js`.
 ## Backups
 
 - `GET /api/backups` erzeugt ein Komplett-Backup (`format`, `version`, `exportedAt`, `data` mit `nextId` und Planliste).
-- `POST /api/backups` und `POST /api/storage/restore` importieren Backups. Die Payload wird streng validiert, bevor der Speicher ersetzt wird.
+- `POST /api/backups` importiert Backups. Die Payload wird streng validiert, bevor der Speicher ersetzt wird.
 - Beim Schreiben entstehen rotierende Backups (z. B. korruptes Original → `.corrupt-<timestamp>`). Eine Aufbewahrungsstrategie kann in Zukunft ergänzt werden.
 
 ## Datenmodelle

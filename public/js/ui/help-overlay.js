@@ -1,27 +1,33 @@
 /**
  * Initialisiert die Logik für den Hinweisdialog inklusive Fokusmanagement.
  */
+import { createFocusTrap } from "./focus-trap.js";
+
 export function initHelpOverlay({ button, overlay, closeButton }) {
   if (!overlay) {
     return { open: () => {}, close: () => {} };
   }
 
-  let lastFocusedElement = null;
+  const focusTrap = createFocusTrap(overlay);
 
   const open = () => {
-    lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    overlay.removeAttribute("hidden");
     overlay.classList.add("is-visible");
     overlay.setAttribute("aria-hidden", "false");
     document.body.classList.add("no-scroll");
+    focusTrap.activate();
     closeButton?.focus();
   };
 
   const close = () => {
+    if (!overlay.classList.contains("is-visible")) {
+      return;
+    }
     overlay.classList.remove("is-visible");
     overlay.setAttribute("aria-hidden", "true");
+    overlay.setAttribute("hidden", "");
     document.body.classList.remove("no-scroll");
-    lastFocusedElement?.focus();
-    lastFocusedElement = null;
+    focusTrap.deactivate();
   };
 
   button?.addEventListener("click", open);
